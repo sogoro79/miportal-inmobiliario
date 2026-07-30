@@ -47,12 +47,6 @@ function buildUserRequest(usuario) {
   };
 }
 
-async function legacyAdminPermitido(decoded) {
-  if (!decoded?.esAdmin) return false;
-  const totalAdmins = await Usuario.countDocuments({ role: "admin", activo: { $ne: false } });
-  return totalAdmins === 0;
-}
-
 export async function requireUser(req, res, next) {
   const token = getBearerToken(req);
 
@@ -102,26 +96,18 @@ export async function requireAdmin(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (decoded.id) {
-      const usuario = await Usuario.findById(decoded.id);
-      if (!usuario || usuario.activo === false || usuario.role !== "admin") {
-        return res.status(403).json({ error: "No tienes permisos" });
-      }
-
-      req.user = buildUserRequest(usuario);
-      req.usuarioId = req.user.id;
-      return next();
-    }
-
-    // Transición temporal: los tokens legacy solo funcionan mientras no exista
-    // ningún administrador real. Retirar junto con ADMIN_PASSWORD en el siguiente bloque.
-    if (!(await legacyAdminPermitido(decoded))) {
+    if (!decoded.id) {
       return res.status(403).json({ error: "No tienes permisos" });
     }
 
-    req.user = { id: null, esAdmin: true, role: "admin", legacyAdmin: true };
-    req.usuarioId = null;
-    next();
+    const usuario = await Usuario.findById(decoded.id);
+    if (!usuario || usuario.activo === false || usuario.role !== "admin") {
+      return res.status(403).json({ error: "No tienes permisos" });
+    }
+
+    req.user = buildUserRequest(usuario);
+    req.usuarioId = req.user.id;
+    return next();
   } catch {
     return res.status(401).json({ error: "Token inválido" });
   }

@@ -8,7 +8,6 @@ import { requireAdmin } from "../middleware/auth.js";
 import {
   authenticateAdminCredentials,
   authenticateUserCredentials,
-  canUseLegacyAdminLogin,
   createAdminJwt,
   usuarioSeguro
 } from "../utils/authentication.js";
@@ -135,6 +134,21 @@ test("usuario normal no puede iniciar sesión como admin", async () => {
   assert.equal(result.ok, false);
 });
 
+test("contraseña incorrecta de administrador falla", async () => {
+  const hash = await bcrypt.hash("admin-password", 10);
+  const result = await authenticateAdminCredentials({
+    UsuarioModel: fakeUsuarioModel({
+      password: hash,
+      activo: true,
+      role: "admin"
+    }),
+    email: "admin@example.com",
+    password: "incorrecta"
+  });
+
+  assert.equal(result.ok, false);
+});
+
 test("JWT admin no concede acceso si el usuario dejó de ser admin", async () => {
   const previousFindById = Usuario.findById;
   process.env.JWT_SECRET = "test-secret";
@@ -165,65 +179,55 @@ test("JWT admin no concede acceso si el usuario dejó de ser admin", async () =>
   }
 });
 
-test("token legacy admin accede temporalmente cuando no hay administradores reales", async () => {
-  const previousCountDocuments = Usuario.countDocuments;
+test("token sin id no accede a rutas admin", async () => {
   process.env.JWT_SECRET = "test-secret";
-  Usuario.countDocuments = query => {
-    assert.deepEqual(query, { role: "admin", activo: { $ne: false } });
-    return Promise.resolve(0);
-  };
-
   const req = {
     headers: {
-      authorization: `Bearer ${jwt.sign({ esAdmin: true, legacyAdmin: true }, "test-secret")}`
+      authorization: `Bearer ${jwt.sign({ role: "admin" }, "test-secret")}`
     }
   };
   const res = createResponse();
   let nextCalled = false;
 
-  try {
-    await requireAdmin(req, res, () => {
-      nextCalled = true;
-    });
+  await requireAdmin(req, res, () => {
+    nextCalled = true;
+  });
 
-    assert.equal(nextCalled, true);
-    assert.equal(req.user.legacyAdmin, true);
-    assert.equal(req.user.role, "admin");
-    assert.equal(req.user.id, null);
-  } finally {
-    Usuario.countDocuments = previousCountDocuments;
-  }
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
 });
 
-test("fallback legacy de login admin solo se permite antes del primer administrador real", () => {
-  assert.equal(canUseLegacyAdminLogin({
-    adminExists: false,
-    email: "admin@example.com",
-    password: "legacy-password",
-    adminEmail: "admin@example.com",
-    adminPassword: "legacy-password"
-  }), true);
-
-  assert.equal(canUseLegacyAdminLogin({
-    adminExists: true,
-    email: "admin@example.com",
-    password: "legacy-password",
-    adminEmail: "admin@example.com",
-    adminPassword: "legacy-password"
-  }), false);
-});
-
-test("token legacy admin queda bloqueado cuando existe un administrador real", async () => {
-  const previousCountDocuments = Usuario.countDocuments;
+test("token con esAdmin pero sin usuario real no accede a rutas admin", async () => {
   process.env.JWT_SECRET = "test-secret";
-  Usuario.countDocuments = query => {
-    assert.deepEqual(query, { role: "admin", activo: { $ne: false } });
-    return Promise.resolve(1);
+  const req = {
+    headers: {
+      authorization: `Bearer ${jwt.sign({ esAdmin: true }, "test-secret")}`
+    }
   };
+  const res = createResponse();
+  let nextCalled = false;
+
+  await requireAdmin(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+});
+
+test("usuario admin desactivado no accede a rutas admin", async () => {
+  const previousFindById = Usuario.findById;
+  process.env.JWT_SECRET = "test-secret";
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439012" },
+    email: "admin@example.com",
+    activo: false,
+    role: "admin"
+  });
 
   const req = {
     headers: {
-      authorization: `Bearer ${jwt.sign({ esAdmin: true, legacyAdmin: true }, "test-secret")}`
+      authorization: `Bearer ${jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret")}`
     }
   };
   const res = createResponse();
@@ -237,7 +241,7 @@ test("token legacy admin queda bloqueado cuando existe un administrador real", a
     assert.equal(nextCalled, false);
     assert.equal(res.statusCode, 403);
   } finally {
-    Usuario.countDocuments = previousCountDocuments;
+    Usuario.findById = previousFindById;
   }
 });
 

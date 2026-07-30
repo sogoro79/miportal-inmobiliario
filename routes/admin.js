@@ -1,5 +1,4 @@
 import express from 'express';
-import jwt from 'jsonwebtoken';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
 import Usuario from '../models/Usuario.js';
@@ -10,7 +9,7 @@ import { requireAdmin } from '../middleware/auth.js';
 import { normalizeSpanishPrice } from '../utils/prices.js';
 import { crearDatosVipTrial, expirarVipTrialUsuario } from '../utils/trials.js';
 import { generarCodigoVipTrial } from '../utils/vipTrialCodes.js';
-import { authenticateAdminCredentials, canUseLegacyAdminLogin, createAdminJwt } from '../utils/authentication.js';
+import { authenticateAdminCredentials, createAdminJwt } from '../utils/authentication.js';
 import { createRateLimit } from '../utils/rateLimit.js';
 import { validateBody, z } from '../utils/validation.js';
 
@@ -52,8 +51,8 @@ function esObjectId(id) {
   return /^[0-9a-fA-F]{24}$/.test(String(id || ''));
 }
 
-function esUsuarioAdminPrincipal(usuario) {
-  return Boolean(process.env.ADMIN_EMAIL && usuario?.email === process.env.ADMIN_EMAIL);
+function esUsuarioAdminPrincipal(req, usuario) {
+  return Boolean(req?.user?.id && usuario?._id && String(usuario._id) === String(req.user.id));
 }
 
 function limpiarTexto(value, max = 5000) {
@@ -158,20 +157,7 @@ router.post('/login', adminLoginLimiter, validateBody(adminLoginSchema), async (
     return res.json({ token: createAdminJwt(resultado.usuario) });
   }
 
-  const hayAdminReal = await Usuario.exists({ role: 'admin', activo: { $ne: false } });
-
-  // Transición temporal: ADMIN_PASSWORD solo se acepta mientras no exista ningún
-  // administrador real. Después del bootstrap, este fallback queda bloqueado.
-  if (!canUseLegacyAdminLogin({ adminExists: Boolean(hayAdminReal), email, password })) {
-    return res.status(401).json({ error: 'Credenciales incorrectas' });
-  }
-
-  const token = jwt.sign(
-    { esAdmin: true, legacyAdmin: true },
-    process.env.JWT_SECRET,
-    { expiresIn: '8h' }
-  );
-  res.json({ token });
+  return res.status(401).json({ error: 'Credenciales incorrectas' });
 });
 
 // Estadísticas generales
@@ -394,7 +380,7 @@ router.patch('/usuarios/:id/verificar', requireAdmin, async (req, res) => {
 
     const usuario = await Usuario.findById(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
-    if (esUsuarioAdminPrincipal(usuario)) {
+    if (esUsuarioAdminPrincipal(req, usuario)) {
       return res.status(403).json({ error: 'No puedes modificar el usuario administrador conectado.' });
     }
 
@@ -426,7 +412,7 @@ router.patch('/usuarios/:id/desactivar', requireAdmin, async (req, res) => {
     const usuario = await Usuario.findById(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-    if (esUsuarioAdminPrincipal(usuario)) {
+    if (esUsuarioAdminPrincipal(req, usuario)) {
       return res.status(403).json({ error: 'No puedes desactivar el usuario administrador conectado.' });
     }
 
@@ -476,7 +462,7 @@ router.patch('/usuarios/:id/reactivar', requireAdmin, async (req, res) => {
 
     const usuario = await Usuario.findById(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
-    if (esUsuarioAdminPrincipal(usuario)) {
+    if (esUsuarioAdminPrincipal(req, usuario)) {
       return res.status(403).json({ error: 'No puedes modificar el usuario administrador conectado.' });
     }
 
@@ -508,7 +494,7 @@ router.patch('/usuarios/:id/finalizar-vip-trial', requireAdmin, async (req, res)
 
     const usuario = await Usuario.findById(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
-    if (esUsuarioAdminPrincipal(usuario)) {
+    if (esUsuarioAdminPrincipal(req, usuario)) {
       return res.status(403).json({ error: 'No puedes modificar el usuario administrador conectado.' });
     }
     if (usuario.plan !== 'vip_trial') {
@@ -863,7 +849,7 @@ router.post('/usuarios/:id/cancelar-suscripcion', requireAdmin, async (req, res)
   try {
     const usuario = await Usuario.findById(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
-    if (esUsuarioAdminPrincipal(usuario)) {
+    if (esUsuarioAdminPrincipal(req, usuario)) {
       return res.status(403).json({ error: 'No puedes modificar el usuario administrador conectado.' });
     }
 
@@ -919,7 +905,7 @@ router.put('/usuarios/:id/plan', requireAdmin, async (req, res) => {
 
     const usuarioExistente = await Usuario.findById(req.params.id);
     if (!usuarioExistente) return res.status(404).json({ error: 'Usuario no encontrado' });
-    if (esUsuarioAdminPrincipal(usuarioExistente)) {
+    if (esUsuarioAdminPrincipal(req, usuarioExistente)) {
       return res.status(403).json({ error: 'No puedes modificar el usuario administrador conectado.' });
     }
 

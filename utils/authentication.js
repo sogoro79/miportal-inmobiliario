@@ -54,20 +54,6 @@ export async function authenticateAdminCredentials({ UsuarioModel, email, passwo
   return { ok: true, usuario };
 }
 
-export function canUseLegacyAdminLogin({
-  adminExists,
-  email,
-  password,
-  adminEmail = process.env.ADMIN_EMAIL,
-  adminPassword = process.env.ADMIN_PASSWORD
-}) {
-  return !adminExists &&
-    Boolean(adminEmail) &&
-    Boolean(adminPassword) &&
-    email === adminEmail &&
-    password === adminPassword;
-}
-
 export function createUserJwt(usuario, secret = process.env.JWT_SECRET) {
   return jwt.sign(
     { id: usuario._id.toString() },
