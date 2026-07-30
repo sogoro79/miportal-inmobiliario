@@ -6,6 +6,8 @@ import { Resend } from "resend";
 import Usuario from "../models/Usuario.js";
 import { cleanString, objectId, optionalCleanString, validateBody, z } from "../utils/validation.js";
 import { canjearCodigoVipTrial, mensajeErrorCodigoVipTrial } from "../utils/vipTrialCodes.js";
+import { authenticateUserCredentials, createUserJwt, usuarioSeguro } from "../utils/authentication.js";
+import { createRateLimit } from "../utils/rateLimit.js";
 
 const router = express.Router();
 
@@ -20,41 +22,46 @@ const emailSchema = z
   .max(254);
 
 const passwordSchema = z.string().min(6).max(200);
+const loginLimiter = createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  keyPrefix: "auth-login"
+});
 
-const registerSchema = z.object({
+export const registerSchema = z.object({
   nombre: cleanString(120),
   email: emailSchema,
   tipoDoc: optionalCleanString(40),
   numDoc: optionalCleanString(80),
   codigoPromocional: optionalCleanString(40),
   token: optionalCleanString(2048)
-});
+}).strict();
 
-const setPasswordSchema = z.object({
+export const setPasswordSchema = z.object({
   token: cleanString(2048),
   password: passwordSchema
-});
+}).strict();
 
-const loginSchema = z.object({
+export const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1).max(200)
-});
+}).strict();
 
-const recuperarSchema = z.object({
+export const recuperarSchema = z.object({
   email: emailSchema
-});
+}).strict();
 
-const resetSchema = z.object({
+export const resetSchema = z.object({
   token: cleanString(2048),
   password: passwordSchema
-});
+}).strict();
 
-const contactoSchema = z.object({
+export const contactoSchema = z.object({
   nombre: cleanString(120),
   email: emailSchema,
   asunto: cleanString(160),
   mensaje: cleanString(3000)
-});
+}).strict();
 
 /* ============================
    REGISTRO (EMAIL + TOKEN)
@@ -198,7 +205,7 @@ router.post("/set-password", validateBody(setPasswordSchema), async (req, res) =
 /* ============================
    LOGIN
 ============================ */
-router.post("/login", validateBody(loginSchema), async (req, res) => {
+router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -206,61 +213,39 @@ router.post("/login", validateBody(loginSchema), async (req, res) => {
       return res.status(400).json({ error: "Faltan datos" });
     }
 
-    const usuario = await Usuario.findOne({ email });
-
-    if (!usuario) {
+    const resultado = await authenticateUserCredentials({ UsuarioModel: Usuario, email, password });
+    if (!resultado.ok && resultado.reason === "invalid_credentials") {
       return res.status(400).json({ error: "Credenciales incorrectas" });
     }
 
-    if (usuario.activo === false) {
+    if (!resultado.ok && resultado.reason === "inactive") {
       return res.status(403).json({
         error: "Esta cuenta ha sido desactivada. Contacta con HomeClick24."
       });
     }
 
-    if (!usuario.verificado) {
+    if (!resultado.ok && resultado.reason === "not_verified") {
       return res.status(401).json({
         error: "Debes activar tu cuenta desde el email"
       });
     }
 
-    if (!usuario.password) {
+    if (!resultado.ok && resultado.reason === "missing_password") {
       return res.status(400).json({
         error: "Debes crear tu contraseña desde el email"
       });
     }
 
-    const ok = await bcrypt.compare(password, usuario.password);
-    if (!ok) {
+    if (!resultado.ok) {
       return res.status(400).json({ error: "Credenciales incorrectas" });
     }
 
-    const token = jwt.sign(
-      { id: usuario._id },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const usuario = resultado.usuario;
+    const token = createUserJwt(usuario);
 
     res.json({
       token,
-      usuario: {
-        _id: usuario._id,
-        nombre: usuario.nombre,
-        email: usuario.email,
-        plan: usuario.plan || "gratis",
-        planActivo: usuario.planActivo || false,
-        planFechaFin: usuario.planFechaFin || null,
-        trialAccepted: usuario.trialAccepted || false,
-        trialStartDate: usuario.trialStartDate || null,
-        trialEndDate: usuario.trialEndDate || null,
-        trialReminderSent: usuario.trialReminderSent || false,
-        stripeCustomerId: usuario.stripeCustomerId || null,
-        stripeSubscriptionId: usuario.stripeSubscriptionId || null,
-        pendingPlan: usuario.pendingPlan || null,
-        pendingPriceId: usuario.pendingPriceId || null,
-        pendingPlanChangeAt: usuario.pendingPlanChangeAt || null,
-        pendingPlanLabel: usuario.pendingPlanLabel || null
-      }
+      usuario: usuarioSeguro(usuario)
     });
 
   } catch (err) {

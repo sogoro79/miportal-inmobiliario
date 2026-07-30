@@ -10,10 +10,23 @@ import { requireAdmin } from '../middleware/auth.js';
 import { normalizeSpanishPrice } from '../utils/prices.js';
 import { crearDatosVipTrial, expirarVipTrialUsuario } from '../utils/trials.js';
 import { generarCodigoVipTrial } from '../utils/vipTrialCodes.js';
+import { authenticateAdminCredentials, canUseLegacyAdminLogin, createAdminJwt } from '../utils/authentication.js';
+import { createRateLimit } from '../utils/rateLimit.js';
+import { validateBody, z } from '../utils/validation.js';
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const resend = new Resend(process.env.RESEND_API_KEY);
+const adminLoginLimiter = createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 6,
+  keyPrefix: 'admin-login'
+});
+
+const adminLoginSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  password: z.string().min(1).max(200)
+}).strict();
 
 const PLANES_VALIDOS = [
   'gratis', 'basico', 'destacado', 'starter',
@@ -137,12 +150,27 @@ async function enviarInvitacionVipTrial(usuario) {
 }
 
 // Login admin
-router.post('/login', async (req, res) => {
+router.post('/login', adminLoginLimiter, validateBody(adminLoginSchema), async (req, res) => {
   const { email, password } = req.body;
-  if (email !== process.env.ADMIN_EMAIL || password !== process.env.ADMIN_PASSWORD) {
+
+  const resultado = await authenticateAdminCredentials({ UsuarioModel: Usuario, email, password });
+  if (resultado.ok) {
+    return res.json({ token: createAdminJwt(resultado.usuario) });
+  }
+
+  const hayAdminReal = await Usuario.exists({ role: 'admin', activo: { $ne: false } });
+
+  // Transición temporal: ADMIN_PASSWORD solo se acepta mientras no exista ningún
+  // administrador real. Después del bootstrap, este fallback queda bloqueado.
+  if (!canUseLegacyAdminLogin({ adminExists: Boolean(hayAdminReal), email, password })) {
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   }
-  const token = jwt.sign({ esAdmin: true }, process.env.JWT_SECRET, { expiresIn: '8h' });
+
+  const token = jwt.sign(
+    { esAdmin: true, legacyAdmin: true },
+    process.env.JWT_SECRET,
+    { expiresIn: '8h' }
+  );
   res.json({ token });
 });
 

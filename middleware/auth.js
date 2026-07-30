@@ -29,7 +29,31 @@ function logAuthDebug(req, estado, extra = {}) {
   });
 }
 
-export async function requireAuth(req, res, next) {
+function buildUserRequest(usuario) {
+  return {
+    id: usuario._id.toString(),
+    _id: usuario._id,
+    nombre: usuario.nombre,
+    email: usuario.email,
+    plan: usuario.plan || "gratis",
+    planActivo: usuario.planActivo || false,
+    trialAccepted: usuario.trialAccepted || false,
+    trialStartDate: usuario.trialStartDate || null,
+    trialEndDate: usuario.trialEndDate || null,
+    stripeCustomerId: usuario.stripeCustomerId || null,
+    stripeSubscriptionId: usuario.stripeSubscriptionId || null,
+    role: usuario.role || "user",
+    esAdmin: usuario.role === "admin"
+  };
+}
+
+async function legacyAdminPermitido(decoded) {
+  if (!decoded?.esAdmin) return false;
+  const totalAdmins = await Usuario.countDocuments({ role: "admin", activo: { $ne: false } });
+  return totalAdmins === 0;
+}
+
+export async function requireUser(req, res, next) {
   const token = getBearerToken(req);
 
   if (!token) {
@@ -40,10 +64,9 @@ export async function requireAuth(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (decoded.esAdmin) {
-      req.user = { id: null, esAdmin: true };
-      req.usuarioId = null;
-      return next();
+    if (!decoded.id) {
+      logAuthDebug(req, "token_sin_usuario");
+      return res.status(401).json({ error: "Tu sesión ha caducado. Inicia sesión de nuevo para publicar." });
     }
 
     const usuario = await Usuario.findById(decoded.id);
@@ -57,20 +80,7 @@ export async function requireAuth(req, res, next) {
       return res.status(403).json({ error: "Esta cuenta ha sido desactivada. Contacta con HomeClick24." });
     }
 
-    req.user = {
-      id: usuario._id.toString(),
-      _id: usuario._id,
-      nombre: usuario.nombre,
-      email: usuario.email,
-      plan: usuario.plan || "gratis",
-      planActivo: usuario.planActivo || false,
-      trialAccepted: usuario.trialAccepted || false,
-      trialStartDate: usuario.trialStartDate || null,
-      trialEndDate: usuario.trialEndDate || null,
-      stripeCustomerId: usuario.stripeCustomerId || null,
-      stripeSubscriptionId: usuario.stripeSubscriptionId || null,
-      esAdmin: false
-    };
+    req.user = buildUserRequest(usuario);
     req.usuarioId = req.user.id;
     logAuthDebug(req, "ok", {
       userId: req.user.id,
@@ -84,16 +94,32 @@ export async function requireAuth(req, res, next) {
   }
 }
 
-export function requireAdmin(req, res, next) {
+export async function requireAdmin(req, res, next) {
   const token = getBearerToken(req);
 
   if (!token) return res.status(401).json({ error: "No autorizado" });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!decoded.esAdmin) return res.status(403).json({ error: "No tienes permisos" });
 
-    req.user = { id: null, esAdmin: true };
+    if (decoded.id) {
+      const usuario = await Usuario.findById(decoded.id);
+      if (!usuario || usuario.activo === false || usuario.role !== "admin") {
+        return res.status(403).json({ error: "No tienes permisos" });
+      }
+
+      req.user = buildUserRequest(usuario);
+      req.usuarioId = req.user.id;
+      return next();
+    }
+
+    // Transición temporal: los tokens legacy solo funcionan mientras no exista
+    // ningún administrador real. Retirar junto con ADMIN_PASSWORD en el siguiente bloque.
+    if (!(await legacyAdminPermitido(decoded))) {
+      return res.status(403).json({ error: "No tienes permisos" });
+    }
+
+    req.user = { id: null, esAdmin: true, role: "admin", legacyAdmin: true };
     req.usuarioId = null;
     next();
   } catch {
@@ -101,4 +127,8 @@ export function requireAdmin(req, res, next) {
   }
 }
 
-export default requireAuth;
+// Compatibilidad temporal: las rutas actuales importan requireAuth.
+// En una migración posterior conviene cambiar las rutas de usuario a requireUser.
+export const requireAuth = requireUser;
+
+export default requireUser;

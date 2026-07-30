@@ -3,7 +3,8 @@ import mongoose from "mongoose";
 const UsuarioSchema = new mongoose.Schema({
   nombre:     { type: String, required: true },
   email:      { type: String, required: true, unique: true },
-  password:   { type: String },
+  password:   { type: String, select: false },
+  role:       { type: String, enum: ["user", "admin"], default: "user" },
   favoritos:  [{ type: mongoose.Schema.Types.ObjectId, ref: "Propiedad" }],
   verificado: { type: Boolean, default: false },
   activo:     { type: Boolean, default: true },

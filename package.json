@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "backup": "node backup.js"
+    "backup": "node backup.js",
+    "bootstrap-admin": "node scripts/bootstrap-admin.js",
+    "test": "node --test"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
