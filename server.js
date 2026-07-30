@@ -204,6 +204,10 @@ function enviarHtmlPropiedad(res, propiedad = null) {
   res.type("html").send(propiedad ? inyectarMetaPropiedad(html, propiedad) : html);
 }
 
+function enviar404(res) {
+  res.status(404).sendFile(path.join(publicPath, "404.html"));
+}
+
 async function buscarPropiedadPublicaPorId(id) {
   if (!mongoose.Types.ObjectId.isValid(id)) return null;
   return Propiedad.findOne({
@@ -215,7 +219,7 @@ async function buscarPropiedadPublicaPorId(id) {
 
 app.get("/propiedad", async (req, res) => {
   const id = req.query.id;
-  if (!id) return enviarHtmlPropiedad(res);
+  if (!id) return enviar404(res);
 
   try {
     const propiedad = await buscarPropiedadPublicaPorId(id);
@@ -224,14 +228,13 @@ app.get("/propiedad", async (req, res) => {
     console.warn("No se pudo resolver propiedad legacy:", err.message);
   }
 
-  enviarHtmlPropiedad(res);
+  enviar404(res);
 });
 
 app.get("/propiedad.html", async (req, res) => {
   const id = req.query.id;
-  const query = req.url.slice(req.path.length);
 
-  if (!id) return res.redirect(301, `/propiedad${query}`);
+  if (!id) return res.redirect(301, "/comprar");
 
   try {
     const propiedad = await Propiedad.findById(id, {
@@ -247,7 +250,7 @@ app.get("/propiedad.html", async (req, res) => {
     console.warn("No se pudo resolver slug legacy de propiedad:", err.message);
   }
 
-  res.redirect(301, `/propiedad${query}`);
+  res.redirect(301, "/comprar");
 });
 
 Object.keys(cleanHtmlRoutes).forEach(route => {
