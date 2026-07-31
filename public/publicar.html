@@ -1128,6 +1128,10 @@ async function publicar() {
   `;
 
   setTimeout(() => {
+    if (propiedadIdEditar) {
+      window.location.href = "/perfil";
+      return;
+    }
 
     const propiedadUrl = typeof getPropiedadSeoUrl === "function"
       ? getPropiedadSeoUrl(data)

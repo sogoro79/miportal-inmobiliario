@@ -15,3 +15,9 @@ test("modo edición carga la propiedad propia autenticada y conserva imágenes e
   assert.doesNotMatch(publicarHtml, /fetch\(`\/propiedades\/mias\/\$\{propiedadIdEditar\}`,[\s\S]{0,120}`Bearer \$\{token\}`/);
   assert.doesNotMatch(publicarHtml, /fetch\(`\/propiedades\/\$\{propiedadIdEditar\}`\)\s*\.then/);
 });
+
+test("edición guardada vuelve al perfil y publicación nueva mantiene URL SEO", () => {
+  assert.match(publicarHtml, /if \(propiedadIdEditar\) \{\s*window\.location\.href = "\/perfil";\s*return;\s*\}/);
+  assert.match(publicarHtml, /const propiedadUrl = typeof getPropiedadSeoUrl === "function"[\s\S]*getPropiedadSeoUrl\(data\)/);
+  assert.match(publicarHtml, /window\.location\.href = `\$\{propiedadUrl\}\?publicado=1`/);
+});
