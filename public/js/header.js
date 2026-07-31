@@ -19,6 +19,10 @@ document.addEventListener("DOMContentLoaded", () => {
     usuario = null;
   }
 
+  const nombreUsuarioInicial = typeof usuario?.nombre === "string" && usuario.nombre.trim()
+    ? usuario.nombre.trim()
+    : "...";
+
   const langOptions = `
     <a href="#" onclick="selectLang('🇪🇸','España')">🇪🇸 España</a>
     <a href="#" onclick="selectLang('🏴󠁧󠁢󠁣󠁴󠁿','Català')">🏴󠁧󠁢󠁣󠁴󠁿 Català</a>
@@ -167,9 +171,7 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
           ${langSelector}
           <div class="user-menu" id="userMenu">
-            <div class="user-name" id="userToggle">
-              ${usuario.nombre || "Usuario"}
-            </div>
+            <div class="user-name" id="userToggle"></div>
             <div class="dropdown" id="userDropdown">
               <a href="/perfil">Mi perfil</a>
               <a href="/favoritos">Favoritos</a>
@@ -224,6 +226,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const logoutBtn  = document.getElementById("logoutBtn");
 
   if (!userMenu || !userToggle || !logoutBtn) return;
+  userToggle.textContent = nombreUsuarioInicial;
 
   userToggle.addEventListener("click", (e) => {
     e.stopPropagation();

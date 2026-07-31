@@ -13,15 +13,17 @@ document.addEventListener("DOMContentLoaded", () => {
 ========================= */
 function cargarUsuario() {
   const usuario = JSON.parse(localStorage.getItem("usuario") || "{}");
+  const nombre = typeof usuario.nombre === "string" && usuario.nombre.trim()
+    ? usuario.nombre.trim()
+    : "...";
 
-  document.getElementById("nombreUsuario").textContent =
-    usuario.nombre || "Usuario";
+  document.getElementById("nombreUsuario").textContent = nombre;
 
   document.getElementById("emailUsuario").textContent =
     usuario.email || "";
 
   document.getElementById("avatar").textContent =
-    (usuario.nombre || "U").charAt(0).toUpperCase();
+    nombre === "..." ? "" : nombre.charAt(0).toUpperCase();
 }
 
 function estadoComercialBadge(estado = "Disponible") {
