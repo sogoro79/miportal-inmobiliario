@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import jwt from "jsonwebtoken";
 import { EventEmitter } from "events";
 import { PassThrough, Readable, Writable } from "stream";
+import { v2 as cloudinary } from "cloudinary";
 import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
 import { setBackupRunnerForTests, resetBackupRunnerForTests } from "../utils/backupRunner.js";
@@ -23,8 +24,10 @@ function normalizeHeaders(headers = {}) {
   );
 }
 
-function createReq(path, { method = "GET", headers = {}, body } = {}) {
-  const payload = body === undefined ? "" : JSON.stringify(body);
+function createReq(path, { method = "GET", headers = {}, body, rawBody } = {}) {
+  const payload = rawBody !== undefined
+    ? rawBody
+    : (body === undefined ? "" : JSON.stringify(body));
   const normalizedHeaders = normalizeHeaders(headers);
   if (payload && !normalizedHeaders["content-length"]) {
     normalizedHeaders["content-length"] = String(Buffer.byteLength(payload));
@@ -89,6 +92,72 @@ function request(path, options) {
     const res = createRes(resolve);
     app.handle(req, res, reject);
   });
+}
+
+function createMultipartBody({ fields = {}, files = [] } = {}) {
+  const boundary = `----homeclick24-test-${Math.random().toString(16).slice(2)}`;
+  const chunks = [];
+  const push = value => chunks.push(Buffer.isBuffer(value) ? value : Buffer.from(value));
+
+  for (const [name, value] of Object.entries(fields)) {
+    push(`--${boundary}\r\n`);
+    push(`Content-Disposition: form-data; name="${name}"\r\n\r\n`);
+    push(String(value));
+    push("\r\n");
+  }
+
+  for (const file of files) {
+    push(`--${boundary}\r\n`);
+    push(`Content-Disposition: form-data; name="${file.name || "imagenes"}"; filename="${file.filename || "foto.jpg"}"\r\n`);
+    push(`Content-Type: ${file.contentType || "image/jpeg"}\r\n\r\n`);
+    push(file.content || "imagen");
+    push("\r\n");
+  }
+
+  push(`--${boundary}--\r\n`);
+  return { boundary, body: Buffer.concat(chunks) };
+}
+
+function mockCloudinaryUpload({ destroyed = [], uploadedPrefix = "uploaded", onDestroy = () => {}, failDestroy = false } = {}) {
+  const previousUploadStream = cloudinary.uploader.upload_stream;
+  const previousDestroy = cloudinary.uploader.destroy;
+  let uploadCount = 0;
+
+  cloudinary.uploader.upload_stream = (...args) => {
+    const callback = args.find(arg => typeof arg === "function");
+    const current = uploadCount += 1;
+    return new Writable({
+      write(chunk, encoding, done) {
+        done();
+      },
+      final(done) {
+        callback(null, {
+          secure_url: `https://res.cloudinary.com/demo/image/upload/v1700000000/miportal_inmobiliario/${uploadedPrefix}-${current}.jpg`,
+          bytes: 123,
+          public_id: `miportal_inmobiliario/${uploadedPrefix}-${current}`
+        });
+        done();
+      }
+    });
+  };
+
+  cloudinary.uploader.destroy = async publicId => {
+    onDestroy(publicId);
+    destroyed.push(publicId);
+    if (failDestroy) throw new Error("cloudinary unavailable");
+    return { result: "ok" };
+  };
+
+  const restore = () => {
+    cloudinary.uploader.upload_stream = previousUploadStream;
+    cloudinary.uploader.destroy = previousDestroy;
+  };
+  restore.getUploadCount = () => uploadCount;
+  return restore;
+}
+
+function authHeaderFor(userId = "507f1f77bcf86cd799439099") {
+  return { Authorization: `Bearer ${jwt.sign({ id: userId }, "test-secret")}` };
 }
 
 test("Express oculta X-Powered-By y Helmet añade cabeceras conservadoras", async () => {
@@ -197,6 +266,652 @@ test("detalle público de propiedad genera HTML sin fallar por fs", async () => 
     assert.doesNotMatch(response.text, /Error generando propiedad|fs is not defined/i);
   } finally {
     Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("POST /propiedades limpia nueva imagen si falla validación tras subida", async () => {
+  const previousFindById = Usuario.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  const multipart = createMultipartBody({
+    fields: { titulo: "Casa" },
+    files: [{ content: "jpg" }]
+  });
+
+  try {
+    const response = await request("/propiedades", {
+      method: "POST",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.80"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/uploaded-1"]);
+    assert.doesNotMatch(response.text, /CLOUDINARY|api_secret|stack|secret/i);
+  } finally {
+    Usuario.findById = previousFindById;
+    restoreCloudinary();
+  }
+});
+
+test("PUT /propiedades/:id comprueba ownership antes de subir archivos", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439077",
+    imagenes: []
+  });
+  const multipart = createMultipartBody({
+    fields: { titulo: "Casa editada" },
+    files: [{ content: "jpg" }]
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.81"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 403);
+    assert.equal(restoreCloudinary.getUploadCount(), 0);
+    assert.deepEqual(destroyed, []);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    restoreCloudinary();
+  }
+});
+
+test("PUT conserva imágenes si imagenesExistentes está ausente", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const originalImages = [
+    "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg"
+  ];
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: [...originalImages],
+    save: async () => propiedad
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa",
+      direccion: "Calle Test",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2"
+    }
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.82"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(propiedad.imagenes, originalImages);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+  }
+});
+
+test("PUT con URL ajena devuelve 400, limpia nuevas y no guarda", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  let saved = false;
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: ["https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg"],
+    save: async () => {
+      saved = true;
+    }
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa",
+      direccion: "Calle Test",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2",
+      imagenesExistentes: JSON.stringify(["https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/ajena.jpg"])
+    },
+    files: [{ content: "jpg" }]
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.83"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 400);
+    assert.equal(saved, false);
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/uploaded-1"]);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    restoreCloudinary();
+  }
+});
+
+test("PUT limpia nuevas si save falla y no elimina originales retiradas", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  const originalA = "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg";
+  const originalB = "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-b.jpg";
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: [originalA, originalB],
+    save: async () => {
+      throw new Error("db unavailable");
+    }
+  });
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa",
+      direccion: "Calle Test",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2",
+      imagenesExistentes: JSON.stringify([originalA])
+    },
+    files: [{ content: "jpg" }]
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.84"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/uploaded-1"]);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    restoreCloudinary();
+  }
+});
+
+test("PUT exitoso destruye solo originales retiradas", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  const originalA = "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg";
+  const originalB = "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-b.jpg";
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: [originalA, originalB],
+    save: async () => propiedad
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa",
+      direccion: "Calle Test",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2",
+      imagenesExistentes: JSON.stringify([originalA])
+    }
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.85"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/original-b"]);
+    assert.deepEqual(propiedad.imagenes, [originalA]);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    restoreCloudinary();
+  }
+});
+
+test("DELETE propio usa solo imágenes guardadas en MongoDB", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const previousFindByIdAndDelete = Propiedad.findByIdAndDelete;
+  const destroyed = [];
+  const operations = [];
+  const restoreCloudinary = mockCloudinaryUpload({
+    destroyed,
+    onDestroy: () => operations.push("destroy")
+  });
+  let deletedId = null;
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: [
+      "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg",
+      "https://example.com/no-cloudinary.jpg"
+    ]
+  });
+  Propiedad.findByIdAndDelete = async id => {
+    operations.push("mongo-delete");
+    deletedId = id;
+  };
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088?imagen=https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/ajena.jpg", {
+      method: "DELETE",
+      headers: {
+        ...authHeaderFor(),
+        "X-Forwarded-For": "203.0.113.86"
+      }
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(deletedId, "507f1f77bcf86cd799439088");
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/original-a"]);
+    assert.deepEqual(operations, ["mongo-delete", "destroy"]);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    Propiedad.findByIdAndDelete = previousFindByIdAndDelete;
+    restoreCloudinary();
+  }
+});
+
+test("DELETE propio no llama a Cloudinary si falla MongoDB", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const previousFindByIdAndDelete = Propiedad.findByIdAndDelete;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: ["https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg"]
+  });
+  Propiedad.findByIdAndDelete = async () => {
+    throw new Error("mongo unavailable");
+  };
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "DELETE",
+      headers: {
+        ...authHeaderFor(),
+        "X-Forwarded-For": "203.0.113.93"
+      }
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(destroyed, []);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    Propiedad.findByIdAndDelete = previousFindByIdAndDelete;
+    restoreCloudinary();
+  }
+});
+
+test("DELETE propio responde éxito aunque falle Cloudinary tras borrar MongoDB", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const previousFindByIdAndDelete = Propiedad.findByIdAndDelete;
+  const destroyed = [];
+  let mongoDeleted = false;
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed, failDestroy: true });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: ["https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg"]
+  });
+  Propiedad.findByIdAndDelete = async () => {
+    mongoDeleted = true;
+  };
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "DELETE",
+      headers: {
+        ...authHeaderFor(),
+        "X-Forwarded-For": "203.0.113.94"
+      }
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(mongoDeleted, true);
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/original-a"]);
+    assert.deepEqual(JSON.parse(response.text), { ok: true });
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    Propiedad.findByIdAndDelete = previousFindByIdAndDelete;
+    restoreCloudinary();
+  }
+});
+
+test("DELETE admin limpia Cloudinary con imágenes guardadas en MongoDB", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const previousFindByIdAndDelete = Propiedad.findByIdAndDelete;
+  const destroyed = [];
+  const operations = [];
+  const restoreCloudinary = mockCloudinaryUpload({
+    destroyed,
+    onDestroy: () => operations.push("destroy")
+  });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439012" },
+    activo: true,
+    role: "admin"
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    imagenes: ["https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/admin-a.png"]
+  });
+  Propiedad.findByIdAndDelete = async () => {
+    operations.push("mongo-delete");
+  };
+  const adminToken = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
+
+  try {
+    const response = await request("/admin/propiedades/507f1f77bcf86cd799439088", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "X-Forwarded-For": "203.0.113.87"
+      }
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(response.text), { ok: true });
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/admin-a"]);
+    assert.deepEqual(operations, ["mongo-delete", "destroy"]);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    Propiedad.findByIdAndDelete = previousFindByIdAndDelete;
+    restoreCloudinary();
+  }
+});
+
+test("DELETE admin no llama a Cloudinary si falla MongoDB", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const previousFindByIdAndDelete = Propiedad.findByIdAndDelete;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439012" },
+    activo: true,
+    role: "admin"
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    imagenes: ["https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/admin-a.png"]
+  });
+  Propiedad.findByIdAndDelete = async () => {
+    throw new Error("mongo unavailable");
+  };
+  const adminToken = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
+
+  try {
+    const response = await request("/admin/propiedades/507f1f77bcf86cd799439088", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "X-Forwarded-For": "203.0.113.95"
+      }
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(destroyed, []);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    Propiedad.findByIdAndDelete = previousFindByIdAndDelete;
+    restoreCloudinary();
+  }
+});
+
+test("DELETE admin mantiene éxito si Cloudinary falla tras borrar MongoDB", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const previousFindByIdAndDelete = Propiedad.findByIdAndDelete;
+  const destroyed = [];
+  let mongoDeleted = false;
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed, failDestroy: true });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439012" },
+    activo: true,
+    role: "admin"
+  });
+  Propiedad.findById = () => Promise.resolve({
+    _id: "507f1f77bcf86cd799439088",
+    imagenes: ["https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/admin-a.png"]
+  });
+  Propiedad.findByIdAndDelete = async () => {
+    mongoDeleted = true;
+  };
+  const adminToken = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
+
+  try {
+    const response = await request("/admin/propiedades/507f1f77bcf86cd799439088", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "X-Forwarded-For": "203.0.113.96"
+      }
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(mongoDeleted, true);
+    assert.deepEqual(destroyed, ["miportal_inmobiliario/admin-a"]);
+    assert.deepEqual(JSON.parse(response.text), { ok: true });
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    Propiedad.findByIdAndDelete = previousFindByIdAndDelete;
+    restoreCloudinary();
+  }
+});
+
+test("MulterError LIMIT_UNEXPECTED_FILE y MIME inválido devuelven JSON controlado", async () => {
+  const previousFindById = Usuario.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+
+  try {
+    const unexpected = createMultipartBody({
+      fields: { titulo: "Casa" },
+      files: [{ name: "otra", filename: "foto.jpg", contentType: "image/jpeg" }]
+    });
+    const unexpectedResponse = await request("/propiedades", {
+      method: "POST",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${unexpected.boundary}`,
+        "X-Forwarded-For": "203.0.113.88"
+      },
+      rawBody: unexpected.body
+    });
+
+    assert.equal(unexpectedResponse.status, 400);
+    assert.equal(unexpectedResponse.headers.get("content-type")?.includes("application/json"), true);
+    assert.match(unexpectedResponse.text, /campo de subida/i);
+    assert.doesNotMatch(unexpectedResponse.text, /stack|CLOUDINARY|api_secret|\/Users\//i);
+
+    const invalidMime = createMultipartBody({
+      fields: { titulo: "Casa" },
+      files: [{ filename: "foto.txt", contentType: "text/plain" }]
+    });
+    const invalidMimeResponse = await request("/propiedades", {
+      method: "POST",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${invalidMime.boundary}`,
+        "X-Forwarded-For": "203.0.113.89"
+      },
+      rawBody: invalidMime.body
+    });
+
+    assert.equal(invalidMimeResponse.status, 400);
+    assert.match(invalidMimeResponse.text, /Formato de imagen no permitido/);
+    assert.equal(restoreCloudinary.getUploadCount(), 0);
+    assert.deepEqual(destroyed, []);
+  } finally {
+    Usuario.findById = previousFindById;
+    restoreCloudinary();
+  }
+});
+
+test("rate limit de subida se aplica a POST sin afectar lecturas", async () => {
+  const previousFindById = Usuario.findById;
+  const previousFind = Propiedad.find;
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.find = () => ({
+    sort: () => ({
+      lean: () => Promise.resolve([])
+    })
+  });
+  const headers = {
+    ...authHeaderFor(),
+    "Content-Type": "multipart/form-data; boundary=----empty",
+    "X-Forwarded-For": "203.0.113.92"
+  };
+
+  try {
+    for (let i = 0; i < 20; i += 1) {
+      await request("/propiedades", {
+        method: "POST",
+        headers,
+        rawBody: Buffer.from("------empty--\r\n")
+      });
+    }
+
+    const limited = await request("/propiedades", {
+      method: "POST",
+      headers,
+      rawBody: Buffer.from("------empty--\r\n")
+    });
+    assert.equal(limited.status, 429);
+    assert.deepEqual(JSON.parse(limited.text), { error: "Demasiadas solicitudes. Inténtalo de nuevo más tarde." });
+
+    const read = await request("/propiedades", {
+      headers: { "X-Forwarded-For": "203.0.113.92" }
+    });
+    assert.notEqual(read.status, 429);
+  } finally {
+    Usuario.findById = previousFindById;
+    Propiedad.find = previousFind;
   }
 });
 

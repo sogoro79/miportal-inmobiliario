@@ -1,6 +1,7 @@
 import express from 'express';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
+import { v2 as cloudinary } from 'cloudinary';
 import Usuario from '../models/Usuario.js';
 import Propiedad from '../models/Propiedad.js';
 import EstadisticaAnuncio from '../models/EstadisticaAnuncio.js';
@@ -11,12 +12,14 @@ import { crearDatosVipTrial, expirarVipTrialUsuario } from '../utils/trials.js';
 import { generarCodigoVipTrial } from '../utils/vipTrialCodes.js';
 import { authenticateAdminCredentials, createAdminJwt } from '../utils/authentication.js';
 import { createRateLimit } from '../utils/rateLimit.js';
+import { deleteCloudinaryImages } from '../utils/imageSecurity.js';
 import { securityRateLimits } from '../utils/security.js';
 import { validateBody, z } from '../utils/validation.js';
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const resend = new Resend(process.env.RESEND_API_KEY);
+const destroyCloudinaryPublicId = publicId => cloudinary.uploader.destroy(publicId);
 const adminLoginLimiter = createRateLimit({
   windowMs: 15 * 60 * 1000,
   max: 6,
@@ -845,10 +848,23 @@ router.patch('/propiedades/:id/redes-programacion', requireAdmin, async (req, re
 // Eliminar propiedad
 router.delete('/propiedades/:id', requireAdmin, async (req, res) => {
   try {
+    if (!esObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+
+    const propiedad = await Propiedad.findById(req.params.id);
+    if (!propiedad) return res.status(404).json({ error: 'Propiedad no encontrada' });
+
+    const imagenesParaEliminar = [...(propiedad.imagenes || [])];
     await Propiedad.findByIdAndDelete(req.params.id);
+    await deleteCloudinaryImages(imagenesParaEliminar, destroyCloudinaryPublicId);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error eliminando propiedad desde admin:', {
+      propiedadId: req.params.id,
+      error: err.message
+    });
+    res.status(500).json({ error: 'Error eliminando propiedad' });
   }
 });
 

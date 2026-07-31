@@ -10,6 +10,17 @@ import Notificacion from "../models/Notificacion.js";
 import Usuario from "../models/Usuario.js";
 import { enviarCorreo } from "../utils/email.js";
 import { requireAuth } from "../middleware/auth.js";
+import { securityRateLimits } from "../utils/security.js";
+import {
+  cleanupUploadedImages,
+  deleteCloudinaryImages,
+  getImageUploadErrorResponse,
+  getUploadedImageUrls,
+  InvalidExistingImagesError,
+  MAX_FILES_PER_REQUEST,
+  parseImagenesExistentes,
+  validateExistingImageOwnership
+} from "../utils/imageSecurity.js";
 import {
   calcularFechaExpiracionPlan,
   getLimiteAnunciosPlan,
@@ -25,7 +36,6 @@ import {
   optionalCleanString,
   optionalNumberFromInput,
   priceFromInput,
-  validateBody,
   validateQuery,
   z
 } from "../utils/validation.js";
@@ -116,7 +126,7 @@ const propiedadBaseSchema = {
   tipoGaraje: optionalCleanString(40),
   alturaMaxima: optionalNumberFromInput,
   accesoTrastero: optionalCleanString(80),
-  imagenesExistentes: optionalCleanString(8000)
+  imagenesExistentes: z.any().optional()
 };
 
 const propiedadCreateSchema = z.object(propiedadBaseSchema);
@@ -179,27 +189,50 @@ function getPlanParaLimites(usuario) {
   return plan;
 }
 
-async function eliminarImagenCloudinary(url) {
-  const partes = url.split("/");
-  const archivo = partes[partes.length - 1].split(".")[0];
-  const carpeta = partes[partes.length - 2];
-  const publicId = `${carpeta}/${archivo}`;
-  await cloudinary.uploader.destroy(publicId);
+async function destroyCloudinaryPublicId(publicId) {
+  return cloudinary.uploader.destroy(publicId);
 }
 
-async function limpiarImagenesSubidas(files = []) {
-  for (const file of files) {
-    if (!file?.path) continue;
-    try {
-      await eliminarImagenCloudinary(file.path);
-    } catch (errImg) {
-      console.warn("No se pudo limpiar imagen subida:", errImg.message);
-    }
-  }
+async function limpiarImagenesSubidas(filesOrUrls = []) {
+  return cleanupUploadedImages(filesOrUrls, destroyCloudinaryPublicId);
+}
+
+async function eliminarImagenesCloudinary(urls = []) {
+  return deleteCloudinaryImages(urls, destroyCloudinaryPublicId);
 }
 
 function logPublicacion(estado, data = {}) {
   console.log("[Publicacion]", { estado, ...data });
+}
+
+function getIssueField(issue) {
+  return issue.path?.length ? issue.path.join(".") : "datos";
+}
+
+function buildValidationResponse(error) {
+  const fields = [...new Set(error.issues.map(getIssueField))];
+  return {
+    error: fields.length
+      ? `Revisa estos campos: ${fields.join(", ")}`
+      : "Datos inválidos"
+  };
+}
+
+async function validateBodyOrCleanup(schema, req, res, urlsSubidas, logLabel) {
+  const parsed = schema.safeParse(req.body);
+  if (parsed.success) {
+    req.body = parsed.data;
+    return true;
+  }
+
+  if (logLabel) {
+    console.warn(`[VALIDATION:${logLabel}]`, {
+      fields: [...new Set(parsed.error.issues.map(getIssueField))]
+    });
+  }
+  await limpiarImagenesSubidas(urlsSubidas);
+  res.status(400).json(buildValidationResponse(parsed.error));
+  return false;
 }
 
 function usuarioTienePlanActivoParaPublicar(usuario) {
@@ -284,13 +317,11 @@ const upload = multer({
 });
 
 function uploadImagenes(req, res, next) {
-  upload.array("imagenes")(req, res, async err => {
+  upload.array("imagenes", MAX_FILES_PER_REQUEST)(req, res, async err => {
     if (!err) return next();
     await limpiarImagenesSubidas(req.files);
-    const status = err.code === "LIMIT_FILE_SIZE" ? 413 : (err.statusCode || 500);
-    const mensaje = err.code === "LIMIT_FILE_SIZE"
-      ? "Una o varias imágenes superan el tamaño máximo permitido de 15 MB."
-      : (err.message || "No se han podido subir las imágenes. Revisa el formato y vuelve a intentarlo.");
+    const isMulterError = err instanceof multer.MulterError;
+    const { status, message: mensaje } = getImageUploadErrorResponse(err, { isMulterError });
 
     logPublicacion("error_imagenes", {
       status,
@@ -304,6 +335,25 @@ function uploadImagenes(req, res, next) {
       error: mensaje
     });
   });
+}
+
+async function cargarPropiedadEditable(req, res, next) {
+  try {
+    if (!isObjectId(req.params.id)) {
+      return res.status(400).json({ message: "ID inválido" });
+    }
+
+    const propiedad = await Propiedad.findById(req.params.id);
+    if (!propiedad) return res.status(404).json({ message: "Propiedad no encontrada" });
+    if (String(propiedad.usuarioId) !== req.user.id) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    req.propiedadEditable = propiedad;
+    return next();
+  } catch {
+    return res.status(500).json({ message: "Error al editar propiedad" });
+  }
 }
 
 function inicioDia(fecha = new Date()) {
@@ -374,13 +424,14 @@ router.get("/", validateQuery(propiedadesQuerySchema), async (req, res) => {
       filtro.$and = condicionesTexto;
     }
 
-    console.log("FILTRO APLICADO:", filtro);
-
     const propiedades = await Propiedad.find(filtro).sort({ createdAt: -1 }).lean();
     res.json(await limitarFotosPublicasPorPlan(propiedades));
 
   } catch (err) {
-    console.error(err);
+    console.error("Error al obtener propiedades:", {
+      name: err.name,
+      message: err.message
+    });
     res.status(500).json({ message: "Error al obtener propiedades" });
   }
 });
@@ -599,8 +650,13 @@ router.get("/:id", async (req, res) => {
 // ==================================================
 // POST /propiedades — crear propiedad con imágenes
 // ==================================================
-router.post("/", requireAuth, uploadImagenes, validateBody(propiedadCreateSchema, { logLabel: "POST /propiedades" }), async (req, res) => {
+router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes, async (req, res) => {
+  const urlsSubidas = getUploadedImageUrls(req.files);
+  let debeLimpiarSubidas = true;
   try {
+    const bodyValido = await validateBodyOrCleanup(propiedadCreateSchema, req, res, urlsSubidas, "POST /propiedades");
+    if (!bodyValido) return;
+
     const {
       titulo,
       direccion,
@@ -626,6 +682,7 @@ router.post("/", requireAuth, uploadImagenes, validateBody(propiedadCreateSchema
           plan: usuario.plan || "gratis",
           planActivo: Boolean(usuario.planActivo)
         });
+        await limpiarImagenesSubidas(urlsSubidas);
         return res.status(403).json({
           error: "Necesitas activar un plan para publicar."
         });
@@ -645,6 +702,7 @@ router.post("/", requireAuth, uploadImagenes, validateBody(propiedadCreateSchema
           recibidas: numFotos,
           limite: maxFotos
         });
+        await limpiarImagenesSubidas(urlsSubidas);
         return res.status(403).json({
           error: `Tu plan permite un máximo de ${maxFotos} fotos por anuncio.`
         });
@@ -657,13 +715,14 @@ router.post("/", requireAuth, uploadImagenes, validateBody(propiedadCreateSchema
           totalAnuncios,
           limite
         });
+        await limpiarImagenesSubidas(urlsSubidas);
         return res.status(403).json({ 
           error: `Has alcanzado el límite de anuncios de tu plan ${plan}. Mejora tu plan para publicar más.` 
         });
       }
     }
 
-    const imagenes = req.files?.map(f => f.path) || [];
+    const imagenes = urlsSubidas;
 
     const {
       banos,
@@ -718,6 +777,7 @@ router.post("/", requireAuth, uploadImagenes, validateBody(propiedadCreateSchema
       imagenes,
       fechaExpiracion
     });
+    debeLimpiarSubidas = false;
 
     if (usuario?.email) {
 
@@ -797,12 +857,18 @@ router.post("/", requireAuth, uploadImagenes, validateBody(propiedadCreateSchema
     res.status(201).json(propiedad);
 
   } catch (err) {
+    if (debeLimpiarSubidas) {
+      await limpiarImagenesSubidas(urlsSubidas);
+    }
     logPublicacion("error_servidor", {
       userId: req.user?.id || null,
       message: err.message,
       name: err.name
     });
-    console.error(err);
+    console.error("Error al crear propiedad:", {
+      name: err.name,
+      message: err.message
+    });
     res.status(500).json({ message: "Error al crear propiedad" });
   }
 });
@@ -810,22 +876,20 @@ router.post("/", requireAuth, uploadImagenes, validateBody(propiedadCreateSchema
 // ==================================================
 // PUT /propiedades/:id — editar propiedad
 // ==================================================
-router.put("/:id", requireAuth, uploadImagenes, validateBody(propiedadUpdateSchema), async (req, res) => {
+router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropiedadEditable, uploadImagenes, async (req, res) => {
+  const urlsSubidas = getUploadedImageUrls(req.files);
+  let debeLimpiarSubidas = true;
   try {
-    if (!isObjectId(req.params.id)) {
-      return res.status(400).json({ message: "ID inválido" });
-    }
+    const propiedad = req.propiedadEditable;
+    const imagenesOriginales = [...(propiedad.imagenes || [])];
+
+    const bodyValido = await validateBodyOrCleanup(propiedadUpdateSchema, req, res, urlsSubidas);
+    if (!bodyValido) return;
 
     const {
       titulo, direccion, precio, descripcion,
       tipoOperacion, habitaciones, lat, lng
     } = req.body;
-
-    const propiedad = await Propiedad.findById(req.params.id);
-    if (!propiedad) return res.status(404).json({ message: "Propiedad no encontrada" });
-    if (String(propiedad.usuarioId) !== req.user.id) {
-      return res.status(403).json({ error: "No autorizado" });
-    }
 
     propiedad.titulo       = titulo || propiedad.titulo;
     propiedad.referencia   = req.body.referencia !== undefined ? req.body.referencia : propiedad.referencia;
@@ -874,13 +938,21 @@ router.put("/:id", requireAuth, uploadImagenes, validateBody(propiedadUpdateSche
     propiedad.lat          = lat ? Number(lat) : propiedad.lat;
     propiedad.lng          = lng ? Number(lng) : propiedad.lng;
     
-    const imagenesExistentes = req.body.imagenesExistentes
-      ? JSON.parse(req.body.imagenesExistentes)
-      : [];
+    const imagenesExistentes = validateExistingImageOwnership(
+      parseImagenesExistentes(req.body.imagenesExistentes, { absentValue: imagenesOriginales }),
+      imagenesOriginales
+    );
 
-    console.log("FILES:", req.files);
-
-    const nuevasImagenes = req.files?.map(f => f.path) || [];
+    const nuevasImagenes = urlsSubidas;
+    const planFotos = getPlanParaFotos(req.user);
+    const maxFotos = getLimiteFotosPlan(planFotos);
+    const totalFotos = imagenesExistentes.length + nuevasImagenes.length;
+    if (planTieneLimiteFotos(planFotos) && totalFotos > maxFotos) {
+      await limpiarImagenesSubidas(urlsSubidas);
+      return res.status(403).json({
+        error: `Tu plan permite un máximo de ${maxFotos} fotos por anuncio.`
+      });
+    }
 
     propiedad.imagenes = [
       ...imagenesExistentes,
@@ -888,10 +960,23 @@ router.put("/:id", requireAuth, uploadImagenes, validateBody(propiedadUpdateSche
     ];
 
     await propiedad.save();
+    debeLimpiarSubidas = false;
+    const imagenesConservadas = new Set(imagenesExistentes);
+    const imagenesRetiradas = imagenesOriginales.filter(url => !imagenesConservadas.has(url));
+    await eliminarImagenesCloudinary(imagenesRetiradas);
     res.json(propiedad);
 
   } catch (err) {
-    console.error(err);
+    if (debeLimpiarSubidas) {
+      await limpiarImagenesSubidas(urlsSubidas);
+    }
+    if (err instanceof InvalidExistingImagesError) {
+      return res.status(err.statusCode).json({ error: "Imágenes existentes no válidas" });
+    }
+    console.error("Error al editar propiedad:", {
+      name: err.name,
+      message: err.message
+    });
     res.status(500).json({ message: "Error al editar propiedad" });
   }
 });
@@ -911,22 +996,16 @@ router.delete("/:id", requireAuth, async (req, res) => {
       return res.status(403).json({ error: "No autorizado" });
     }
 
-    // Eliminar imágenes de Cloudinary
-    if (propiedad.imagenes && propiedad.imagenes.length > 0) {
-      for (const url of propiedad.imagenes) {
-        try {
-          await eliminarImagenCloudinary(url);
-        } catch (errImg) {
-          console.warn("No se pudo eliminar imagen:", errImg.message);
-        }
-      }
-    }
-
+    const imagenesParaEliminar = [...(propiedad.imagenes || [])];
     await Propiedad.findByIdAndDelete(req.params.id);
+    await eliminarImagenesCloudinary(imagenesParaEliminar);
     res.json({ ok: true });
 
   } catch (err) {
-    console.error(err);
+    console.error("Error al eliminar propiedad:", {
+      name: err.name,
+      message: err.message
+    });
     res.status(500).json({ message: "Error al eliminar propiedad" });
   }
 });
