@@ -803,8 +803,14 @@ if (propiedadIdEditar) {
   document.getElementById("subtitulo-pagina").textContent = "Modifica los datos de tu anuncio";
   document.getElementById("btnPublicar").textContent = "💾 Guardar cambios";
 
-  fetch(`/propiedades/${propiedadIdEditar}`)
-    .then(r => r.json())
+  fetch(`/propiedades/mias/${propiedadIdEditar}`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  })
+    .then(async r => {
+      const data = await leerJsonSeguro(r);
+      if (!r.ok) throw new Error(data.message || data.error || "No se pudo cargar la propiedad");
+      return data;
+    })
     .then(p => {
       document.getElementById("titulo").value        = p.titulo || "";
       document.getElementById("referencia").value    = p.referencia || "";
@@ -852,6 +858,9 @@ if (propiedadIdEditar) {
 
       // Actualizar campos visibles según tipo
       actualizarCampos();
+    })
+    .catch(() => {
+      mostrarErrorPublicacion("No se pudo cargar la propiedad para editar.");
     });
 }
 

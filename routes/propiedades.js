@@ -585,12 +585,12 @@ router.get("/mias/:id", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "ID inválido" });
     }
 
-    const propiedad = await Propiedad.findOne({
-      _id: req.params.id,
-      usuarioId: req.user.id
-    });
+    const propiedad = await Propiedad.findById(req.params.id);
 
     if (!propiedad) return res.status(404).json({ message: "Propiedad no encontrada" });
+    if (String(propiedad.usuarioId) !== req.user.id) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
     res.json(propiedad);
   } catch (err) {
     res.status(400).json({ message: "ID inválido" });

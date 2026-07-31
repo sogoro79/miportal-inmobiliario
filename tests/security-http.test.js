@@ -269,6 +269,75 @@ test("detalle público de propiedad genera HTML sin fallar por fs", async () => 
   }
 });
 
+test("GET /propiedades/mias/:id carga edición solo para propietario sin tocar Cloudinary", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const previousDestroy = cloudinary.uploader.destroy;
+  const destroyed = [];
+  const imagenes = [
+    "https://res.cloudinary.com/demo/image/upload/v1700000000/miportal_inmobiliario/original-a.jpg",
+    "https://res.cloudinary.com/demo/image/upload/v1700000000/miportal_inmobiliario/original-b.webp"
+  ];
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    titulo: "Casa editable",
+    referencia: "REF-1",
+    direccion: "Calle Editar 1",
+    precio: 180000,
+    descripcion: "Descripción editable",
+    tipoOperacion: "venta",
+    habitaciones: 3,
+    banos: 2,
+    superficie: 90,
+    tipoInmueble: "piso",
+    estado: "segunda_mano",
+    estadoComercial: "Disponible",
+    certificadoEnergetico: "C",
+    lat: 36.77,
+    lng: -6.35,
+    imagenes
+  };
+
+  Usuario.findById = id => Promise.resolve({
+    _id: { toString: () => String(id) },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  cloudinary.uploader.destroy = async publicId => {
+    destroyed.push(publicId);
+    return { result: "ok" };
+  };
+
+  try {
+    const propia = await request("/propiedades/mias/507f1f77bcf86cd799439088", {
+      headers: authHeaderFor("507f1f77bcf86cd799439099")
+    });
+    const data = JSON.parse(propia.text);
+
+    assert.equal(propia.status, 200);
+    assert.equal(data.titulo, "Casa editable");
+    assert.equal(data.direccion, "Calle Editar 1");
+    assert.equal(data.precio, 180000);
+    assert.equal(data.lat, 36.77);
+    assert.equal(data.lng, -6.35);
+    assert.deepEqual(data.imagenes, imagenes);
+    assert.deepEqual(destroyed, []);
+
+    const ajena = await request("/propiedades/mias/507f1f77bcf86cd799439088", {
+      headers: authHeaderFor("507f1f77bcf86cd799439077")
+    });
+
+    assert.equal(ajena.status, 403);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+    cloudinary.uploader.destroy = previousDestroy;
+  }
+});
+
 test("POST /propiedades limpia nueva imagen si falla validación tras subida", async () => {
   const previousFindById = Usuario.findById;
   const destroyed = [];
