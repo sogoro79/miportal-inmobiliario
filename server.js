@@ -7,12 +7,14 @@ dotenv.config();
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { scheduleVipTrialExpiration } from "./utils/trials.js";
 import { crearRutaPropiedadSeo } from "./utils/seoSlug.js";
 import { filtroNoCaducado } from "./utils/freeListingExpiration.js";
+import { createCorsOptions, createHelmetMiddleware, securityRateLimits } from "./utils/security.js";
+import { runBackupNow } from "./utils/backupRunner.js";
+import { requireAdmin } from "./middleware/auth.js";
 
 // =============================
 // MODELOS
@@ -42,11 +44,24 @@ const __dirname = path.dirname(__filename);
 // APP
 // =============================
 const app = express();
+const isProduction = process.env.NODE_ENV === "production";
+
+app.disable("x-powered-by");
+app.set("trust proxy", isProduction ? 1 : false);
 
 // =============================
 // MIDDLEWARE
 // =============================
-app.use(cors());
+// Helmet queda sin CSP estricta por ahora; preparar allowlist de scripts, estilos,
+// imágenes, Cloudinary, Stripe y fuentes en un bloque posterior antes de activarla.
+app.use(createHelmetMiddleware({ env: process.env.NODE_ENV }));
+app.use(cors(createCorsOptions({ env: process.env.NODE_ENV })));
+app.use((err, req, res, next) => {
+  if (err?.statusCode === 403 && err.message === "Origen no permitido") {
+    return res.status(403).json({ error: "Origen no permitido" });
+  }
+  return next(err);
+});
 // Redirigir URL antigua a dominio propio
 app.use((req, res, next) => {
   if (req.hostname === 'miportal-inmobiliario-server.onrender.com' || 
@@ -347,16 +362,6 @@ app.use(express.static(publicPath));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // =============================
-// DEBUG
-// =============================
-app.get("/_debug", (req, res) => {
-  res.json({
-    dirname: __dirname,
-    publicFiles: fs.readdirSync(publicPath)
-  });
-});
-
-// =============================
 // ROBOTS.TXT
 // =============================
 app.get("/robots.txt", (req, res) => {
@@ -432,20 +437,20 @@ app.use("/admin", adminRoutes);
 // =============================
 // BACKUP MANUAL (protegido)
 // =============================
-app.get("/backup-now", async (req, res) => {
-  const token = req.query.token;
-  if (token !== process.env.BACKUP_SECRET) {
-    return res.status(401).json({ error: "No autorizado" });
-  }
+app.get("/backup-now", (req, res) => {
+  res.status(405).json({ error: "Método no permitido" });
+});
+
+app.post("/backup-now", securityRateLimits.backup, requireAdmin, async (req, res) => {
   try {
-    res.json({ mensaje: "Backup iniciado en segundo plano" });
-    const { execSync } = await import('child_process');
-    execSync(`node backup.js`, { 
-      stdio: 'inherit',
-      env: process.env 
-    });
+    runBackupNow({ cwd: __dirname });
+    res.json({ ok: true, mensaje: "Backup iniciado" });
   } catch (err) {
+    if (err.code === "BACKUP_IN_PROGRESS") {
+      return res.status(409).json({ error: "Backup en curso" });
+    }
     console.error("❌ Error en backup:", err.message);
+    res.status(500).json({ error: "No se pudo iniciar el backup" });
   }
 });
 
@@ -468,16 +473,20 @@ app.use((req, res) => {
 // =============================
 const PORT = process.env.PORT || 3000;
 
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log("✅ MongoDB conectado");
-    scheduleVipTrialExpiration();
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor activo en http://localhost:${PORT}`);
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  mongoose
+    .connect(process.env.MONGODB_URI)
+    .then(() => {
+      console.log("✅ MongoDB conectado");
+      scheduleVipTrialExpiration();
+      app.listen(PORT, () => {
+        console.log(`🚀 Servidor activo en http://localhost:${PORT}`);
+      });
+    })
+    .catch(err => {
+      console.error("❌ Error MongoDB:", err);
+      process.exit(1);
     });
-  })
-  .catch(err => {
-    console.error("❌ Error MongoDB:", err);
-    process.exit(1);
-  });
+}
+
+export default app;

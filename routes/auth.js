@@ -8,6 +8,7 @@ import { cleanString, objectId, optionalCleanString, validateBody, z } from "../
 import { canjearCodigoVipTrial, mensajeErrorCodigoVipTrial } from "../utils/vipTrialCodes.js";
 import { authenticateUserCredentials, createUserJwt, usuarioSeguro } from "../utils/authentication.js";
 import { createRateLimit } from "../utils/rateLimit.js";
+import { securityRateLimits } from "../utils/security.js";
 
 const router = express.Router();
 
@@ -66,7 +67,7 @@ export const contactoSchema = z.object({
 /* ============================
    REGISTRO (EMAIL + TOKEN)
 ============================ */
-router.post("/register", validateBody(registerSchema), async (req, res) => {
+router.post("/register", securityRateLimits.register, validateBody(registerSchema), async (req, res) => {
   try {
     const {
       nombre,
@@ -110,7 +111,7 @@ router.post("/register", validateBody(registerSchema), async (req, res) => {
 
     const existe = await Usuario.findOne({ email });
     if (existe) {
-      return res.status(400).json({ error: "El email ya está registrado" });
+      return res.json({ ok: true, message: "Si los datos son válidos, recibirás un email para continuar" });
     }
 
     const token = jwt.sign(
@@ -161,7 +162,7 @@ router.post("/register", validateBody(registerSchema), async (req, res) => {
       `
     });
 
-    res.json({ ok: true, message: "Revisa tu email para activar la cuenta" });
+    res.json({ ok: true, message: "Si los datos son válidos, recibirás un email para continuar" });
 
   } catch (err) {
     console.error("❌ Error registro:", err);
@@ -257,7 +258,7 @@ router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res) 
 /* ============================
    RECUPERAR CONTRASEÑA
 ============================ */
-router.post("/recuperar", validateBody(recuperarSchema), async (req, res) => {
+router.post("/recuperar", securityRateLimits.passwordRecovery, validateBody(recuperarSchema), async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -302,7 +303,7 @@ router.post("/recuperar", validateBody(recuperarSchema), async (req, res) => {
 /* ============================
    RESET CONTRASEÑA
 ============================ */
-router.post("/reset", validateBody(resetSchema), async (req, res) => {
+router.post("/reset", securityRateLimits.passwordReset, validateBody(resetSchema), async (req, res) => {
   try {
     const { token, password } = req.body;
 
@@ -323,27 +324,9 @@ router.post("/reset", validateBody(resetSchema), async (req, res) => {
 });
 
 /* ============================
-   TEST EMAIL
-============================ */
-router.get("/test-email", async (req, res) => {
-  try {
-    await resend.emails.send({
-      from: 'HomeClick24 <contacto@homeclick24.com>',
-      to: process.env.GMAIL_USER,
-      subject: "TEST HomeClick24",
-      html: "<h1>Email funcionando ✅</h1>"
-    });
-    res.send("Email enviado correctamente");
-  } catch (err) {
-    console.error("❌ ERROR:", err);
-    res.status(500).send("Error: " + err.message);
-  }
-});
-
-/* ============================
    CONTACTO
 ============================ */
-router.post("/contacto", validateBody(contactoSchema), async (req, res) => {
+router.post("/contacto", securityRateLimits.contact, validateBody(contactoSchema), async (req, res) => {
   try {
     const { nombre, email, asunto, mensaje } = req.body;
 

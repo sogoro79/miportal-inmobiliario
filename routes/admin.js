@@ -11,6 +11,7 @@ import { crearDatosVipTrial, expirarVipTrialUsuario } from '../utils/trials.js';
 import { generarCodigoVipTrial } from '../utils/vipTrialCodes.js';
 import { authenticateAdminCredentials, createAdminJwt } from '../utils/authentication.js';
 import { createRateLimit } from '../utils/rateLimit.js';
+import { securityRateLimits } from '../utils/security.js';
 import { validateBody, z } from '../utils/validation.js';
 
 const router = express.Router();
@@ -158,6 +159,13 @@ router.post('/login', adminLoginLimiter, validateBody(adminLoginSchema), async (
   }
 
   return res.status(401).json({ error: 'Credenciales incorrectas' });
+});
+
+router.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    return securityRateLimits.adminSensitive(req, res, next);
+  }
+  return next();
 });
 
 // Estadísticas generales

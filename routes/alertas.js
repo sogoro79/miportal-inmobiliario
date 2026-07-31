@@ -1,14 +1,28 @@
 import express from "express";
 import Alerta from "../models/Alerta.js";
 import { requireAuth } from "../middleware/auth.js";
+import { optionalCleanString, optionalNumberFromInput, validateBody, z } from "../utils/validation.js";
+import { securityRateLimits } from "../utils/security.js";
 
 const router = express.Router();
 
+const alertaCreateSchema = z.object({
+  tipoOperacion: optionalCleanString(40),
+  ciudad: optionalCleanString(120),
+  precioMin: optionalNumberFromInput,
+  precioMax: optionalNumberFromInput,
+  habitaciones: optionalNumberFromInput
+}).strict();
+
 /* Crear alerta */
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, securityRateLimits.alertCreate, validateBody(alertaCreateSchema), async (req, res) => {
   try {
     const nuevaAlerta = new Alerta({
-      ...req.body,
+      tipoOperacion: req.body.tipoOperacion,
+      ciudad: req.body.ciudad,
+      precioMin: req.body.precioMin,
+      precioMax: req.body.precioMax,
+      habitaciones: req.body.habitaciones,
       usuarioId: req.user.id
     });
     await nuevaAlerta.save();

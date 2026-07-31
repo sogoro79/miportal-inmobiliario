@@ -560,20 +560,6 @@ router.get("/mias/:id", requireAuth, async (req, res) => {
 });
 
 // ==================================================
-// TEST EMAIL
-// ==================================================
-router.get("/test-email", async (req, res) => {
-
-  await enviarCorreo(
-    "contacto@homeclick24.com",
-    "Prueba HomeClick24",
-    "<h1>Email funcionando 🚀</h1><p>Tu sistema de emails ya funciona.</p>"
-  );
-
-  res.send("Email enviado correctamente");
-});
-
-// ==================================================
 // GET /propiedades/:id
 // ==================================================
 router.get("/:id", async (req, res) => {

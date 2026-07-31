@@ -6,6 +6,7 @@ import EstadisticaAnuncio from "../models/EstadisticaAnuncio.js";
 import Usuario from "../models/Usuario.js";
 import { requireAuth } from "../middleware/auth.js";
 import { cleanString, isObjectId, objectId, validateBody, z } from "../utils/validation.js";
+import { securityRateLimits } from "../utils/security.js";
 
 const router = express.Router();
 
@@ -39,16 +40,16 @@ const crearConversacionSchema = z.object({
   propiedadId: objectId,
   anuncianteId: objectId,
   compradorId: objectId.optional()
-});
+}).strict();
 
 const mensajeSchema = z.object({
   userId: objectId.optional(),
   texto: cleanString(2000)
-});
+}).strict();
 
 const leerSchema = z.object({
   userId: objectId.optional()
-});
+}).strict();
 
 function esParticipante(conv, userId) {
   return String(conv.anuncianteId) === userId || String(conv.compradorId) === userId;
@@ -122,7 +123,7 @@ router.get("/conversaciones/:id/mensajes", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/conversaciones/:id/mensajes", requireAuth, validateBody(mensajeSchema), async (req, res) => {
+router.post("/conversaciones/:id/mensajes", requireAuth, securityRateLimits.chatMessage, validateBody(mensajeSchema), async (req, res) => {
   try {
     if (!isObjectId(req.params.id)) {
       return res.status(400).json({ error: "ID inválido" });

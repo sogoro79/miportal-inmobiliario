@@ -1,6 +1,5 @@
 # Node modules
 node_modules/
-package-lock.json
 
 # Logs
 logs/
@@ -30,5 +29,4 @@ Thumbs.db
 
 # Render secrets (si guardas algo temporal)
 *.secret
-
 
