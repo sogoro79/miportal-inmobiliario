@@ -12,8 +12,6 @@ import { enviarCorreo } from "../utils/email.js";
 import { requireAuth } from "../middleware/auth.js";
 import { securityRateLimits } from "../utils/security.js";
 import {
-  cleanupUploadedImages,
-  deleteCloudinaryImages,
   getImageUploadErrorResponse,
   getUploadedImageUrls,
   InvalidExistingImagesError,
@@ -21,6 +19,12 @@ import {
   parseImagenesExistentes,
   validateExistingImageOwnership
 } from "../utils/imageSecurity.js";
+import {
+  CLOUDINARY_ALLOWED_FORMATS,
+  CLOUDINARY_UPLOAD_TRANSFORMATION,
+  configureCloudinary,
+  destroyImagesByUrls
+} from "../utils/cloudinaryService.js";
 import {
   calcularFechaExpiracionPlan,
   getLimiteAnunciosPlan,
@@ -189,16 +193,15 @@ function getPlanParaLimites(usuario) {
   return plan;
 }
 
-async function destroyCloudinaryPublicId(publicId) {
-  return cloudinary.uploader.destroy(publicId);
-}
-
 async function limpiarImagenesSubidas(filesOrUrls = []) {
-  return cleanupUploadedImages(filesOrUrls, destroyCloudinaryPublicId);
+  const urls = Array.isArray(filesOrUrls) && filesOrUrls.some(item => typeof item !== "string")
+    ? getUploadedImageUrls(filesOrUrls)
+    : filesOrUrls;
+  return destroyImagesByUrls(urls, { client: cloudinary });
 }
 
 async function eliminarImagenesCloudinary(urls = []) {
-  return deleteCloudinaryImages(urls, destroyCloudinaryPublicId);
+  return destroyImagesByUrls(urls, { client: cloudinary });
 }
 
 function logPublicacion(estado, data = {}) {
@@ -263,30 +266,14 @@ function filtroPropiedadesPublicas(now = new Date()) {
 // ==================================================
 // CLOUDINARY CONFIG
 // ==================================================
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+configureCloudinary({ client: cloudinary });
 
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
     folder: "miportal_inmobiliario",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    transformation: [
-      { width: 1200, crop: "limit" },
-      {
-        overlay: "homeclick24_watermark",
-        width: 400,
-        crop: "scale",
-        opacity: 70,
-        gravity: "south_east",
-        x: 30,
-        y: 30,
-        flags: "layer_apply" 
-      }
-    ]
+    allowed_formats: CLOUDINARY_ALLOWED_FORMATS,
+    transformation: CLOUDINARY_UPLOAD_TRANSFORMATION
   })
 });
 

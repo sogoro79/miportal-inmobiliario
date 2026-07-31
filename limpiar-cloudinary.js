@@ -1,15 +1,14 @@
 import "dotenv/config";
 import { v2 as cloudinary } from "cloudinary";
 import mongoose from "mongoose";
+import { fileURLToPath } from "node:url";
 import Propiedad from "./models/Propiedad.js";
+import { configureCloudinary, destroyByPublicId } from "./utils/cloudinaryService.js";
+import { getCloudinaryPublicIdFromUrl } from "./utils/imageSecurity.js";
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+configureCloudinary({ client: cloudinary });
 
-async function limpiarCloudinary() {
+export async function limpiarCloudinary() {
   await mongoose.connect(process.env.MONGODB_URI);
   console.log("Conectado a MongoDB");
 
@@ -18,10 +17,8 @@ async function limpiarCloudinary() {
   const urlsEnUso = new Set();
   for (const p of propiedades) {
     for (const url of p.imagenes || []) {
-      const partes = url.split("/");
-      const archivo = partes[partes.length - 1].split(".")[0];
-      const carpeta = partes[partes.length - 2];
-      urlsEnUso.add(`${carpeta}/${archivo}`);
+      const publicId = getCloudinaryPublicIdFromUrl(url);
+      if (publicId) urlsEnUso.add(publicId);
     }
   }
   console.log(`Imágenes en uso en MongoDB: ${urlsEnUso.size}`);
@@ -47,7 +44,7 @@ async function limpiarCloudinary() {
   for (const recurso of recursos) {
     if (!urlsEnUso.has(recurso.public_id)) {
       console.log(`Borrando: ${recurso.public_id}`);
-      await cloudinary.uploader.destroy(recurso.public_id);
+      await destroyByPublicId(recurso.public_id, { client: cloudinary });
       borradas++;
     }
   }
@@ -56,4 +53,6 @@ async function limpiarCloudinary() {
   await mongoose.disconnect();
 }
 
-limpiarCloudinary().catch(console.error);
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  limpiarCloudinary().catch(console.error);
+}
