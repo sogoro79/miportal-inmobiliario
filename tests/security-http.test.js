@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import jwt from "jsonwebtoken";
 import { EventEmitter } from "events";
 import { PassThrough, Readable, Writable } from "stream";
+import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
 import { setBackupRunnerForTests, resetBackupRunnerForTests } from "../utils/backupRunner.js";
 
@@ -163,6 +164,40 @@ test("peticiones sin Origin siguen funcionando y Stripe webhook conserva raw bod
   assert.equal(webhook.status, 400);
   assert.match(webhook.text, /Webhook Error:/);
   assert.doesNotMatch(webhook.text, /invalid raw body/);
+});
+
+test("ruta SEO pública lee HTML con fs disponible", async () => {
+  const response = await request("/comprar/cadiz");
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, /https:\/\/www\.homeclick24\.com\/comprar\/cadiz/);
+  assert.doesNotMatch(response.text, /Error generando propiedad|fs is not defined/i);
+});
+
+test("detalle público de propiedad genera HTML sin fallar por fs", async () => {
+  const previousFindOne = Propiedad.findOne;
+  const id = "507f1f77bcf86cd799439099";
+  Propiedad.findOne = () => ({
+    lean: () => Promise.resolve({
+      _id: id,
+      titulo: "Casa Test",
+      direccion: "Calle Test",
+      precio: 123000,
+      descripcion: "Detalle de prueba",
+      imagenes: []
+    })
+  });
+
+  try {
+    const response = await request(`/propiedad/casa-test-${id}`);
+
+    assert.equal(response.status, 200);
+    assert.match(response.text, /Casa Test/);
+    assert.match(response.text, new RegExp(`https://www\\.homeclick24\\.com/propiedad/casa-test-${id}`));
+    assert.doesNotMatch(response.text, /Error generando propiedad|fs is not defined/i);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
 });
 
 test("rate limits protegen registro, recuperación y contacto", async () => {
