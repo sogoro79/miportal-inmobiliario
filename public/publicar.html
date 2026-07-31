@@ -803,8 +803,14 @@ if (propiedadIdEditar) {
   document.getElementById("subtitulo-pagina").textContent = "Modifica los datos de tu anuncio";
   document.getElementById("btnPublicar").textContent = "💾 Guardar cambios";
 
+  const tokenEdicion = obtenerTokenPublicar();
+  if (!tokenEdicion) {
+    limpiarSesionPublicar();
+    mostrarSesionCaducada();
+    redirigirLoginPublicar();
+  } else {
   fetch(`/propiedades/mias/${propiedadIdEditar}`, {
-    headers: { "Authorization": `Bearer ${token}` }
+    headers: { "Authorization": `Bearer ${tokenEdicion}` }
   })
     .then(async r => {
       const data = await leerJsonSeguro(r);
@@ -862,6 +868,7 @@ if (propiedadIdEditar) {
     .catch(() => {
       mostrarErrorPublicacion("No se pudo cargar la propiedad para editar.");
     });
+  }
 }
 
 /* CHIPS EXTRAS */
