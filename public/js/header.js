@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const raw = localStorage.getItem("usuario");
+  const token = localStorage.getItem("token");
   let usuario = null;
 
   try {
@@ -22,6 +23,58 @@ document.addEventListener("DOMContentLoaded", () => {
   const nombreUsuarioInicial = typeof usuario?.nombre === "string" && usuario.nombre.trim()
     ? usuario.nombre.trim()
     : "...";
+
+  function obtenerNombreUsuario(usuarioActual) {
+    return typeof usuarioActual?.nombre === "string" && usuarioActual.nombre.trim()
+      ? usuarioActual.nombre.trim()
+      : "";
+  }
+
+  function normalizarUsuarioActual(data) {
+    if (data?.usuario && typeof data.usuario === "object") return data.usuario;
+    if (data?.user && typeof data.user === "object") return data.user;
+    return data && typeof data === "object" ? data : null;
+  }
+
+  function guardarUsuarioActualizado(usuarioActualizado) {
+    const usuarioFusionado = { ...(usuario || {}), ...usuarioActualizado };
+    localStorage.setItem("usuario", JSON.stringify(usuarioFusionado));
+    usuario = usuarioFusionado;
+    return usuarioFusionado;
+  }
+
+  function pintarNombreUsuario(usuarioActual) {
+    const userToggle = document.getElementById("userToggle");
+    if (!userToggle) return;
+    userToggle.textContent = obtenerNombreUsuario(usuarioActual) || "...";
+  }
+
+  async function refrescarUsuarioCabecera() {
+    if (!token) return;
+
+    try {
+      const res = await fetch("/usuarios/me", {
+        headers: { "Authorization": "Bearer " + token }
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem("usuario");
+        localStorage.removeItem("token");
+        return;
+      }
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const usuarioActualizado = normalizarUsuarioActual(data);
+      if (!usuarioActualizado) return;
+
+      const usuarioFusionado = guardarUsuarioActualizado(usuarioActualizado);
+      pintarNombreUsuario(usuarioFusionado);
+    } catch (e) {
+      console.warn("No se pudo refrescar el usuario en cabecera:", e.message);
+    }
+  }
 
   const langOptions = `
     <a href="#" onclick="selectLang('🇪🇸','España')">🇪🇸 España</a>
@@ -227,6 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (!userMenu || !userToggle || !logoutBtn) return;
   userToggle.textContent = nombreUsuarioInicial;
+  refrescarUsuarioCabecera();
 
   userToggle.addEventListener("click", (e) => {
     e.stopPropagation();
