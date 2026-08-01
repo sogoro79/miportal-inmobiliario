@@ -1,12 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import jwt from "jsonwebtoken";
-import { EventEmitter } from "events";
 import { PassThrough, Readable, Writable } from "stream";
 import { v2 as cloudinary } from "cloudinary";
 import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
-import { setBackupRunnerForTests, resetBackupRunnerForTests } from "../utils/backupRunner.js";
 
 process.env.NODE_ENV = "production";
 process.env.JWT_SECRET = "test-secret";
@@ -1082,88 +1080,4 @@ test("endpoints test-email ya no son públicos", async () => {
   assert.equal(authPaths.includes("/test-email"), false);
   assert.equal(propiedadesPaths.includes("/test-email"), false);
   assert.equal(appPaths.includes("/_debug"), false);
-});
-
-test("backup rechaza GET, anónimo y usuario normal; permite admin real mediante POST", async () => {
-  const previousFindById = Usuario.findById;
-  let backupStarted = 0;
-  setBackupRunnerForTests(() => {
-    backupStarted += 1;
-  });
-
-  try {
-    const getResponse = await request("/backup-now");
-    assert.equal(getResponse.status, 405);
-
-    const headResponse = await request("/backup-now", { method: "HEAD" });
-    assert.equal(headResponse.status, 405);
-    assert.equal(backupStarted, 0);
-
-    const anonymous = await request("/backup-now", { method: "POST" });
-    assert.equal(anonymous.status, 401);
-
-    Usuario.findById = () => Promise.resolve({
-      _id: { toString: () => "507f1f77bcf86cd799439011" },
-      activo: true,
-      role: "user"
-    });
-    const userToken = jwt.sign({ id: "507f1f77bcf86cd799439011" }, "test-secret");
-    const normalUser = await request("/backup-now", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${userToken}`, "X-Forwarded-For": "203.0.113.20" }
-    });
-    assert.equal(normalUser.status, 403);
-
-    Usuario.findById = () => Promise.resolve({
-      _id: { toString: () => "507f1f77bcf86cd799439012" },
-      activo: true,
-      role: "admin"
-    });
-    const adminToken = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
-    const admin = await request("/backup-now", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${adminToken}`, "X-Forwarded-For": "203.0.113.21" }
-    });
-    assert.equal(admin.status, 200);
-    assert.equal(backupStarted, 1);
-    assert.doesNotMatch(admin.text, /secret|token|password|mongodb|stripe/i);
-  } finally {
-    Usuario.findById = previousFindById;
-    resetBackupRunnerForTests();
-  }
-});
-
-test("backup evita dos ejecuciones simultáneas", async () => {
-  const previousFindById = Usuario.findById;
-  const child = new EventEmitter();
-  let backupStarted = 0;
-  setBackupRunnerForTests(() => {
-    backupStarted += 1;
-    return child;
-  });
-
-  Usuario.findById = () => Promise.resolve({
-    _id: { toString: () => "507f1f77bcf86cd799439012" },
-    activo: true,
-    role: "admin"
-  });
-  const adminToken = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
-  const headers = {
-    Authorization: `Bearer ${adminToken}`,
-    "X-Forwarded-For": "203.0.113.22"
-  };
-
-  try {
-    const first = await request("/backup-now", { method: "POST", headers });
-    const second = await request("/backup-now", { method: "POST", headers });
-
-    assert.equal(first.status, 200);
-    assert.equal(second.status, 409);
-    assert.equal(backupStarted, 1);
-    assert.deepEqual(JSON.parse(second.text), { error: "Backup en curso" });
-  } finally {
-    child.emit("close", 0);
-    Usuario.findById = previousFindById;
-    resetBackupRunnerForTests();
-  }
 });

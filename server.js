@@ -14,8 +14,6 @@ import { scheduleVipTrialExpiration } from "./utils/trials.js";
 import { crearRutaPropiedadSeo } from "./utils/seoSlug.js";
 import { filtroNoCaducado } from "./utils/freeListingExpiration.js";
 import { createCorsOptions, createHelmetMiddleware, securityRateLimits } from "./utils/security.js";
-import { runBackupNow } from "./utils/backupRunner.js";
-import { requireAdmin } from "./middleware/auth.js";
 
 // =============================
 // MODELOS
@@ -434,26 +432,6 @@ app.use("/alertas", alertasRoutes);
 app.use("/notificaciones", notificacionesRoutes);
 app.use("/pagos", pagosRoutes);
 app.use("/admin", adminRoutes);
-
-// =============================
-// BACKUP MANUAL (protegido)
-// =============================
-app.get("/backup-now", (req, res) => {
-  res.status(405).json({ error: "Método no permitido" });
-});
-
-app.post("/backup-now", securityRateLimits.backup, requireAdmin, async (req, res) => {
-  try {
-    runBackupNow({ cwd: __dirname });
-    res.json({ ok: true, mensaje: "Backup iniciado" });
-  } catch (err) {
-    if (err.code === "BACKUP_IN_PROGRESS") {
-      return res.status(409).json({ error: "Backup en curso" });
-    }
-    console.error("❌ Error en backup:", err.message);
-    res.status(500).json({ error: "No se pudo iniciar el backup" });
-  }
-});
 
 // =============================
 // INDEX

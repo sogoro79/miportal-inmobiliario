@@ -76,6 +76,5 @@ export const securityRateLimits = {
   alertCreate: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 20, keyPrefix: "alert-create" }),
   chatMessage: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: "chat-message" }),
   propertyUpload: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 20, keyPrefix: "property-upload" }),
-  adminSensitive: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 60, keyPrefix: "admin-sensitive" }),
-  backup: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 2, keyPrefix: "backup" })
+  adminSensitive: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 60, keyPrefix: "admin-sensitive" })
 };
