@@ -9,6 +9,7 @@
     "start": "node server.js",
     "backup": "node backup.js",
     "backup:validate": "node scripts/validate-backup.js",
+    "backup:restore": "node scripts/restore-backup.js",
     "bootstrap-admin": "node scripts/bootstrap-admin.js",
     "test": "node --test"
   },

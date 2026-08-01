@@ -357,6 +357,11 @@ export function sanitizeBackupSummary(summary) {
 }
 
 export async function validateBackupFile(filePath, { expectedCollections, limits = {}, strictIds = false } = {}) {
+  const { summary } = await readValidatedBackupPayload(filePath, { expectedCollections, limits, strictIds });
+  return summary;
+}
+
+export async function readValidatedBackupPayload(filePath, { expectedCollections, limits = {}, strictIds = false } = {}) {
   const activeLimits = mergeLimits(limits);
   const fileInfo = await validateBackupPath(filePath, activeLimits);
   const sha256 = await calculateFileSha256(fileInfo.path);
@@ -376,7 +381,7 @@ export async function validateBackupFile(filePath, { expectedCollections, limits
   });
   const compressionRatio = Number((uncompressedBytes / fileInfo.compressedBytes).toFixed(2));
 
-  return sanitizeBackupSummary({
+  const summary = sanitizeBackupSummary({
     valid: true,
     file: {
       name: fileInfo.name,
@@ -388,4 +393,9 @@ export async function validateBackupFile(filePath, { expectedCollections, limits
     },
     ...structure,
   });
+
+  return {
+    summary,
+    payload: parsed,
+  };
 }

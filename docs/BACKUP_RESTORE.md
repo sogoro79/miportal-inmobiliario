@@ -1,6 +1,6 @@
 # Backup y recuperacion de HomeClick24
 
-Este documento describe el formato actual de backup y la Fase 1 de recuperacion: validacion offline de archivos `.json.gz`.
+Este documento describe el formato actual de backup y las fases de recuperacion disponibles: validacion offline y restauracion controlada a una base temporal.
 
 ## Formato actual
 
@@ -113,31 +113,152 @@ npm run backup:validate -- -- -backup-2026-08-01.json.gz
 
 ## Restauracion
 
-La restauracion todavia no esta implementada.
+La Fase 2 incorpora preparacion de restauracion a una base temporal. No se ha ejecutado una restauracion real durante la implementacion y la logica de escritura esta cubierta solo con mocks automatizados. Falta una prueba controlada posterior contra una base temporal vacia.
 
-Esta fase tampoco preserva ni valida indices, validadores de coleccion, opciones de coleccion, todos los tipos BSON originales ni cifrado del archivo.
+Hay tres operaciones distintas:
 
-Cuando se implemente, debera estar separada de la validacion y bloquear por defecto cualquier intento de restaurar sobre produccion. El diseno previsto exige:
+- validacion: `npm run backup:validate`, valida formato y muestra resumen seguro;
+- dry-run: `npm run backup:restore -- archivo.json.gz --dry-run`, valida y muestra un plan sin conectar a MongoDB;
+- restore: `npm run backup:restore -- archivo.json.gz --confirm-restore`, solo para una base temporal permitida y con barreras activas.
+
+El dry-run no prueba que la conexion MongoDB funcione. Solo demuestra que el archivo y el plan son validos.
+
+Uso recomendado de dry-run:
+
+```bash
+npm run backup:restore -- /ruta/backup-2026-08-01.json.gz --dry-run
+```
+
+Con colecciones esperadas:
+
+```bash
+npm run backup:restore -- /ruta/backup-2026-08-01.json.gz --dry-run --expect usuarios,propiedads
+```
+
+Comando teorico de restauracion real:
+
+```bash
+ALLOW_RESTORE=true \
+RESTORE_MONGODB_URI="mongodb+srv://usuario:password@cluster.example/restore_homeclick24_20260801" \
+npm run backup:restore -- /ruta/backup-2026-08-01.json.gz --confirm-restore
+```
+
+La restauracion real no tiene modo implicito. Debe indicarse `--confirm-restore`.
+
+## Barreras de restauracion
+
+Para una restauracion real deben cumplirse todas estas condiciones:
 
 - `RESTORE_MONGODB_URI`, nunca `MONGODB_URI`;
 - rechazo si `RESTORE_MONGODB_URI` coincide con `MONGODB_URI`;
-- rechazo de bases llamadas `production`, `prod`, `homeclick24` o equivalentes de produccion;
+- comparacion normalizada de protocolo, host, puerto, base y parametros, ignorando credenciales;
+- URI con nombre explicito de base de datos;
 - `ALLOW_RESTORE=true`;
 - argumento `--confirm-restore`;
-- modo `--dry-run`;
+- no usar `--dry-run` junto a `--confirm-restore`;
 - destino temporal;
 - logs sin documentos ni datos personales.
+
+No existe fallback hacia `MONGODB_URI`. Si falta `RESTORE_MONGODB_URI`, la restauracion se aborta.
+
+La salida puede mostrar el destino sanitizado:
+
+```text
+Destino: cluster.example/restore_homeclick24_20260801
+```
+
+Nunca debe mostrar usuario, password, query params sensibles ni URI completa.
+
+Bases prohibidas, sin distinguir mayusculas/minusculas:
+
+- `admin`
+- `config`
+- `local`
+- `production`
+- `prod`
+- `homeclick24`
+- `miportal`
+- `miportal-inmobiliario`
+- `miportal_inmobiliario`
+
+La base temporal debe usar solo letras ASCII, numeros, guion y guion bajo, y debe empezar por uno de estos prefijos. La comparacion de prefijo no distingue mayusculas/minusculas:
+
+- `restore_`
+- `restore-`
+- `test_restore_`
+- `test-restore-`
+
+Ejemplos validos:
+
+- `restore_homeclick24_20260801`
+- `test_restore_homeclick24`
+
+Ejemplos invalidos:
+
+- `homeclick24`
+- `production`
+- `backup`
+- `test`
+- `temporal`
+
+## Insercion
+
+Antes de insertar, la herramienta comprueba que la base destino no contiene colecciones con datos. Si existe cualquier coleccion no vacia, aborta. Si una coleccion existe pero esta vacia, puede usarse.
+
+La herramienta no ejecuta:
+
+- `dropDatabase`
+- `dropCollection`
+- `deleteMany`
+- `replaceOne`
+- `updateMany`
+
+No borra datos automaticamente.
+
+La insercion se realiza:
+
+- coleccion por coleccion;
+- lote por lote;
+- `batch size` por defecto `500`;
+- `batch size` maximo `1000`;
+- `insertMany` con `ordered: true`;
+- aborto en el primer error.
+
+No usa `ordered: false`, no silencia duplicados de `_id`, no modifica documentos, no regenera `_id`, no convierte strings a `ObjectId` o `Date`, y no usa transacciones en esta fase.
+
+Como no hay transacciones globales, una restauracion puede quedar parcialmente insertada. En ese caso se informa `PARTIAL_RESTORE`, no se intenta rollback automatico y no se borra nada. Antes de reintentar, elimina manualmente la base temporal fallida desde Atlas. No limpies ni modifiques produccion por este procedimiento.
+
+## Limitaciones
+
+Esta fase no preserva ni valida indices, validadores de coleccion, opciones de coleccion, TTL, todos los tipos BSON originales ni cifrado del archivo.
+
+Limitaciones BSON actuales:
+
+- `ObjectId` se restauraria como string;
+- `Date` se restauraria como string ISO;
+- referencias se mantienen como strings;
+- indices y TTL no se restauran;
+- no usa EJSON;
+- no usa mongodump.
+
+Esta restauracion sirve para inspeccion y recuperacion temporal aproximada. No garantiza una replica exacta de produccion y no debe promoverse automaticamente a produccion.
 
 ## Procedimiento de emergencia
 
 1. Descargar el backup.
-2. Calcular y registrar SHA-256.
-3. Validar el archivo con `npm run backup:validate`.
-4. Crear una base temporal no productiva.
-5. Restaurar solo en la base temporal cuando exista la Fase 2.
-6. Comparar recuentos por coleccion.
-7. Probar login, propiedades, chat y panel admin en entorno aislado.
-8. Decidir un plan de migracion hacia produccion.
-9. Documentar el incidente, el hash y las acciones realizadas.
+2. Conservar una copia original sin modificar.
+3. Calcular y registrar SHA-256.
+4. Validar el archivo con `npm run backup:validate`.
+5. Ejecutar `npm run backup:restore -- archivo.json.gz --dry-run`.
+6. Crear una base temporal vacia con prefijo permitido.
+7. Configurar temporalmente `RESTORE_MONGODB_URI` hacia esa base temporal.
+8. Configurar `ALLOW_RESTORE=true`.
+9. Comprobar el destino sanitizado que muestra la herramienta.
+10. Ejecutar la restauracion con `--confirm-restore`.
+11. Revisar el informe de colecciones, lotes y documentos insertados.
+12. Probar login, propiedades, chat y panel admin en entorno aislado.
+13. Decidir un plan manual de recuperacion.
+14. Documentar el incidente, el hash y las acciones realizadas.
 
 No se debe restaurar directamente sobre produccion.
+No se debe importar manualmente el backup en produccion.
