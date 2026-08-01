@@ -39,7 +39,7 @@ function getClient(client = defaultCloudinary) {
   return client;
 }
 
-function isValidPublicId(publicId) {
+export function isValidCloudinaryPublicId(publicId) {
   if (typeof publicId !== "string" || !publicId.trim()) return false;
   const value = publicId.trim();
   if (!value.startsWith(`${CLOUDINARY_IMAGE_FOLDER}/`)) return false;
@@ -81,9 +81,9 @@ export function normalizeUploadedFile(file) {
     file?.public_id,
     file?.filename,
     getCloudinaryPublicIdFromUrl(url)
-  ].find(isValidPublicId);
+  ].find(isValidCloudinaryPublicId);
 
-  if (!isValidPublicId(publicId)) {
+  if (!isValidCloudinaryPublicId(publicId)) {
     throw new CloudinaryServiceError("Imagen subida sin identificador válido");
   }
 
@@ -97,7 +97,7 @@ export function normalizeUploadedFiles(files = []) {
 export async function destroyByPublicId(publicId, {
   client = defaultCloudinary
 } = {}) {
-  if (!isValidPublicId(publicId)) {
+  if (!isValidCloudinaryPublicId(publicId)) {
     throw new CloudinaryServiceError("Identificador de imagen no válido");
   }
 
@@ -119,7 +119,7 @@ export async function destroyImagesByUrls(urls = [], {
   const publicIds = [...new Set(
     (urls || [])
       .map(getCloudinaryPublicIdFromUrl)
-      .filter(isValidPublicId)
+      .filter(isValidCloudinaryPublicId)
   )];
 
   const results = await Promise.allSettled(

@@ -42,6 +42,7 @@ function createReq(path, { method = "GET", headers = {}, body, rawBody } = {}) {
   req.url = path;
   req.originalUrl = path;
   req.headers = normalizedHeaders;
+  req.complete = true;
   req.socket = new PassThrough();
   req.socket.remoteAddress = req.headers["x-forwarded-for"] || "127.0.0.1";
   req.connection = req.socket;
@@ -931,6 +932,56 @@ test("MulterError LIMIT_UNEXPECTED_FILE y MIME inválido devuelven JSON controla
     assert.match(invalidMimeResponse.text, /Formato de imagen no permitido/);
     assert.equal(restoreCloudinary.getUploadCount(), 0);
     assert.deepEqual(destroyed, []);
+  } finally {
+    Usuario.findById = previousFindById;
+    restoreCloudinary();
+  }
+});
+
+test("Multer 2 limita a 30 imágenes nuevas por petición y limpia subidas parciales", async () => {
+  const previousFindById = Usuario.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "vip",
+    planActivo: true
+  });
+
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa",
+      direccion: "Calle Test",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2"
+    },
+    files: Array.from({ length: 31 }, (_, index) => ({
+      filename: `foto-${index + 1}.jpg`,
+      contentType: "image/jpeg",
+      content: "jpg"
+    }))
+  });
+
+  try {
+    const response = await request("/propiedades", {
+      method: "POST",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.97"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(response.text, /No puedes subir más de 30 imágenes nuevas por petición/);
+    assert.equal(restoreCloudinary.getUploadCount(), 30);
+    assert.equal(destroyed.length, 30);
+    assert.equal(destroyed[0], "miportal_inmobiliario/uploaded-1");
+    assert.equal(destroyed[29], "miportal_inmobiliario/uploaded-30");
+    assert.doesNotMatch(response.text, /stack|CLOUDINARY|api_secret|\/Users\//i);
   } finally {
     Usuario.findById = previousFindById;
     restoreCloudinary();

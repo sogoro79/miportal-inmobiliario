@@ -35,7 +35,7 @@ function createUploadClient({ response, error, captureOptions }) {
   };
 }
 
-test("normalizeUploadedFile soporta el objeto actual de CloudinaryStorage", () => {
+test("normalizeUploadedFile soporta el objeto actual de subida", () => {
   assert.deepEqual(
     normalizeUploadedFile({
       path: cloudinaryUrl,

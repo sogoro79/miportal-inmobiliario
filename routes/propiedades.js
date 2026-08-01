@@ -2,7 +2,6 @@ import "dotenv/config";
 import express from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
 import Propiedad from "../models/Propiedad.js";
 import EstadisticaAnuncio from "../models/EstadisticaAnuncio.js";
 import Alerta from "../models/Alerta.js";
@@ -20,11 +19,10 @@ import {
   validateExistingImageOwnership
 } from "../utils/imageSecurity.js";
 import {
-  CLOUDINARY_ALLOWED_FORMATS,
-  CLOUDINARY_UPLOAD_TRANSFORMATION,
   configureCloudinary,
   destroyImagesByUrls
 } from "../utils/cloudinaryService.js";
+import { createCloudinaryStreamStorage } from "../utils/cloudinaryStorage.js";
 import {
   calcularFechaExpiracionPlan,
   getLimiteAnunciosPlan,
@@ -268,14 +266,7 @@ function filtroPropiedadesPublicas(now = new Date()) {
 // ==================================================
 configureCloudinary({ client: cloudinary });
 
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: async (req, file) => ({
-    folder: "miportal_inmobiliario",
-    allowed_formats: CLOUDINARY_ALLOWED_FORMATS,
-    transformation: CLOUDINARY_UPLOAD_TRANSFORMATION
-  })
-});
+const storage = createCloudinaryStreamStorage({ client: cloudinary });
 
 const upload = multer({
   storage,
@@ -306,7 +297,6 @@ const upload = multer({
 function uploadImagenes(req, res, next) {
   upload.array("imagenes", MAX_FILES_PER_REQUEST)(req, res, async err => {
     if (!err) return next();
-    await limpiarImagenesSubidas(req.files);
     const isMulterError = err instanceof multer.MulterError;
     const { status, message: mensaje } = getImageUploadErrorResponse(err, { isMulterError });
 

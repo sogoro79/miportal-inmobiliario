@@ -118,6 +118,10 @@ test("MulterError se traduce a códigos y mensajes controlados", () => {
     { status: 400, message: "El campo de subida de imágenes no es válido." }
   );
   assert.deepEqual(
+    getImageUploadErrorResponse({ code: "LIMIT_UNEXPECTED_FILE", field: "imagenes" }, { isMulterError: true, maxFiles: 30 }),
+    { status: 400, message: "No puedes subir más de 30 imágenes nuevas por petición." }
+  );
+  assert.deepEqual(
     getImageUploadErrorResponse({ statusCode: 400, message: "Formato de imagen no permitido." }),
     { status: 400, message: "Formato de imagen no permitido." }
   );

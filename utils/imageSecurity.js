@@ -1,5 +1,6 @@
 const CLOUDINARY_HOST = "res.cloudinary.com";
 export const CLOUDINARY_IMAGE_FOLDER = "miportal_inmobiliario";
+// Límite técnico por petición multipart; los límites comerciales se calculan por plan.
 export const MAX_FILES_PER_REQUEST = 30;
 const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 
@@ -137,6 +138,8 @@ export function getImageUploadErrorResponse(err, { isMulterError = false, maxFil
     if (err.code === "LIMIT_FILE_SIZE") {
       message = "Una o varias imágenes superan el tamaño máximo permitido de 15 MB.";
     } else if (err.code === "LIMIT_FILE_COUNT") {
+      message = `No puedes subir más de ${maxFiles} imágenes nuevas por petición.`;
+    } else if (err.code === "LIMIT_UNEXPECTED_FILE" && err.field === "imagenes") {
       message = `No puedes subir más de ${maxFiles} imágenes nuevas por petición.`;
     } else if (err.code === "LIMIT_UNEXPECTED_FILE") {
       message = "El campo de subida de imágenes no es válido.";
