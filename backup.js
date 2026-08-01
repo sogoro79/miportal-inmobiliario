@@ -8,6 +8,7 @@ import nodemailer from 'nodemailer';
 import { createGzip } from 'zlib';
 import { createWriteStream, unlinkSync, existsSync, readFileSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // ---- CONFIGURACIÓN ----
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -15,7 +16,7 @@ const GMAIL_USER = process.env.GMAIL_USER;
 const GMAIL_PASS = process.env.GMAIL_PASS;
 
 // ---- EXPORTAR COLECCIONES ----
-async function exportarColecciones() {
+export async function exportarColecciones() {
   const fecha = new Date().toISOString().split('T')[0];
   const nombreArchivo = `backup-${fecha}.json.gz`;
   const rutaLocal = path.join('/tmp', nombreArchivo);
@@ -57,39 +58,54 @@ async function exportarColecciones() {
 }
 
 // ---- ENVIAR POR EMAIL ----
-async function enviarPorEmail(rutaLocal, nombreArchivo) {
+export async function enviarPorEmail(
+  rutaLocal,
+  nombreArchivo,
+  {
+    mailer = nodemailer,
+    readFile = readFileSync,
+    env = process.env,
+    now = () => new Date(),
+  } = {}
+) {
   console.log(`📧 Enviando backup por email...`);
 
-  const transporter = nodemailer.createTransport({
+  const transporter = mailer.createTransport({
     host: 'smtp.resend.com',
     port: 465,
     secure: true,
+    disableFileAccess: true,
+    disableUrlAccess: true,
     auth: {
       user: 'resend',
-      pass: process.env.RESEND_API_KEY,
+      pass: env.RESEND_API_KEY,
     },
   });
 
-  const fecha = new Date().toLocaleDateString('es-ES');
+  const fecha = now().toLocaleDateString('es-ES');
   
-  await transporter.sendMail({
-    from: 'backup@homeclick24.com',
-    to: GMAIL_USER,
-    subject: `🗄️ Backup HomeClick24 - ${fecha}`,
-    text: `Backup automático de la base de datos de HomeClick24 del ${fecha}.\n\nColecciones incluidas en el adjunto.`,
-    attachments: [
-      {
-        filename: nombreArchivo,
-        content: readFileSync(rutaLocal),
-      },
-    ],
-  });
+  try {
+    await transporter.sendMail({
+      from: 'backup@homeclick24.com',
+      to: env.GMAIL_USER,
+      subject: `🗄️ Backup HomeClick24 - ${fecha}`,
+      text: `Backup automático de la base de datos de HomeClick24 del ${fecha}.\n\nColecciones incluidas en el adjunto.`,
+      attachments: [
+        {
+          filename: nombreArchivo,
+          content: readFile(rutaLocal),
+        },
+      ],
+    });
+  } catch (error) {
+    throw new Error('No se pudo enviar el backup por email', { cause: error });
+  }
 
-  console.log(`✅ Backup enviado a ${GMAIL_USER}`);
+  console.log(`✅ Backup enviado a ${env.GMAIL_USER}`);
 }
 
 // ---- FUNCIÓN PRINCIPAL ----
-async function main() {
+export async function main() {
   console.log('🚀 Iniciando backup de HomeClick24...');
   console.log(`📅 Fecha: ${new Date().toLocaleString('es-ES')}`);
   console.log('----------------------------------------');
@@ -114,4 +130,6 @@ async function main() {
 
 export default main;
 
-main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main();
+}
