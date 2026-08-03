@@ -243,6 +243,129 @@ Limitaciones BSON actuales:
 
 Esta restauracion sirve para inspeccion y recuperacion temporal aproximada. No garantiza una replica exacta de produccion y no debe promoverse automaticamente a produccion.
 
+## Prueba controlada de restauracion completada
+
+Fecha: 2026-08-03.
+
+Tipo de prueba: restauracion real unicamente sobre una base temporal de MongoDB Atlas.
+
+Resultado: completada correctamente.
+
+Backup utilizado:
+
+- archivo: `backup-2026-08-01.json.gz`;
+- SHA-256: `5d804c8e043735c60414854314904a2eb8c648ae36cb729d99b3aec9943b17aa`;
+- tamano comprimido: 39.228 bytes;
+- tamano descomprimido: 214.176 bytes;
+- documentos totales: 265;
+- colecciones: 8.
+
+Destino temporal:
+
+- base temporal: `restore_homeclick24_20260803`;
+- usuario temporal: `restore_temp`;
+- permisos: solo `readWrite` sobre `restore_homeclick24_20260803`.
+
+Confirmaciones:
+
+- la base de produccion no se modifico;
+- la restauracion inserto 265 documentos en 8 colecciones;
+- las colecciones se comprobaron visualmente en Data Explorer;
+- despues de la prueba se eliminaron `RESTORE_MONGODB_URI` y `ALLOW_RESTORE` de la sesion local;
+- despues de la prueba se elimino la base `restore_homeclick24_20260803`;
+- despues de la prueba se elimino el usuario temporal `restore_temp`;
+- no quedaron credenciales ni recursos temporales activos.
+
+Resultado por coleccion:
+
+| Coleccion | Documentos restaurados | Lotes | Resultado |
+| --- | ---: | ---: | --- |
+| `alertas` | 2 | 1 | `inserted` |
+| `codigoviptrials` | 3 | 1 | `inserted` |
+| `conversacions` | 11 | 1 | `inserted` |
+| `estadisticaanuncios` | 171 | 1 | `inserted` |
+| `mensajes` | 42 | 1 | `inserted` |
+| `notificacions` | 5 | 1 | `inserted` |
+| `propiedads` | 20 | 1 | `inserted` |
+| `usuarios` | 11 | 1 | `inserted` |
+
+Este registro no incluye contrasenas, URI completas, hostnames sensibles, datos personales, documentos del backup, emails, tokens, hashes ni capturas.
+
+## Procedimiento operativo probado
+
+A. Validacion:
+
+```bash
+npm run backup:validate -- <archivo.json.gz>
+```
+
+B. Simulacion:
+
+```bash
+npm run backup:restore -- <archivo.json.gz> --dry-run
+```
+
+C. Restauracion temporal real:
+
+1. Crear una base temporal vacia con prefijo permitido, por ejemplo `restore_homeclick24_YYYYMMDD`.
+2. Crear un usuario temporal dedicado.
+3. Limitar el usuario temporal a `readWrite` solo sobre esa base temporal.
+4. Construir `RESTORE_MONGODB_URI` solo en la sesion local de Terminal.
+5. Activar `ALLOW_RESTORE=true` solo en esa misma sesion.
+6. Ejecutar `npm run backup:restore -- <archivo.json.gz> --confirm-restore`.
+7. Revisar el informe de colecciones, lotes y documentos insertados.
+8. Verificar los recuentos y colecciones en Data Explorer.
+9. Probar la aplicacion en un entorno aislado si procede.
+10. Eliminar variables temporales de la sesion.
+11. Eliminar la base temporal cuando deje de ser necesaria.
+12. Eliminar el usuario temporal.
+13. Documentar el resultado.
+
+No pegues una URI real en tickets, documentacion, chats ni historial compartido.
+
+## Seguridad de credenciales
+
+Procedimiento seguro usado para preparar credenciales temporales:
+
+```bash
+read -s RESTORE_PASSWORD
+ENCODED_RESTORE_PASSWORD="$(node -e 'console.log(encodeURIComponent(process.argv[1]))' "$RESTORE_PASSWORD")"
+export ALLOW_RESTORE=true
+export RESTORE_MONGODB_URI="mongodb+srv://restore_temp:${ENCODED_RESTORE_PASSWORD}@<cluster>/<base_temporal>"
+```
+
+Despues de la prueba:
+
+```bash
+unset RESTORE_PASSWORD
+unset ENCODED_RESTORE_PASSWORD
+unset RESTORE_MONGODB_URI
+unset ALLOW_RESTORE
+env | grep -E 'RESTORE|ALLOW_RESTORE'
+```
+
+La comprobacion final no debe devolver variables activas relacionadas con restauracion.
+
+Reglas:
+
+- leer la contrasena con `read -s`;
+- URL-encodear la contrasena antes de construir la URI;
+- exportar la URI solo en la sesion local de Terminal;
+- no mostrar la URI;
+- no pegar la URI en documentacion;
+- eliminar variables con `unset`;
+- borrar usuario temporal y base temporal al terminar.
+
+## Network Access
+
+Durante la prueba de 2026-08-03 existia acceso `0.0.0.0/0` en MongoDB Atlas.
+
+No se modifico durante la prueba porque Render y GitHub Actions podian depender de la configuracion de acceso existente.
+
+Esta configuracion sigue siendo un riesgo pendiente. Debe auditarse aparte antes de cambiarla, identificando primero las necesidades reales de Render y GitHub Actions.
+
+`0.0.0.0/0` no es una configuracion recomendada como estado final.
+
 ## Procedimiento de emergencia
 
 1. Descargar el backup.
@@ -262,3 +385,35 @@ Esta restauracion sirve para inspeccion y recuperacion temporal aproximada. No g
 
 No se debe restaurar directamente sobre produccion.
 No se debe importar manualmente el backup en produccion.
+
+## Checklist de emergencia
+
+- Elegir backup.
+- Verificar SHA-256.
+- Validar con `npm run backup:validate`.
+- Ejecutar dry-run con `npm run backup:restore -- <archivo.json.gz> --dry-run`.
+- Crear base temporal vacia.
+- Crear usuario temporal limitado a esa base.
+- Configurar URI temporal solo en la sesion local.
+- Restaurar con `--confirm-restore`.
+- Comprobar recuentos.
+- Verificar visualmente en Data Explorer.
+- Probar aplicacion aislada si procede.
+- Limpiar variables temporales.
+- Eliminar base temporal.
+- Eliminar usuario temporal.
+- Documentar resultado.
+
+## Registro de pruebas
+
+### 2026-08-03
+
+- Backup: `backup-2026-08-01.json.gz`
+- SHA-256: `5d804c8e043735c60414854314904a2eb8c648ae36cb729d99b3aec9943b17aa`
+- Resultado: exito
+- Produccion modificada: no
+- Documentos restaurados: 265
+- Colecciones restauradas: 8
+- Base temporal eliminada: si
+- Usuario temporal eliminado: si
+- Credenciales temporales eliminadas: si
