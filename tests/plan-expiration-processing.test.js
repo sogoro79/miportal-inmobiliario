@@ -18,6 +18,11 @@ import {
   auditPendingPlanChanges,
   validateCli as validatePendingPlanAuditCli
 } from "../scripts/audit-pending-plan-changes.js";
+import {
+  repairSinglePlanSync,
+  runCli as runSinglePlanSyncCli,
+  validateCli as validateSinglePlanSyncCli
+} from "../scripts/repair-single-plan-sync.js";
 
 process.env.STRIPE_PRICE_BASICO = "price_basico";
 process.env.STRIPE_PRICE_DESTACADO = "price_destacado";
@@ -95,6 +100,73 @@ function stripeRetrieveMock(resultOrError) {
         if (resultOrError instanceof Error) throw resultOrError;
         return resultOrError;
       }
+    }
+  };
+}
+
+function repairEnv(overrides = {}) {
+  return {
+    REPAIR_SINGLE_PLAN_SYNC: "true",
+    MONGODB_URI: "mongodb://example/test",
+    TARGET_USER_ID: "507f1f77bcf86cd799439011",
+    EXPECTED_CURRENT_PLAN: "agencia_basica",
+    EXPECTED_PENDING_PLAN: "basico",
+    TARGET_PLAN: "basico",
+    EXPECTED_SUBSCRIPTION_STATUS: "active",
+    ...overrides
+  };
+}
+
+function repairCandidate(data = {}) {
+  return {
+    plan: "agencia_basica",
+    planActivo: true,
+    planFechaFin: new Date("2026-09-01T00:00:00.000Z"),
+    pendingPlan: "basico",
+    pendingPlanLabel: "Básico",
+    pendingPriceId: "price_basico",
+    pendingPlanChangeAt: new Date("2026-07-01T00:00:00.000Z"),
+    stripeCustomerId: "cus_secret_123",
+    stripeSubscriptionId: "sub_secret_123",
+    subscriptionStatus: "active",
+    cancelAtPeriodEnd: false,
+    subscriptionCancelAt: null,
+    nombre: "Persona Privada",
+    email: "privada@example.com",
+    numDoc: "12345678Z",
+    ...data
+  };
+}
+
+function SingleRepairModel(initialUsers, { updateMatches = true, onFind = () => {}, onUpdate = () => {} } = {}) {
+  const state = { users: [...initialUsers], findCalls: [], updates: [] };
+  return {
+    state,
+    find(query, projection) {
+      state.findCalls.push({ query, projection });
+      onFind(query, projection);
+      return {
+        limit(value) {
+          state.limit = value;
+          return this;
+        },
+        async lean() {
+          return state.users;
+        }
+      };
+    },
+    async findOneAndUpdate(query, update, options) {
+      state.updates.push({ query, update, options });
+      onUpdate(query, update, options);
+      if (!updateMatches) return null;
+      const user = state.users[0];
+      if (!user) return null;
+      Object.assign(user, update.$set);
+      delete user.pendingPlan;
+      delete user.pendingPriceId;
+      delete user.pendingPlanChangeAt;
+      delete user.pendingPlanLabel;
+      return user;
     }
   };
 }
@@ -681,4 +753,301 @@ test("script de auditoría de cambios pendientes no contiene escrituras ni efect
   assert.doesNotMatch(audit, /\.save\(|\.update\(|\.updateOne\(|\.updateMany\(|\.findOneAndUpdate\(|\.bulkWrite\(|\.delete\(|\.deleteOne\(|\.deleteMany\(|\.insert\(|\.create\(/);
   assert.doesNotMatch(audit, /subscriptions\.update|subscriptions\.cancel|subscriptionItems\.update/);
   assert.doesNotMatch(audit, /enviarCorreo|nodemailer|sendMail/);
+});
+
+test("reparación individual valida barreras principales y argumentos", () => {
+  assert.equal(validateSinglePlanSyncCli({ env: {}, argv: ["node", "script"] }).message, "REPAIR_SINGLE_PLAN_SYNC debe ser exactamente true.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ REPAIR_SINGLE_PLAN_SYNC: "TRUE" }), argv: ["node", "script"] }).ok, false);
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ MONGODB_URI: "" }), argv: ["node", "script"] }).message, "Falta MONGODB_URI.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ TARGET_USER_ID: "" }), argv: ["node", "script"] }).message, "Falta TARGET_USER_ID.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ TARGET_USER_ID: "no-es-objectid" }), argv: ["node", "script"] }).message, "TARGET_USER_ID no es un ObjectId válido.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ EXPECTED_CURRENT_PLAN: "" }), argv: ["node", "script"] }).message, "Falta EXPECTED_CURRENT_PLAN.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ EXPECTED_PENDING_PLAN: "" }), argv: ["node", "script"] }).message, "Falta EXPECTED_PENDING_PLAN.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ TARGET_PLAN: "" }), argv: ["node", "script"] }).message, "Falta TARGET_PLAN.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ TARGET_PLAN: "destacado" }), argv: ["node", "script"] }).message, "TARGET_PLAN debe ser basico.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ EXPECTED_SUBSCRIPTION_STATUS: "" }), argv: ["node", "script"] }).message, "Falta EXPECTED_SUBSCRIPTION_STATUS.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv({ EXPECTED_SUBSCRIPTION_STATUS: "past_due" }), argv: ["node", "script"] }).message, "EXPECTED_SUBSCRIPTION_STATUS debe ser active.");
+  assert.equal(validateSinglePlanSyncCli({ env: repairEnv(), argv: ["node", "script", "--apply"] }).message, "Esta reparación no acepta argumentos ni opciones.");
+});
+
+test("reparación individual aborta validaciones previas sin conectar", async () => {
+  for (const env of [
+    repairEnv({ TARGET_USER_ID: "no-es-objectid" }),
+    repairEnv({ TARGET_PLAN: "destacado" }),
+    repairEnv({ EXPECTED_SUBSCRIPTION_STATUS: "canceled" })
+  ]) {
+    const calls = [];
+    const code = await runSinglePlanSyncCli({
+      env,
+      argv: ["node", "script"],
+      stdout: () => {},
+      stderr: () => {},
+      mongooseClient: {
+        async connect() { calls.push("connect"); },
+        async disconnect() { calls.push("disconnect"); }
+      },
+      UsuarioModel: SingleRepairModel([repairCandidate()])
+    });
+
+    assert.equal(code, 1);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("reparación individual exige confirmación explícita para aplicar", () => {
+  assert.equal(validateSinglePlanSyncCli({
+    env: repairEnv({ APPLY_PLAN_SYNC: "true" }),
+    argv: ["node", "script"]
+  }).message, "CONFIRM_PLAN_SYNC no coincide con la confirmación requerida.");
+  assert.equal(validateSinglePlanSyncCli({
+    env: repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "MAL" }),
+    argv: ["node", "script"]
+  }).ok, false);
+  assert.deepEqual(validateSinglePlanSyncCli({
+    env: repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "SYNC_ONE_TEST_USER" }),
+    argv: ["node", "script"]
+  }), { ok: true });
+});
+
+test("reparación individual en dry-run no escribe y devuelve resumen seguro", async () => {
+  const model = SingleRepairModel([repairCandidate()]);
+  const report = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env: repairEnv(),
+    UsuarioModel: model
+  });
+
+  assert.equal(report.dryRun, true);
+  assert.equal(report.encontrado, true);
+  assert.equal(report.planActual, "agencia_basica");
+  assert.equal(report.planPendiente, "basico");
+  assert.equal(report.planObjetivo, "basico");
+  assert.equal(report.cambioVencido, true);
+  assert.equal(report.subscriptionStatusCoincide, true);
+  assert.equal(report.tieneStripeSubscription, true);
+  assert.equal(report.aplicariaCambios, false);
+  assert.equal(report.accionPropuesta, "sincronizar_mongo_con_stripe_test");
+  assert.equal(model.state.updates.length, 0);
+});
+
+test("reparación individual aborta si el usuario no existe o la selección no es única", async () => {
+  const env = repairEnv();
+  const notFound = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env,
+    UsuarioModel: SingleRepairModel([])
+  });
+  const duplicated = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env,
+    UsuarioModel: SingleRepairModel([repairCandidate(), repairCandidate()])
+  });
+
+  assert.equal(notFound.abortReason, "usuario_no_encontrado");
+  assert.equal(duplicated.abortReason, "seleccion_no_unica");
+});
+
+test("reparación individual aborta ante estado esperado no coincidente", async () => {
+  const now = new Date("2026-08-05T00:00:00.000Z");
+  const cases = [
+    [repairCandidate({ plan: "destacado" }), "plan_actual_no_coincide", repairEnv()],
+    [repairCandidate({ pendingPlan: "destacado" }), "pending_plan_no_coincide", repairEnv()],
+    [repairCandidate({ pendingPlanChangeAt: new Date("2026-09-01T00:00:00.000Z") }), "cambio_no_vencido", repairEnv()],
+    [repairCandidate({ stripeSubscriptionId: "" }), "sin_stripe_subscription", repairEnv()],
+    [repairCandidate({ pendingPriceId: "" }), "sin_pending_price", repairEnv()],
+    [repairCandidate({ subscriptionStatus: "past_due" }), "subscription_status_no_coincide", repairEnv()]
+  ];
+
+  for (const [candidate, reason, env] of cases) {
+    const report = await repairSinglePlanSync({ now, env, UsuarioModel: SingleRepairModel([candidate]) });
+    assert.equal(report.abortReason, reason);
+    assert.equal(report.aplicado, false);
+  }
+});
+
+test("reparación individual acepta pendingPlanChangeAt exactamente igual a now", async () => {
+  const now = new Date("2026-08-05T00:00:00.000Z");
+  const report = await repairSinglePlanSync({
+    now,
+    env: repairEnv(),
+    UsuarioModel: SingleRepairModel([repairCandidate({ pendingPlanChangeAt: now })])
+  });
+
+  assert.equal(report.abortReason, null);
+  assert.equal(report.cambioVencido, true);
+  assert.equal(report.accionPropuesta, "sincronizar_mongo_con_stripe_test");
+});
+
+test("reparación individual aplica una actualización condicional a un único usuario", async () => {
+  const model = SingleRepairModel([repairCandidate()]);
+  const report = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env: repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "SYNC_ONE_TEST_USER" }),
+    UsuarioModel: model
+  });
+
+  assert.equal(report.aplicado, true);
+  assert.equal(report.modifiedCount, 1);
+  assert.equal(model.state.updates.length, 1);
+  assert.deepEqual(model.state.updates[0].query, {
+    _id: "507f1f77bcf86cd799439011",
+    plan: "agencia_basica",
+    pendingPlan: "basico",
+    pendingPriceId: "price_basico",
+    pendingPlanChangeAt: new Date("2026-07-01T00:00:00.000Z"),
+    stripeSubscriptionId: "sub_secret_123",
+    subscriptionStatus: "active"
+  });
+  assert.deepEqual(model.state.updates[0].update.$set, {
+    plan: "basico",
+    planActivo: true,
+    subscriptionStatus: "active"
+  });
+  assert.deepEqual(Object.keys(model.state.updates[0].update.$unset).sort(), [
+    "pendingPlan",
+    "pendingPlanChangeAt",
+    "pendingPlanLabel",
+    "pendingPriceId"
+  ].sort());
+  assert.deepEqual(model.state.updates[0].options, { new: true, projection: {
+    plan: 1,
+    planActivo: 1,
+    planFechaFin: 1,
+    pendingPlan: 1,
+    pendingPlanLabel: 1,
+    pendingPriceId: 1,
+    pendingPlanChangeAt: 1,
+    stripeCustomerId: 1,
+    stripeSubscriptionId: 1,
+    subscriptionStatus: 1,
+    cancelAtPeriodEnd: 1,
+    subscriptionCancelAt: 1
+  } });
+  assert.equal("upsert" in model.state.updates[0].options, false);
+});
+
+test("reparación individual aborta si subscriptionStatus cambia concurrentemente", async () => {
+  const model = SingleRepairModel([repairCandidate()], {
+    onUpdate(query) {
+      assert.equal(query.subscriptionStatus, "active");
+    },
+    updateMatches: false
+  });
+  const report = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env: repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "SYNC_ONE_TEST_USER" }),
+    UsuarioModel: model
+  });
+
+  assert.equal(report.abortReason, "actualizacion_condicional_sin_coincidencias");
+  assert.equal(model.state.updates.length, 1);
+});
+
+test("reparación individual aborta si la actualización condicional afecta 0 documentos", async () => {
+  const model = SingleRepairModel([repairCandidate()], { updateMatches: false });
+  const report = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env: repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "SYNC_ONE_TEST_USER" }),
+    UsuarioModel: model
+  });
+
+  assert.equal(report.abortReason, "actualizacion_condicional_sin_coincidencias");
+  assert.equal(report.aplicado, false);
+  assert.equal(model.state.updates.length, 1);
+});
+
+test("reparación individual limpia pending fields y preserva IDs Stripe", async () => {
+  const user = repairCandidate();
+  const report = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env: repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "SYNC_ONE_TEST_USER" }),
+    UsuarioModel: SingleRepairModel([user])
+  });
+
+  assert.equal(user.plan, "basico");
+  assert.equal(user.planActivo, true);
+  assert.equal(user.subscriptionStatus, "active");
+  assert.equal(user.pendingPlan, undefined);
+  assert.equal(user.pendingPriceId, undefined);
+  assert.equal(user.pendingPlanChangeAt, undefined);
+  assert.equal(user.pendingPlanLabel, undefined);
+  assert.equal(user.stripeSubscriptionId, "sub_secret_123");
+  assert.equal(user.stripeCustomerId, "cus_secret_123");
+  assert.equal(report.afterVerificado.stripeSubscriptionPreservada, true);
+});
+
+test("reparación individual no modifica propiedades ni datos ajenos", async () => {
+  const user = repairCandidate({
+    nombre: "Nombre Original",
+    email: "original@example.com",
+    favoritos: ["prop_1"],
+    trialAccepted: true,
+    launchPromoApplied: true
+  });
+  await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env: repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "SYNC_ONE_TEST_USER" }),
+    UsuarioModel: SingleRepairModel([user])
+  });
+
+  assert.equal(user.nombre, "Nombre Original");
+  assert.equal(user.email, "original@example.com");
+  assert.deepEqual(user.favoritos, ["prop_1"]);
+  assert.equal(user.trialAccepted, true);
+  assert.equal(user.launchPromoApplied, true);
+});
+
+test("reparación individual no expone nombres, emails ni IDs Stripe", async () => {
+  const report = await repairSinglePlanSync({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    env: repairEnv(),
+    UsuarioModel: SingleRepairModel([repairCandidate()])
+  });
+  const output = JSON.stringify(report);
+
+  assert.doesNotMatch(output, /Persona Privada|privada@example\.com|12345678Z/);
+  assert.doesNotMatch(output, /sub_secret_123|cus_secret_123|507f1f77bcf86cd799439011/);
+});
+
+test("reparación individual cierra conexión en finally", async () => {
+  const calls = [];
+  const code = await runSinglePlanSyncCli({
+    env: repairEnv(),
+    argv: ["node", "script"],
+    stdout: () => {},
+    stderr: () => {},
+    mongooseClient: {
+      async connect() { calls.push("connect"); },
+      async disconnect() { calls.push("disconnect"); }
+    },
+    UsuarioModel: SingleRepairModel([repairCandidate()])
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(calls, ["connect", "disconnect"]);
+});
+
+test("reparación individual es idempotente: segunda ejecución no vuelve a aplicar", async () => {
+  const user = repairCandidate();
+  const model = SingleRepairModel([user]);
+  const env = repairEnv({ APPLY_PLAN_SYNC: "true", CONFIRM_PLAN_SYNC: "SYNC_ONE_TEST_USER" });
+  const first = await repairSinglePlanSync({ now: new Date("2026-08-05T00:00:00.000Z"), env, UsuarioModel: model });
+  const second = await repairSinglePlanSync({ now: new Date("2026-08-05T00:00:00.000Z"), env, UsuarioModel: model });
+
+  assert.equal(first.aplicado, true);
+  assert.equal(second.aplicado, false);
+  assert.equal(second.abortReason, "plan_actual_no_coincide");
+  assert.equal(model.state.updates.length, 1);
+});
+
+test("script de reparación individual no importa Stripe ni contiene escrituras ajenas", () => {
+  const repair = fs.readFileSync(new URL("../scripts/repair-single-plan-sync.js", import.meta.url), "utf8");
+
+  assert.doesNotMatch(repair, /from "stripe"|from 'stripe'|import\("stripe"\)|import\('stripe'\)/);
+  assert.doesNotMatch(repair, /from "\.\.\/routes|from '\.\.\/routes|server\.js/);
+  assert.doesNotMatch(repair, /schedulePendingPlanChanges|scheduleManualPlanExpirations|scheduleVipTrialExpiration/);
+  assert.doesNotMatch(repair, /aplicarLimitesPlanTrasTrial|Propiedad|enviarCorreo|nodemailer|sendMail/);
+  assert.doesNotMatch(repair, /\.save\(|\.update\(|\.updateOne\(|\.updateMany\(|\.bulkWrite\(|\.delete\(|\.deleteOne\(|\.deleteMany\(|\.insert\(|\.create\(/);
+  assert.equal((repair.match(/findOneAndUpdate/g) || []).length, 1);
+  assert.match(repair, /mongooseClient\.disconnect/);
 });

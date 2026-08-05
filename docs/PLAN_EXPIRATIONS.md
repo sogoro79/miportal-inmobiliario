@@ -60,6 +60,39 @@ No debe incluir emails, tokens, secretos ni datos personales innecesarios.
 - Si falta `STRIPE_SECRET_KEY`, completa la parte MongoDB, marca `stripeDisponible=false` y deja la comprobación Stripe como pendiente.
 - Devuelve agregados y casos numerados efímeros, sin emails, nombres, IDs completos, customer IDs, subscription IDs, price IDs, metadata ni documentos.
 
+## Reparación individual de sincronización
+
+`scripts/repair-single-plan-sync.js` sirve solo para sincronizar MongoDB en un único usuario de prueba cuando Stripe de prueba ya refleja el plan correcto. No consulta Stripe, no modifica Stripe, no modifica propiedades, no aplica límites de planes y no debe reutilizarse como proceso masivo.
+
+Por defecto funciona en dry-run. Requiere coincidencia exacta del estado esperado:
+
+- `REPAIR_SINGLE_PLAN_SYNC=true`
+- `MONGODB_URI`
+- `TARGET_USER_ID`
+- `EXPECTED_CURRENT_PLAN`
+- `EXPECTED_PENDING_PLAN`
+- `TARGET_PLAN`
+- `EXPECTED_SUBSCRIPTION_STATUS=active`
+
+Para aplicar la reparación, además requiere doble confirmación:
+
+- `APPLY_PLAN_SYNC=true`
+- `CONFIRM_PLAN_SYNC=SYNC_ONE_TEST_USER`
+
+La reparación permitida para esta fase solo sincroniza a `basico`, marca `planActivo=true`, exige y fija `subscriptionStatus=active`, y limpia los campos `pendingPlan`, `pendingPriceId`, `pendingPlanChangeAt` y `pendingPlanLabel`. Preserva los identificadores Stripe, no toca datos personales, trial, promociones ni propiedades.
+
+`planFechaFin` se conserva porque este script no consulta Stripe. Puede seguir siendo una fecha histórica o desactualizada; después de la reparación debe revisarse visualmente en el perfil. Cualquier sincronización de esa fecha requiere una auditoría Stripe separada de solo lectura.
+
+Procedimiento seguro:
+
+1. Ejecutar primero el dry-run.
+2. Revisar `before`, `afterEsperado` y la acción propuesta.
+3. Confirmar que el caso corresponde al usuario de prueba esperado fuera del output del script.
+4. Autorizar una única aplicación con la doble confirmación.
+5. Revisar la verificación posterior.
+
+Rollback manual seguro: usar el `before` del dry-run/aplicación y restaurar manualmente solo los campos de plan afectados (`plan`, `planActivo`, `subscriptionStatus`, `pendingPlan`, `pendingPriceId`, `pendingPlanChangeAt`, `pendingPlanLabel`) para el mismo usuario explícito. No hay rollback automático para evitar escrituras adicionales no supervisadas.
+
 ## Procedimiento posterior
 
 1. Desplegar con todos los nuevos flags apagados.
