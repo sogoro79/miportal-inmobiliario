@@ -6,6 +6,7 @@ import Usuario from '../models/Usuario.js';
 import Propiedad from '../models/Propiedad.js';
 import EstadisticaAnuncio from '../models/EstadisticaAnuncio.js';
 import CodigoVipTrial from '../models/CodigoVipTrial.js';
+import mongoose from 'mongoose';
 import { requireAdmin } from '../middleware/auth.js';
 import { normalizeSpanishPrice } from '../utils/prices.js';
 import { crearDatosVipTrial, expirarVipTrialUsuario } from '../utils/trials.js';
@@ -36,6 +37,19 @@ const ADMIN_ASSIGNABLE_PLAN_IDS = [
   'vip', 'vip_trial'
 ];
 const PLANES_VALIDOS = ADMIN_ASSIGNABLE_PLAN_IDS;
+export const CONFIRMACION_ELIMINAR_USUARIO_DESACTIVADO = 'ELIMINAR_USUARIO_DESACTIVADO';
+
+const USUARIO_ELIMINACION_PROJECTION = {
+  email: 1,
+  role: 1,
+  activo: 1,
+  favoritos: 1,
+  stripeCustomerId: 1,
+  stripeSubscriptionId: 1,
+  pendingPlan: 1,
+  pendingPriceId: 1,
+  pendingPlanChangeAt: 1
+};
 
 const TIPOS_INMUEBLE_VALIDOS = [
   'piso', 'apartamento', 'atico', 'duplex', 'estudio',
@@ -57,6 +71,183 @@ function esObjectId(id) {
 
 function esUsuarioAdminPrincipal(req, usuario) {
   return Boolean(req?.user?.id && usuario?._id && String(usuario._id) === String(req.user.id));
+}
+
+function tieneValor(value) {
+  return value !== undefined && value !== null && value !== '';
+}
+
+function aplicarSesion(queryOrPromise, session) {
+  return queryOrPromise && typeof queryOrPromise.session === 'function'
+    ? queryOrPromise.session(session)
+    : queryOrPromise;
+}
+
+function resultadoBorrado(resultado) {
+  return Number(resultado?.deletedCount || 0);
+}
+
+class EliminacionUsuarioError extends Error {
+  constructor(status, code, message, resumen = null) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.resumen = resumen;
+  }
+}
+
+function modelosEliminacionPorDefecto() {
+  return {
+    Usuario,
+    Propiedad,
+    Conversacion: mongoose.models.Conversacion,
+    Mensaje: mongoose.models.Mensaje,
+    Alerta: mongoose.models.Alerta,
+    Notificacion: mongoose.models.Notificacion
+  };
+}
+
+function usuarioTieneStripe(usuario = {}) {
+  return Boolean(tieneValor(usuario.stripeCustomerId) || tieneValor(usuario.stripeSubscriptionId));
+}
+
+function usuarioTieneCambiosPendientes(usuario = {}) {
+  return Boolean(tieneValor(usuario.pendingPlan) || tieneValor(usuario.pendingPriceId) || tieneValor(usuario.pendingPlanChangeAt));
+}
+
+async function contarDocumento(Model, filtro, session) {
+  return Number(await aplicarSesion(Model.countDocuments(filtro), session));
+}
+
+async function cargarUsuarioEliminacion(UsuarioModel, targetUserId, session) {
+  return aplicarSesion(UsuarioModel.findById(targetUserId, USUARIO_ELIMINACION_PROJECTION), session);
+}
+
+export async function construirResumenEliminacionUsuario({
+  targetUserId,
+  adminUserId,
+  models = modelosEliminacionPorDefecto(),
+  session = null
+} = {}) {
+  const usuario = await cargarUsuarioEliminacion(models.Usuario, targetUserId, session);
+  if (!usuario) return null;
+
+  const [propiedades, chats, mensajes, alertas, notificaciones] = await Promise.all([
+    contarDocumento(models.Propiedad, { usuarioId: targetUserId }, session),
+    contarDocumento(models.Conversacion, { $or: [{ compradorId: targetUserId }, { anuncianteId: targetUserId }] }, session),
+    contarDocumento(models.Mensaje, { userId: targetUserId }, session),
+    contarDocumento(models.Alerta, { usuarioId: targetUserId }, session),
+    contarDocumento(models.Notificacion, { usuarioId: targetUserId }, session)
+  ]);
+
+  const favoritos = Array.isArray(usuario.favoritos) ? usuario.favoritos.length : 0;
+  const usuarioDesactivado = usuario.activo === false;
+  const tieneStripe = usuarioTieneStripe(usuario);
+  const tieneCambiosPendientes = usuarioTieneCambiosPendientes(usuario);
+  const motivosBloqueo = [];
+
+  if (String(usuario._id) === String(adminUserId)) motivosBloqueo.push('usuario_autenticado');
+  if (usuario.role === 'admin') motivosBloqueo.push('usuario_admin');
+  if (!usuarioDesactivado) motivosBloqueo.push('usuario_activo');
+  if (tieneStripe) motivosBloqueo.push('stripe_presente');
+  if (tieneCambiosPendientes) motivosBloqueo.push('cambios_pendientes');
+  if (propiedades > 0) motivosBloqueo.push('propiedades_presentes');
+  if (chats > 0) motivosBloqueo.push('chats_presentes');
+  if (mensajes > 0) motivosBloqueo.push('mensajes_presentes');
+
+  return {
+    usuario,
+    seguro: {
+      usuarioDesactivado,
+      tieneStripe,
+      tieneCambiosPendientes,
+      propiedades,
+      chats,
+      mensajes,
+      favoritos,
+      alertas,
+      notificaciones,
+      puedeEliminar: motivosBloqueo.length === 0,
+      motivosBloqueo
+    }
+  };
+}
+
+function filtroUsuarioEliminable(targetUserId) {
+  return {
+    _id: targetUserId,
+    role: { $ne: 'admin' },
+    activo: false,
+    stripeCustomerId: { $in: [null, ''] },
+    stripeSubscriptionId: { $in: [null, ''] },
+    pendingPlan: { $in: [null, ''] },
+    pendingPriceId: { $in: [null, ''] },
+    pendingPlanChangeAt: { $in: [null, ''] }
+  };
+}
+
+export async function eliminarUsuarioDesactivadoSeguro({
+  targetUserId,
+  adminUserId,
+  confirmacion,
+  models = modelosEliminacionPorDefecto(),
+  mongooseClient = mongoose,
+  logger = console
+} = {}) {
+  if (confirmacion !== CONFIRMACION_ELIMINAR_USUARIO_DESACTIVADO) {
+    throw new EliminacionUsuarioError(400, 'confirmacion_requerida', 'Confirmación requerida.');
+  }
+  if (!mongooseClient || typeof mongooseClient.startSession !== 'function') {
+    throw new EliminacionUsuarioError(409, 'transaccion_no_disponible', 'No se puede garantizar una transacción MongoDB.');
+  }
+
+  const session = await mongooseClient.startSession();
+  let resultado = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const resumen = await construirResumenEliminacionUsuario({ targetUserId, adminUserId, models, session });
+      if (!resumen) {
+        throw new EliminacionUsuarioError(404, 'usuario_no_encontrado', 'Usuario no encontrado.');
+      }
+      if (!resumen.seguro.puedeEliminar) {
+        throw new EliminacionUsuarioError(409, 'eliminacion_bloqueada', 'El usuario no cumple los requisitos de eliminación.', resumen.seguro);
+      }
+
+      const alertasResult = await aplicarSesion(models.Alerta.deleteMany({ usuarioId: targetUserId }), session);
+      const notificacionesResult = await aplicarSesion(models.Notificacion.deleteMany({ usuarioId: targetUserId }), session);
+      const usuarioEliminado = await aplicarSesion(models.Usuario.findOneAndDelete(filtroUsuarioEliminable(targetUserId)), session);
+
+      if (!usuarioEliminado) {
+        throw new EliminacionUsuarioError(409, 'eliminacion_condicional_sin_coincidencias', 'El estado del usuario cambió antes de eliminarlo.');
+      }
+
+      resultado = {
+        ok: true,
+        usuarioEliminado: true,
+        conteos: resumen.seguro,
+        eliminados: {
+          alertas: resultadoBorrado(alertasResult),
+          notificaciones: resultadoBorrado(notificacionesResult),
+          favoritosPropios: resumen.seguro.favoritos
+        }
+      };
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  logger.info('Eliminación administrativa de usuario desactivado completada', {
+    resultado: 'ok',
+    propiedades: resultado?.conteos?.propiedades || 0,
+    chats: resultado?.conteos?.chats || 0,
+    mensajes: resultado?.conteos?.mensajes || 0,
+    favoritos: resultado?.conteos?.favoritos || 0,
+    alertasEliminadas: resultado?.eliminados?.alertas || 0,
+    notificacionesEliminadas: resultado?.eliminados?.notificaciones || 0
+  });
+
+  return resultado;
 }
 
 function limpiarTexto(value, max = 5000) {
@@ -493,6 +684,63 @@ router.patch('/usuarios/:id/reactivar', requireAdmin, async (req, res) => {
       error: err.message
     });
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/usuarios/:id/eliminacion-resumen', requireAdmin, async (req, res) => {
+  try {
+    if (!esObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'ID de usuario inválido' });
+    }
+
+    const resumen = await construirResumenEliminacionUsuario({
+      targetUserId: req.params.id,
+      adminUserId: req.user.id
+    });
+
+    if (!resumen) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json(resumen.seguro);
+  } catch (err) {
+    console.error('Error preparando resumen de eliminación de usuario:', {
+      error: err.message
+    });
+    res.status(500).json({ error: 'Error preparando resumen de eliminación' });
+  }
+});
+
+router.delete('/usuarios/:id', requireAdmin, async (req, res) => {
+  try {
+    if (!esObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'ID de usuario inválido' });
+    }
+    if (req.body?.confirmacion !== CONFIRMACION_ELIMINAR_USUARIO_DESACTIVADO) {
+      return res.status(400).json({ error: 'Confirmación requerida.' });
+    }
+
+    const resultado = await eliminarUsuarioDesactivadoSeguro({
+      targetUserId: req.params.id,
+      adminUserId: req.user.id
+    });
+
+    res.json({
+      ok: true,
+      usuarioEliminado: resultado.usuarioEliminado,
+      eliminados: resultado.eliminados,
+      conteos: resultado.conteos
+    });
+  } catch (err) {
+    if (err instanceof EliminacionUsuarioError) {
+      return res.status(err.status).json({
+        error: err.message,
+        code: err.code,
+        resumen: err.resumen || undefined
+      });
+    }
+
+    console.error('Error eliminando usuario desactivado desde admin:', {
+      error: err.message
+    });
+    res.status(500).json({ error: 'Error eliminando usuario' });
   }
 });
 

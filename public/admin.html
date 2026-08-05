@@ -2565,7 +2565,11 @@ function renderMenuAccionesUsuario(u, estaActivo) {
         ` : `
           <button onclick="reactivarUsuario('${u._id}'); cerrarMenusAcciones();">Reactivar usuario</button>
         `}
-        <button disabled title="Acción futura">Eliminar usuario</button>
+        ${estaActivo ? `
+          <button disabled title="Primero desactiva el usuario">Eliminar usuario</button>
+        ` : `
+          <button class="danger" onclick="eliminarUsuarioDesactivado('${u._id}'); cerrarMenusAcciones();">Eliminar usuario</button>
+        `}
         ${u.stripeSubscriptionId ? `
           <button onclick="cancelarSuscripcion('${u._id}', this); cerrarMenusAcciones();" ${u.cancelAtPeriodEnd ? 'disabled' : ''}>
             ${u.cancelAtPeriodEnd ? 'Cancelación programada' : 'Cancelar suscripción'}
@@ -3614,6 +3618,62 @@ async function reactivarUsuario(usuarioId) {
   } else {
     const data = await res.json().catch(() => ({}));
     alert(data.error || 'Error al reactivar el usuario');
+  }
+}
+
+function textoMotivoBloqueoEliminacion(motivo) {
+  const textos = {
+    usuario_autenticado: 'No puedes eliminar tu propio usuario administrador.',
+    usuario_admin: 'No se pueden eliminar usuarios administradores.',
+    usuario_activo: 'El usuario debe estar desactivado.',
+    stripe_presente: 'El usuario conserva datos Stripe locales.',
+    cambios_pendientes: 'El usuario conserva cambios de plan pendientes.',
+    propiedades_presentes: 'El usuario tiene propiedades asociadas.',
+    chats_presentes: 'El usuario tiene conversaciones asociadas.',
+    mensajes_presentes: 'El usuario tiene mensajes asociados.'
+  };
+  return textos[motivo] || 'El usuario no cumple los requisitos de eliminación.';
+}
+
+async function eliminarUsuarioDesactivado(usuarioId) {
+  const resumenRes = await fetch(`/admin/usuarios/${usuarioId}/eliminacion-resumen`, {
+    headers: { 'Authorization': 'Bearer ' + adminToken }
+  });
+
+  const resumen = await resumenRes.json().catch(() => ({}));
+  if (!resumenRes.ok) {
+    alert(resumen.error || 'No se pudo preparar la eliminación del usuario.');
+    return;
+  }
+
+  if (!resumen.puedeEliminar) {
+    const motivos = Array.isArray(resumen.motivosBloqueo) ? resumen.motivosBloqueo : [];
+    const detalle = motivos.length
+      ? motivos.map(textoMotivoBloqueoEliminacion).join('\n')
+      : 'El usuario no cumple los requisitos de eliminación.';
+    alert(`No se puede eliminar este usuario:\n${detalle}`);
+    return;
+  }
+
+  const ok = confirm('Esta acción eliminará definitivamente un usuario desactivado y sus alertas/notificaciones propias. No se tocarán Stripe ni propiedades. ¿Continuar?');
+  if (!ok) return;
+
+  const res = await fetch(`/admin/usuarios/${usuarioId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': 'Bearer ' + adminToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ confirmacion: 'ELIMINAR_USUARIO_DESACTIVADO' })
+  });
+  const data = await res.json().catch(() => ({}));
+
+  if (res.ok) {
+    alert('Usuario eliminado correctamente.');
+    await cargarUsuarios();
+    await cargarStats();
+  } else {
+    alert(data.error || 'Error al eliminar el usuario.');
   }
 }
 
