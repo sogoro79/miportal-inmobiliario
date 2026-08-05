@@ -32,6 +32,7 @@ import notificacionesRoutes from "./routes/notificaciones.js";
 import pagosRoutes from "./routes/pagos.js";
 import webhookRoutes from "./routes/webhook.js";
 import adminRoutes from "./routes/admin.js";
+import planesRoutes from "./routes/planes.js";
 
 // =============================
 // FIX __dirname (ES MODULES)
@@ -430,6 +431,7 @@ app.use("/propiedades", propiedadesRoutes);
 app.use("/usuarios", usuariosRoutes);
 app.use("/alertas", alertasRoutes);
 app.use("/notificaciones", notificacionesRoutes);
+app.use("/api/planes", planesRoutes);
 app.use("/pagos", pagosRoutes);
 app.use("/admin", adminRoutes);
 

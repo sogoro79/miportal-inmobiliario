@@ -96,92 +96,179 @@
 
   <!-- PARTICULARES -->
   <p class="planes-section-label">Particulares</p>
-  <div class="planes-grid">
-
-    <div class="plan-card">
-      <div class="plan-name">Gratis</div>
-      <div class="plan-price">0€</div>
-      <div class="plan-divider"></div>
-      <div class="plan-feature"><div class="plan-dot"></div>2 anuncios</div>
-      <div class="plan-feature"><div class="plan-dot"></div>7 fotos por anuncio</div>
-      <div class="plan-feature"><div class="plan-dot"></div>15 días de duración</div>
-      <a href="/registro" class="plan-btn plan-btn-outline">Empezar gratis</a>
-    </div>
-
-    <div class="plan-card featured">
-      <div class="plan-badge">Más popular</div>
-      <div class="plan-name">Básico</div>
-      <div class="plan-price">9,90€ <span>/mes</span></div>
-      <div class="plan-divider"></div>
-      <div class="plan-feature"><div class="plan-dot"></div>3 anuncios</div>
-      <div class="plan-feature"><div class="plan-dot"></div>20 fotos por anuncio</div>
-      <div class="plan-feature"><div class="plan-dot"></div>Activo mientras pagues</div>
-      <button class="plan-btn plan-btn-green" data-plan="basico" onclick="suscribirse('basico')">Suscribirse</button>
-    </div>
-
-    <div class="plan-card">
-      <div class="plan-name">Destacado</div>
-      <div class="plan-price">19,90€ <span>/mes</span></div>
-      <div class="plan-divider"></div>
-      <div class="plan-feature"><div class="plan-dot"></div>4 anuncios destacados</div>
-      <div class="plan-feature"><div class="plan-dot"></div>30 fotos por anuncio</div>
-      <div class="plan-feature"><div class="plan-dot"></div>Activo mientras pagues</div>
-      <button class="plan-btn plan-btn-outline" data-plan="destacado" onclick="suscribirse('destacado')">Suscribirse</button>
-    </div>
-
-  </div>
+  <div class="planes-grid" id="planesParticulares"></div>
 
   <!-- AGENTES -->
   <p class="planes-section-label">Agentes independientes</p>
-  <div class="planes-grid-2">
-
-    <div class="plan-card">
-      <div class="plan-name">Starter</div>
-      <div class="plan-price">29,90€ <span>/mes</span></div>
-      <div class="plan-divider"></div>
-      <div class="plan-feature"><div class="plan-dot"></div>Hasta 15 anuncios</div>
-      <div class="plan-feature"><div class="plan-dot"></div>30 fotos por anuncio</div>
-      <div class="plan-feature"><div class="plan-dot"></div>✅ Permite publicar fotos con tu marca de agua</div>
-      <div class="plan-feature"><div class="plan-dot"></div>Perfil verificado</div>
-      <div class="plan-feature"><div class="plan-dot"></div>Activo mientras pagues</div>
-      <button class="plan-btn plan-btn-outline" data-plan="starter" onclick="suscribirse('starter')">Suscribirse</button>
-    </div>
-
-    <div class="plan-card">
-      <div class="plan-name">Pro</div>
-      <div class="plan-price">59,90€ <span>/mes</span></div>
-      <div class="plan-divider"></div>
-      <div class="plan-feature"><div class="plan-dot"></div>Hasta 40 anuncios</div>
-      <div class="plan-feature"><div class="plan-dot"></div>40 fotos por anuncio</div>
-      <div class="plan-feature"><div class="plan-dot"></div>✅ Permite publicar fotos con tu marca de agua</div>
-      <div class="plan-feature"><div class="plan-dot"></div>2 destacados incluidos</div>
-      <div class="plan-feature"><div class="plan-dot"></div>Activo mientras pagues</div>
-      <button class="plan-btn plan-btn-green" data-plan="pro_agentes" onclick="suscribirse('pro_agentes')">Suscribirse</button>
-    </div>
-
-  </div>
+  <div class="planes-grid-2" id="planesAgentes"></div>
 
   <!-- AGENCIAS -->
   <p class="planes-section-label">Agencias inmobiliarias</p>
-  <div class="planes-grid-2">
-
-    <div class="plan-card">
-      <div class="plan-name">Agencia Básica</div>
-      <div class="plan-price">79,90€ <span>/mes</span></div>
-      <div class="plan-divider"></div>
-      <div class="plan-feature"><div class="plan-dot"></div>Hasta 50 anuncios</div>
-      <div class="plan-feature"><div class="plan-dot"></div>40 fotos por anuncio</div>
-      <div class="plan-feature"><div class="plan-dot"></div>✅ Permite publicar fotos con tu marca de agua</div>
-      <div class="plan-feature"><div class="plan-dot"></div>2 usuarios</div>
-      <div class="plan-feature"><div class="plan-dot"></div>Activo mientras pagues</div>
-      <button class="plan-btn plan-btn-outline" data-plan="agencia_basica" onclick="suscribirse('agencia_basica')">Suscribirse</button>
-    </div>
-
-  </div>
+  <div class="planes-grid-2" id="planesAgencias"></div>
 
 </div>
 
 <script>
+const PLAN_IDS_COMERCIALES = ["gratis", "basico", "destacado", "starter", "pro_agentes", "agencia_basica"];
+const PLAN_IDS_PARTICULARES = ["gratis", "basico", "destacado"];
+const PLAN_IDS_AGENTES = ["starter", "pro_agentes"];
+const PLAN_IDS_AGENCIAS = ["agencia_basica"];
+const FALLBACK_PLANES_COMERCIALES = [
+  {
+    id: "gratis", nombre: "Gratis", categoria: "particular", precio: "0€", precioDetalle: "",
+    anuncios: 2, fotos: 7, duracionAnunciosDias: 15, dependeDeStripe: false,
+    ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: false
+  },
+  {
+    id: "basico", nombre: "Básico", categoria: "particular", precio: "9,90€", precioDetalle: "/mes",
+    anuncios: 3, fotos: 10, duracionAnunciosDias: null, dependeDeStripe: true,
+    ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: true
+  },
+  {
+    id: "destacado", nombre: "Destacado", categoria: "particular", precio: "19,90€", precioDetalle: "/mes",
+    anuncios: 4, fotos: 15, duracionAnunciosDias: null, dependeDeStripe: true,
+    ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: false
+  },
+  {
+    id: "starter", nombre: "Starter", categoria: "profesional", precio: "29,90€", precioDetalle: "/mes",
+    anuncios: 15, fotos: 20, duracionAnunciosDias: null, dependeDeStripe: true,
+    ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: false
+  },
+  {
+    id: "pro_agentes", nombre: "Pro", categoria: "profesional", precio: "59,90€", precioDetalle: "/mes",
+    anuncios: 40, fotos: 30, duracionAnunciosDias: null, dependeDeStripe: true,
+    ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: true
+  },
+  {
+    id: "agencia_basica", nombre: "Agencia Básica", categoria: "profesional", precio: "79,90€", precioDetalle: "/mes",
+    anuncios: 50, fotos: 40, duracionAnunciosDias: null, dependeDeStripe: true,
+    ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: false
+  }
+];
+let catalogoPlanes = [...FALLBACK_PLANES_COMERCIALES];
+
+function textoLimite(valor, ilimitado, unidad) {
+  if (ilimitado) return `${unidad} ilimitados`;
+  return `${valor} ${unidad}`;
+}
+
+function textoFotos(plan) {
+  return plan.ilimitadoFotos
+    ? "Fotos ilimitadas por anuncio"
+    : `${plan.fotos} fotos por anuncio`;
+}
+
+function prestacionesPlan(plan) {
+  const items = [
+    textoLimite(plan.anuncios, plan.ilimitadoAnuncios, "anuncios"),
+    textoFotos(plan)
+  ];
+
+  if (plan.duracionAnunciosDias) {
+    items.push(`${plan.duracionAnunciosDias} días de duración`);
+  } else if (plan.dependeDeStripe) {
+    items.push("Activo mientras pagues");
+  }
+
+  if (plan.categoria === "profesional") {
+    items.push("Permite publicar fotos con tu marca de agua");
+  }
+
+  return items;
+}
+
+function appendText(parent, className, text) {
+  const el = document.createElement("div");
+  el.className = className;
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+
+function renderPlanCard(plan) {
+  if (!PLAN_IDS_COMERCIALES.includes(plan.id)) return null;
+
+  const card = document.createElement("div");
+  card.className = `plan-card ${plan.destacado ? "featured" : ""}`.trim();
+
+  if (plan.destacado) appendText(card, "plan-badge", "Más popular");
+  appendText(card, "plan-name", plan.nombre);
+
+  const price = appendText(card, "plan-price", plan.precio);
+  if (plan.precioDetalle) {
+    price.appendChild(document.createTextNode(" "));
+    const period = document.createElement("span");
+    period.textContent = plan.precioDetalle;
+    price.appendChild(period);
+  }
+
+  const divider = document.createElement("div");
+  divider.className = "plan-divider";
+  card.appendChild(divider);
+
+  prestacionesPlan(plan).forEach(item => {
+    const feature = document.createElement("div");
+    feature.className = "plan-feature";
+    const dot = document.createElement("div");
+    dot.className = "plan-dot";
+    feature.appendChild(dot);
+    feature.appendChild(document.createTextNode(item));
+    card.appendChild(feature);
+  });
+
+  if (plan.id === "gratis") {
+    const link = document.createElement("a");
+    link.href = "/registro";
+    link.className = "plan-btn plan-btn-outline";
+    link.textContent = "Empezar gratis";
+    card.appendChild(link);
+  } else {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `plan-btn ${plan.destacado ? "plan-btn-green" : "plan-btn-outline"}`;
+    button.dataset.plan = plan.id;
+    button.textContent = "Suscribirse";
+    button.addEventListener("click", () => suscribirse(plan.id));
+    card.appendChild(button);
+  }
+
+  return card;
+}
+
+function renderPlanes(planes) {
+  const visibles = planes.filter(plan => plan.visiblePublicamente && PLAN_IDS_COMERCIALES.includes(plan.id));
+  const porId = Object.fromEntries(visibles.map(plan => [plan.id, plan]));
+  const pintar = (id, ids) => {
+    const el = document.getElementById(id);
+    el.replaceChildren(...ids
+      .map(planId => porId[planId])
+      .filter(Boolean)
+      .map(renderPlanCard)
+      .filter(Boolean));
+  };
+
+  pintar("planesParticulares", PLAN_IDS_PARTICULARES);
+  pintar("planesAgentes", PLAN_IDS_AGENTES);
+  pintar("planesAgencias", PLAN_IDS_AGENCIAS);
+}
+
+async function cargarCatalogoPlanes() {
+  try {
+    const res = await fetch("/api/planes/catalogo");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const comerciales = Array.isArray(data.planes)
+      ? data.planes.filter(plan => plan?.visiblePublicamente && PLAN_IDS_COMERCIALES.includes(plan.id))
+      : [];
+    if (comerciales.length !== PLAN_IDS_COMERCIALES.length) throw new Error("Catálogo incompleto");
+    catalogoPlanes = comerciales;
+  } catch (error) {
+    console.warn("No se pudo cargar el catálogo de planes. Usando fallback local.", error);
+    catalogoPlanes = [...FALLBACK_PLANES_COMERCIALES];
+  }
+  renderPlanes(catalogoPlanes);
+}
+
 function irLoginPlanes(mensaje) {
   if (mensaje) alert(mensaje);
   window.location.href = "/login?returnUrl=/planes";
@@ -275,6 +362,7 @@ async function suscribirse(plan) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  await cargarCatalogoPlanes();
   const token = localStorage.getItem("token");
   const usuario = token ? await cargarUsuarioActual(token) : JSON.parse(localStorage.getItem("usuario") || "null");
   actualizarBotonesPlanes(usuario);

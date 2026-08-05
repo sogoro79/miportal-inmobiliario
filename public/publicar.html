@@ -579,6 +579,7 @@ let lngSel = null;
 let imgFiles = [];
 let imagenesExistentes = [];
 let usuarioActualPublicar = null;
+let catalogoPlanesPublicar = {};
 const FORMATOS_IMAGEN_PERMITIDOS = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGEN_MB = 15;
 const MAX_IMAGEN_BYTES = MAX_IMAGEN_MB * 1024 * 1024;
@@ -639,17 +640,45 @@ async function leerJsonSeguro(res) {
   }
 }
 
+const FALLBACK_PLANES_PUBLICAR = {
+  gratis: { fotos: 7, ilimitadoFotos: false },
+  basico: { fotos: 10, ilimitadoFotos: false },
+  destacado: { fotos: 15, ilimitadoFotos: false },
+  starter: { fotos: 20, ilimitadoFotos: false },
+  pro_agentes: { fotos: 30, ilimitadoFotos: false },
+  agencia_basica: { fotos: 40, ilimitadoFotos: false },
+  agencia_pro: { fotos: 50, ilimitadoFotos: false },
+  vip_trial: { fotos: null, ilimitadoFotos: true },
+  vip: { fotos: null, ilimitadoFotos: true }
+};
+
+async function cargarCatalogoPlanesPublicar() {
+  try {
+    const res = await fetch("/api/planes/catalogo");
+    const data = await leerJsonSeguro(res);
+    if (!res.ok || !Array.isArray(data.planes) || data.planes.length === 0) {
+      throw new Error("Catálogo no disponible");
+    }
+    catalogoPlanesPublicar = Object.fromEntries(
+      data.planes.map(plan => [plan.id, {
+        fotos: plan.fotos,
+        ilimitadoFotos: Boolean(plan.ilimitadoFotos)
+      }])
+    );
+  } catch (error) {
+    console.warn("No se pudo cargar el catálogo de planes. Usando fallback local.", error);
+    catalogoPlanesPublicar = { ...FALLBACK_PLANES_PUBLICAR };
+  }
+}
+
 function getLimiteFotos(plan) {
-  const LIMITE_FOTOS = {
-    gratis: 7, basico: 10, destacado: 15, starter: 20,
-    pro_agentes: 30, agencia_basica: 40, agencia_pro: 50,
-    vip: Infinity, vip_trial: Infinity
-  };
-  return LIMITE_FOTOS[plan] || LIMITE_FOTOS.gratis;
+  const config = catalogoPlanesPublicar[plan] || catalogoPlanesPublicar.gratis || FALLBACK_PLANES_PUBLICAR.gratis;
+  return config.ilimitadoFotos ? Infinity : config.fotos;
 }
 
 function planTieneLimiteFotos(plan) {
-  return Number.isFinite(getLimiteFotos(plan));
+  const limite = getLimiteFotos(plan);
+  return limite !== null && Number.isFinite(limite);
 }
 
 function formatearPrecioInput(value) {
@@ -720,6 +749,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   try {
     const usuario = await refrescarUsuarioPublicar(token);
+    await cargarCatalogoPlanesPublicar();
     const plan = usuario?.plan || "gratis";
     actualizarTextoFotos(plan);
   } catch (err) {

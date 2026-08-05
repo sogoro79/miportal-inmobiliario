@@ -713,14 +713,59 @@ if (vueltaStripe) {
   history.replaceState(null, "", "/perfil" + window.location.hash);
 }
 
+async function cargarCatalogoPlanesPerfil() {
+  try {
+    const res = await fetch("/api/planes/catalogo");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data.planes) || data.planes.length === 0) {
+      throw new Error("Catálogo vacío");
+    }
+    return data.planes;
+  } catch (e) {
+    console.warn("No se pudo cargar el catálogo de planes", e);
+    return FALLBACK_PLANES_PERFIL;
+  }
+}
+
+const FALLBACK_PLANES_PERFIL = [
+  { id: "gratis", nombre: "Gratis", anuncios: 2, fotos: 7, precio: "0€", precioDetalle: "", ilimitadoAnuncios: false, ilimitadoFotos: false },
+  { id: "basico", nombre: "Básico", anuncios: 3, fotos: 10, precio: "9,90€", precioDetalle: "/mes", ilimitadoAnuncios: false, ilimitadoFotos: false },
+  { id: "destacado", nombre: "Destacado", anuncios: 4, fotos: 15, precio: "19,90€", precioDetalle: "/mes", ilimitadoAnuncios: false, ilimitadoFotos: false },
+  { id: "starter", nombre: "Starter", anuncios: 15, fotos: 20, precio: "29,90€", precioDetalle: "/mes", ilimitadoAnuncios: false, ilimitadoFotos: false },
+  { id: "pro_agentes", nombre: "Pro", anuncios: 40, fotos: 30, precio: "59,90€", precioDetalle: "/mes", ilimitadoAnuncios: false, ilimitadoFotos: false },
+  { id: "agencia_basica", nombre: "Agencia Básica", anuncios: 50, fotos: 40, precio: "79,90€", precioDetalle: "/mes", ilimitadoAnuncios: false, ilimitadoFotos: false },
+  { id: "agencia_pro", nombre: "Agencia Pro", anuncios: null, fotos: 50, precio: "149,90€", precioDetalle: "/mes", ilimitadoAnuncios: true, ilimitadoFotos: false },
+  { id: "vip_trial", nombre: "Prueba VIP", anuncios: null, fotos: null, precio: "30 días gratis", precioDetalle: "", ilimitadoAnuncios: true, ilimitadoFotos: true },
+  { id: "vip", nombre: "VIP", anuncios: null, fotos: null, precio: "VIP", precioDetalle: "", ilimitadoAnuncios: true, ilimitadoFotos: true }
+];
+
+function limitePlanTexto(valor, ilimitado) {
+  return ilimitado ? "∞" : valor;
+}
+
+function precioPlanTexto(plan) {
+  return `${plan.precio || ""}${plan.precioDetalle || ""}`;
+}
+
+function catalogoPorId(planes) {
+  return Object.fromEntries(planes.map(plan => [plan.id, plan]));
+}
+
 document.getElementById("nombreUsuario").textContent = usuario.nombre;
 document.getElementById("emailUsuario").textContent  = usuario.email;
 document.getElementById("avatar").textContent        = usuario.nombre.charAt(0).toUpperCase();
 
-const PLANES_NOMBRES = {
-  gratis: "Gratis", basico: "Básico", destacado: "Destacado",
-  starter: "Starter", pro_agentes: "Pro", agencia_basica: "Agencia Básica",
-  agencia_pro: "Agencia Pro", vip: "VIP", vip_trial: "Prueba VIP"
+const PLANES_CATALOGO = catalogoPorId(await cargarCatalogoPlanesPerfil());
+const planActualInfo = PLANES_CATALOGO[usuario.plan] || PLANES_CATALOGO.gratis || {
+  id: "gratis",
+  nombre: "Gratis",
+  anuncios: 2,
+  fotos: 7,
+  precio: "0€",
+  precioDetalle: "",
+  ilimitadoAnuncios: false,
+  ilimitadoFotos: false
 };
 
 function formatearFechaPlan(fecha) {
@@ -762,8 +807,8 @@ function renderLaunchPromo(usuario) {
   }
 }
 
-document.getElementById("statPlan").textContent = PLANES_NOMBRES[usuario.plan] || "Gratis";
-document.getElementById("tagPlan").textContent = "Plan " + (PLANES_NOMBRES[usuario.plan] || "Gratis");
+document.getElementById("statPlan").textContent = planActualInfo.nombre;
+document.getElementById("tagPlan").textContent = "Plan " + planActualInfo.nombre;
 
 const btnMejorarPlan = document.getElementById('btnMejorarPlan');
 const btnGestionarPlan = document.getElementById('btnGestionarPlan');
@@ -783,34 +828,22 @@ if (tieneSuscripcionStripe) {
   btnMejorarPlan.textContent = 'Mejorar plan ↗';
 }
 
-const PLANES_INFO = {
-  gratis:        { nombre: "Gratis",         anuncios: 2,   fotos: 10, precio: "0€/mes" },
-  basico:        { nombre: "Básico",         anuncios: 3,   fotos: 20, precio: "9,90€/mes" },
-  destacado:     { nombre: "Destacado",      anuncios: 4,   fotos: 30, precio: "19,90€/mes" },
-  starter:       { nombre: "Starter",        anuncios: 15,  fotos: 30, precio: "29,90€/mes" },
-  pro_agentes:   { nombre: "Pro Agentes",    anuncios: 40,  fotos: 40, precio: "59,90€/mes" },
-  agencia_basica:{ nombre: "Agencia Básica", anuncios: 50,  fotos: 40, precio: "79,90€/mes" },
-  agencia_pro:   { nombre: "Agencia Pro",    anuncios: "∞", fotos: 50, precio: "149,90€/mes" },
-  vip:           { nombre: "VIP",            anuncios: "∞", fotos: "∞", precio: "VIP" },
-  vip_trial:     { nombre: "Prueba VIP",     anuncios: "∞", fotos: "∞", precio: "30 días gratis" }
-};
-
-const planInfo = PLANES_INFO[usuario.plan] || PLANES_INFO.gratis;
+const planInfo = planActualInfo;
 document.getElementById("planNombre").textContent = planInfo.nombre;
 const fechaFin = usuario.plan !== 'gratis' && usuario.planFechaFin ? new Date(usuario.planFechaFin) : null;
 const fechaTexto = fechaFin
   ? `Activo hasta el ${fechaFin.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}`
-  : planInfo.precio;
+  : precioPlanTexto(planInfo);
 document.getElementById("planDetalle").textContent = fechaTexto;
 document.getElementById("planStats").innerHTML = `
-  <div class="plan-stat"><div class="plan-stat-val">${planInfo.anuncios}</div><div class="plan-stat-lab">Anuncios</div></div>
-  <div class="plan-stat"><div class="plan-stat-val">${planInfo.fotos}</div><div class="plan-stat-lab">Fotos por anuncio</div></div>
-  <div class="plan-stat"><div class="plan-stat-val">${planInfo.precio}</div><div class="plan-stat-lab">Precio</div></div>
+  <div class="plan-stat"><div class="plan-stat-val">${limitePlanTexto(planInfo.anuncios, planInfo.ilimitadoAnuncios)}</div><div class="plan-stat-lab">Anuncios</div></div>
+  <div class="plan-stat"><div class="plan-stat-val">${limitePlanTexto(planInfo.fotos, planInfo.ilimitadoFotos)}</div><div class="plan-stat-lab">Fotos por anuncio</div></div>
+  <div class="plan-stat"><div class="plan-stat-val">${precioPlanTexto(planInfo)}</div><div class="plan-stat-lab">Precio</div></div>
 `;
 
 const pendingPlanNotice = document.getElementById("pendingPlanNotice");
 if (usuario.pendingPlan && usuario.pendingPlanChangeAt) {
-  const pendingName = usuario.pendingPlanLabel || PLANES_NOMBRES[usuario.pendingPlan] || usuario.pendingPlan;
+  const pendingName = usuario.pendingPlanLabel || PLANES_CATALOGO[usuario.pendingPlan]?.nombre || usuario.pendingPlan;
   pendingPlanNotice.textContent = `Cambio programado a ${pendingName} el ${formatearFechaPlan(usuario.pendingPlanChangeAt)}. Hasta entonces mantienes tu plan actual.`;
   pendingPlanNotice.style.display = "block";
 }

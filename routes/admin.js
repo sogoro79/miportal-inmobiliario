@@ -30,11 +30,12 @@ const adminLoginSchema = z.object({
   password: z.string().min(1).max(200)
 }).strict();
 
-const PLANES_VALIDOS = [
+const ADMIN_ASSIGNABLE_PLAN_IDS = [
   'gratis', 'basico', 'destacado', 'starter',
   'pro_agentes', 'agencia_basica', 'agencia_pro',
   'vip', 'vip_trial'
 ];
+const PLANES_VALIDOS = ADMIN_ASSIGNABLE_PLAN_IDS;
 
 const TIPOS_INMUEBLE_VALIDOS = [
   'piso', 'apartamento', 'atico', 'duplex', 'estudio',
