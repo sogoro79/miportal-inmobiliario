@@ -8,6 +8,16 @@ import { envFlagEnabled } from "../utils/envFlags.js";
 
 const REQUIRED_CONFIRMATION = "CLEAR_ONE_DISABLED_TEST_USER_CHAT";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AMBIGUITY_REASONS = [
+  "falta_comprador",
+  "falta_anunciante",
+  "ambos_participantes_iguales",
+  "usuario_objetivo_no_participa",
+  "participante_no_encontrado",
+  "identificador_invalido",
+  "estructura_inconsistente",
+  "otra_ambiguedad"
+];
 
 function getOrCreateModel(name, schemaDefinition) {
   return mongoose.models[name] || mongoose.model(name, new mongoose.Schema(schemaDefinition, { strict: false }));
@@ -37,9 +47,15 @@ function safeEmptySummary() {
     conversacionesConOtroUsuarioActivo: 0,
     conversacionesSoloUsuariosDesactivados: 0,
     conversacionesConPropiedadExistente: 0,
+    conversacionesConParticipanteTestActivo: 0,
+    conversacionesConParticipanteTestDesactivado: 0,
+    conversacionesConParticipanteNoTest: 0,
+    conversacionesConParticipanteNoResoluble: 0,
+    todosLosParticipantesSonTest: true,
     mensajesPropios: 0,
     mensajesDeOtros: 0,
     conversacionesAmbiguas: 0,
+    conversacionesAmbiguasPorMotivo: Object.fromEntries(AMBIGUITY_REASONS.map(reason => [reason, 0])),
     relacionesInconsistentes: 0,
     participantesDesconocidos: 0,
     propiedadesDesconocidas: 0,
@@ -54,6 +70,23 @@ function safeEmptySummary() {
 
 function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean).map(value => String(value)))];
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function parseKnownTestEmails(value) {
+  if (!value) return { ok: false, message: "Falta KNOWN_TEST_EMAILS." };
+  const emails = String(value).split(",").map(normalizeEmail).filter(Boolean);
+  if (emails.length === 0) return { ok: false, message: "KNOWN_TEST_EMAILS debe incluir emails válidos." };
+  if (emails.some(email => !EMAIL_RE.test(email))) {
+    return { ok: false, message: "KNOWN_TEST_EMAILS contiene un email inválido." };
+  }
+  if (new Set(emails).size !== emails.length) {
+    return { ok: false, message: "KNOWN_TEST_EMAILS no admite duplicados." };
+  }
+  return { ok: true, emails };
 }
 
 function idString(value) {
@@ -129,7 +162,8 @@ async function findUsuarios(UsuarioModel, ids) {
   return readLean(UsuarioModel.find({
     _id: { $in: ids }
   }, {
-    activo: 1
+    activo: 1,
+    email: 1
   }));
 }
 
@@ -157,6 +191,10 @@ function userActiveMap(usuarios) {
   return new Map(usuarios.map(usuario => [idString(usuario._id), usuario.activo]));
 }
 
+function userEmailMap(usuarios) {
+  return new Map(usuarios.map(usuario => [idString(usuario._id), normalizeEmail(usuario.email)]));
+}
+
 function existingPropertySet(propiedades) {
   return new Set(propiedades.map(propiedad => idString(propiedad._id)));
 }
@@ -169,39 +207,65 @@ async function safeRelatedRead(loader) {
   }
 }
 
-function participantStatus(conv, targetUserId, activeByUser, usersQueryOk) {
+function participantStatus(conv, targetUserId, activeByUser, emailByUser, knownTestEmails, usersQueryOk) {
   const compradorId = idString(conv?.compradorId);
   const anuncianteId = idString(conv?.anuncianteId);
+  const conversationId = idString(conv?._id);
   const target = String(targetUserId);
   const motivos = [];
+  const ambiguityReasons = [];
 
-  if (!compradorId || !anuncianteId) motivos.push("participante_faltante");
+  if (!conversationId || !isValidObjectIdValue(conversationId)) {
+    motivos.push("relacion_mensaje_inconsistente");
+    ambiguityReasons.push("estructura_inconsistente");
+  }
+  if (!compradorId) {
+    motivos.push("participante_faltante");
+    ambiguityReasons.push("falta_comprador");
+  }
+  if (!anuncianteId) {
+    motivos.push("participante_faltante");
+    ambiguityReasons.push("falta_anunciante");
+  }
   if ((compradorId && !isValidObjectIdValue(compradorId)) || (anuncianteId && !isValidObjectIdValue(anuncianteId))) {
     motivos.push("participante_invalido");
+    ambiguityReasons.push("identificador_invalido");
   }
 
   const compradorEsTarget = compradorId === target;
   const anuncianteEsTarget = anuncianteId === target;
-  if ((compradorEsTarget && anuncianteEsTarget) || (!compradorEsTarget && !anuncianteEsTarget)) {
+  if (compradorId && anuncianteId && compradorId === anuncianteId) {
     motivos.push("participantes_inconsistentes");
+    ambiguityReasons.push("ambos_participantes_iguales");
+  } else if (!compradorEsTarget && !anuncianteEsTarget) {
+    motivos.push("participantes_inconsistentes");
+    ambiguityReasons.push("usuario_objetivo_no_participa");
   }
 
   const otherId = compradorEsTarget ? anuncianteId : compradorId;
   if (!motivos.length && !usersQueryOk) {
     motivos.push("participante_desconocido");
+    ambiguityReasons.push("participante_no_encontrado");
   }
   if (!motivos.length && !activeByUser.has(otherId)) {
     motivos.push("participante_desconocido");
+    ambiguityReasons.push("participante_no_encontrado");
   }
 
   const active = activeByUser.get(otherId);
+  const email = emailByUser.get(otherId);
+  const knownTest = Boolean(email && knownTestEmails.has(email));
   if (!motivos.length && typeof active !== "boolean") {
     motivos.push("estado_participante_desconocido");
+    ambiguityReasons.push("otra_ambiguedad");
   }
-
   return {
     otherActive: active === true,
     otherInactive: active === false,
+    knownTest,
+    notTest: !motivos.length && !knownTest,
+    resolvable: motivos.length === 0,
+    ambiguityReasons,
     motivos
   };
 }
@@ -290,11 +354,12 @@ function messageStatus({ conv, mensajes, targetUserId, activeByUser, usersQueryO
   return status;
 }
 
-function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados, propiedades, queryStatus = {} }) {
+function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados, propiedades, knownTestEmails, queryStatus = {} }) {
   const summary = safeEmptySummary();
   const uniqueConversations = dedupeByInternalId(conversaciones);
   const uniqueMessages = dedupeByInternalId(mensajes);
   const activeByUser = userActiveMap(usuariosRelacionados);
+  const emailByUser = userEmailMap(usuariosRelacionados);
   const existingProperties = existingPropertySet(propiedades);
   const byConversation = messagesByConversation(uniqueMessages);
   const blockingReasons = new Set();
@@ -310,7 +375,7 @@ function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados
   if (!messagesQueryOk) blockingReasons.add("mensajes_desconocidos");
 
   for (const conv of uniqueConversations) {
-    const participant = participantStatus(conv, targetUserId, activeByUser, usersQueryOk);
+    const participant = participantStatus(conv, targetUserId, activeByUser, emailByUser, knownTestEmails, usersQueryOk);
     const property = propertyStatus(conv, existingProperties, propertiesQueryOk);
     const message = messageStatus({
       conv,
@@ -329,22 +394,36 @@ function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados
     summary.mensajesRelacionInconsistente += message.relacionInconsistente;
 
     if (participant.otherActive) summary.conversacionesConOtroUsuarioActivo += 1;
+    if (participant.knownTest && participant.otherActive) summary.conversacionesConParticipanteTestActivo += 1;
+    if (participant.knownTest && participant.otherInactive) summary.conversacionesConParticipanteTestDesactivado += 1;
+    if (participant.notTest) summary.conversacionesConParticipanteNoTest += 1;
+    if (participant.motivos.includes("participante_desconocido")) summary.conversacionesConParticipanteNoResoluble += 1;
     if (property.exists) summary.conversacionesConPropiedadExistente += 1;
-    if (participant.otherInactive && property.absentConfirmed && !ambiguous) {
+    if (participant.knownTest && participant.otherInactive && property.absentConfirmed && !ambiguous) {
       summary.conversacionesSoloUsuariosDesactivados += 1;
     }
 
     if (participant.motivos.includes("participante_desconocido")) summary.participantesDesconocidos += 1;
     if (property.motivos.includes("propiedad_desconocida")) summary.propiedadesDesconocidas += 1;
-    if (ambiguous) summary.conversacionesAmbiguas += 1;
-    if (ambiguous || participant.otherActive || property.exists || message.autorDesconocido > 0 || message.relacionInconsistente > 0) {
+    if (ambiguous) {
+      summary.conversacionesAmbiguas += 1;
+      for (const reason of participant.ambiguityReasons) {
+        summary.conversacionesAmbiguasPorMotivo[reason] += 1;
+      }
+      if (participant.ambiguityReasons.length === 0 && motivos.length > 0) {
+        summary.conversacionesAmbiguasPorMotivo.otra_ambiguedad += 1;
+      }
+    }
+    if (ambiguous || participant.notTest || !participant.knownTest || participant.otherActive || property.exists || message.autorDesconocido > 0 || message.relacionInconsistente > 0) {
       summary.bloqueadas += 1;
     } else {
       summary.eliminablesConSeguridad += 1;
     }
+    if (!participant.knownTest) summary.todosLosParticipantesSonTest = false;
 
     for (const motivo of motivos) blockingReasons.add(motivo);
     if (participant.otherActive) blockingReasons.add("otro_usuario_activo");
+    if (participant.notTest) blockingReasons.add("participante_no_test");
     if (property.exists) blockingReasons.add("propiedad_existente");
   }
 
@@ -374,6 +453,13 @@ export function validateCli({ env = process.env, argv = process.argv } = {}) {
   if (!EMAIL_RE.test(env.TARGET_EMAIL)) {
     return { ok: false, code: 1, message: "TARGET_EMAIL no tiene un formato válido." };
   }
+  const knownTestEmails = parseKnownTestEmails(env.KNOWN_TEST_EMAILS);
+  if (!knownTestEmails.ok) {
+    return { ok: false, code: 1, message: knownTestEmails.message };
+  }
+  if (!knownTestEmails.emails.includes(normalizeEmail(env.TARGET_EMAIL))) {
+    return { ok: false, code: 1, message: "KNOWN_TEST_EMAILS debe incluir TARGET_EMAIL." };
+  }
   if (env.EXPECTED_ACTIVE !== "false") {
     return { ok: false, code: 1, message: "EXPECTED_ACTIVE debe ser exactamente false." };
   }
@@ -393,6 +479,8 @@ export async function auditSingleTestUserChatData({
   confirm = ""
 } = {}) {
   const shouldApply = apply === true;
+  const knownTestEmailsResult = parseKnownTestEmails(env.KNOWN_TEST_EMAILS);
+  const knownTestEmails = new Set(knownTestEmailsResult.ok ? knownTestEmailsResult.emails : [normalizeEmail(env.TARGET_EMAIL)].filter(Boolean));
   const targetUser = await findTargetUser(models.Usuario, env);
   const summary = safeEmptySummary();
 
@@ -422,6 +510,7 @@ export async function auditSingleTestUserChatData({
     mensajes: mensajesResult.data,
     usuariosRelacionados: usuariosResult.data,
     propiedades: propiedadesResult.data,
+    knownTestEmails,
     queryStatus: {
       usuarios: usuariosResult.ok,
       propiedades: propiedadesResult.ok,

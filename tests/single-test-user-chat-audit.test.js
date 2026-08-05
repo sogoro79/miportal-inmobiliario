@@ -11,13 +11,17 @@ const TARGET_ID = "507f1f77bcf86cd799439066";
 const OTHER_ID = "507f1f77bcf86cd799439077";
 const PROPERTY_ID = "507f1f77bcf86cd799439088";
 const CONV_ID = "507f1f77bcf86cd799439099";
+const TARGET_EMAIL = "sonygr@gmail.com";
+const OTHER_TEST_EMAIL = "sogoro0705@gmail.com";
+const NON_TEST_EMAIL = "real@example.com";
 
 function chatAuditEnv(overrides = {}) {
   return {
     CLEAR_SINGLE_TEST_USER_CHAT: "true",
     MONGODB_URI: "mongodb://example/test",
     TARGET_USER_ID: TARGET_ID,
-    TARGET_EMAIL: "sonygr@gmail.com",
+    TARGET_EMAIL,
+    KNOWN_TEST_EMAILS: `${TARGET_EMAIL},${OTHER_TEST_EMAIL},sogoro.portal@gmail.com`,
     EXPECTED_ACTIVE: "false",
     ...overrides
   };
@@ -41,8 +45,8 @@ function qError() {
 }
 
 function chatAuditModels({
-  targetUser = { _id: TARGET_ID, email: "sonygr@gmail.com", activo: false },
-  otherUsers = [{ _id: OTHER_ID, activo: false }],
+  targetUser = { _id: TARGET_ID, email: TARGET_EMAIL, activo: false },
+  otherUsers = [{ _id: OTHER_ID, email: OTHER_TEST_EMAIL, activo: false }],
   conversaciones = [{ _id: CONV_ID, compradorId: TARGET_ID, anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID }],
   propiedades = [],
   mensajes = [],
@@ -111,6 +115,10 @@ test("auditoría chat valida flags y argumentos antes de conectar", () => {
   assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ TARGET_USER_ID: "bad-id" }), argv: ["node", "script"] }).message, "TARGET_USER_ID no es un ObjectId válido.");
   assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ TARGET_EMAIL: "" }), argv: ["node", "script"] }).message, "Falta TARGET_EMAIL.");
   assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ TARGET_EMAIL: "mal" }), argv: ["node", "script"] }).message, "TARGET_EMAIL no tiene un formato válido.");
+  assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ KNOWN_TEST_EMAILS: "" }), argv: ["node", "script"] }).message, "Falta KNOWN_TEST_EMAILS.");
+  assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ KNOWN_TEST_EMAILS: `${TARGET_EMAIL},mal` }), argv: ["node", "script"] }).message, "KNOWN_TEST_EMAILS contiene un email inválido.");
+  assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ KNOWN_TEST_EMAILS: `${TARGET_EMAIL},${TARGET_EMAIL}` }), argv: ["node", "script"] }).message, "KNOWN_TEST_EMAILS no admite duplicados.");
+  assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ KNOWN_TEST_EMAILS: OTHER_TEST_EMAIL }), argv: ["node", "script"] }).message, "KNOWN_TEST_EMAILS debe incluir TARGET_EMAIL.");
   assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv({ EXPECTED_ACTIVE: "true" }), argv: ["node", "script"] }).message, "EXPECTED_ACTIVE debe ser exactamente false.");
   assert.equal(validateSingleTestUserChatAuditCli({ env: chatAuditEnv(), argv: ["node", "script", "--apply"] }).message, "Esta auditoría no acepta argumentos ni opciones.");
 });
@@ -150,6 +158,8 @@ test("auditoría chat en dry-run clasifica sin escrituras", async () => {
   assert.equal(summary.conversacionesTotales, 1);
   assert.equal(summary.mensajesTotales, 2);
   assert.equal(summary.conversacionesSoloUsuariosDesactivados, 1);
+  assert.equal(summary.conversacionesConParticipanteTestDesactivado, 1);
+  assert.equal(summary.todosLosParticipantesSonTest, true);
   assert.equal(summary.mensajesPropios, 1);
   assert.equal(summary.mensajesDeOtros, 1);
   assert.equal(summary.aplicariaCambios, false);
@@ -170,12 +180,13 @@ test("auditoría chat detecta otro participante activo", async () => {
   const summary = await auditSingleTestUserChatData({
     env: chatAuditEnv(),
     models: chatAuditModels({
-      otherUsers: [{ _id: OTHER_ID, activo: true }],
+      otherUsers: [{ _id: OTHER_ID, email: OTHER_TEST_EMAIL, activo: true }],
       mensajes: [{ conversacionId: CONV_ID, userId: OTHER_ID }]
     }).models
   });
 
   assert.equal(summary.conversacionesConOtroUsuarioActivo, 1);
+  assert.equal(summary.conversacionesConParticipanteTestActivo, 1);
   assert.equal(summary.bloqueadas, 1);
   assert.equal(summary.motivosBloqueo.includes("otro_usuario_activo"), true);
   assert.equal(summary.motivosBloqueo.includes("mensajes_de_otros"), true);
@@ -184,10 +195,12 @@ test("auditoría chat detecta otro participante activo", async () => {
 test("auditoría chat detecta conversaciones entre usuarios desactivados", async () => {
   const summary = await auditSingleTestUserChatData({
     env: chatAuditEnv(),
-    models: chatAuditModels({ otherUsers: [{ _id: OTHER_ID, activo: false }], propiedades: [] }).models
+    models: chatAuditModels({ otherUsers: [{ _id: OTHER_ID, email: OTHER_TEST_EMAIL, activo: false }], propiedades: [] }).models
   });
 
   assert.equal(summary.conversacionesSoloUsuariosDesactivados, 1);
+  assert.equal(summary.conversacionesConParticipanteTestDesactivado, 1);
+  assert.equal(summary.todosLosParticipantesSonTest, true);
   assert.equal(summary.eliminablesConSeguridad, 1);
   assert.equal(summary.bloqueadas, 0);
 });
@@ -207,11 +220,12 @@ test("auditoría chat bloquea propiedad existente", async () => {
 
 test("auditoría chat bloquea participantes ausentes, inválidos o inconsistentes", async () => {
   const cases = [
-    [{ _id: CONV_ID, anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID }, "participante_faltante"],
-    [{ _id: CONV_ID, compradorId: TARGET_ID, propiedadId: PROPERTY_ID }, "participante_faltante"],
-    [{ _id: CONV_ID, compradorId: "no-id", anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID }, "participante_invalido"],
-    [{ _id: CONV_ID, compradorId: TARGET_ID, anuncianteId: TARGET_ID, propiedadId: PROPERTY_ID }, "participantes_inconsistentes"],
-    [{ _id: CONV_ID, compradorId: OTHER_ID, anuncianteId: "507f1f77bcf86cd799439088", propiedadId: PROPERTY_ID }, "participantes_inconsistentes"]
+    [{ _id: CONV_ID, anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID }, "falta_comprador"],
+    [{ _id: CONV_ID, compradorId: TARGET_ID, propiedadId: PROPERTY_ID }, "falta_anunciante"],
+    [{ _id: CONV_ID, compradorId: "no-id", anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID }, "identificador_invalido"],
+    [{ _id: CONV_ID, compradorId: TARGET_ID, anuncianteId: TARGET_ID, propiedadId: PROPERTY_ID }, "ambos_participantes_iguales"],
+    [{ _id: CONV_ID, compradorId: OTHER_ID, anuncianteId: "507f1f77bcf86cd799439088", propiedadId: PROPERTY_ID }, "usuario_objetivo_no_participa"],
+    [{ compradorId: TARGET_ID, anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID }, "estructura_inconsistente"]
   ];
 
   for (const [conversacion, motivo] of cases) {
@@ -223,7 +237,7 @@ test("auditoría chat bloquea participantes ausentes, inválidos o inconsistente
     assert.equal(summary.bloqueadas, 1, motivo);
     assert.equal(summary.eliminablesConSeguridad, 0, motivo);
     assert.equal(summary.conversacionesAmbiguas, 1, motivo);
-    assert.equal(summary.motivosBloqueo.includes(motivo), true, motivo);
+    assert.equal(summary.conversacionesAmbiguasPorMotivo[motivo], 1, motivo);
   }
 });
 
@@ -239,9 +253,36 @@ test("auditoría chat bloquea participante desconocido y estado no booleano", as
 
   assert.equal(desconocido.bloqueadas, 1);
   assert.equal(desconocido.participantesDesconocidos, 1);
+  assert.equal(desconocido.conversacionesConParticipanteNoResoluble, 1);
+  assert.equal(desconocido.conversacionesAmbiguasPorMotivo.participante_no_encontrado, 1);
   assert.equal(desconocido.motivosBloqueo.includes("participante_desconocido"), true);
   assert.equal(estadoDesconocido.bloqueadas, 1);
+  assert.equal(estadoDesconocido.conversacionesAmbiguasPorMotivo.otra_ambiguedad, 1);
   assert.equal(estadoDesconocido.motivosBloqueo.includes("estado_participante_desconocido"), true);
+});
+
+test("auditoría chat clasifica participante test activo, desactivado y no test", async () => {
+  const testActivo = await auditSingleTestUserChatData({
+    env: chatAuditEnv(),
+    models: chatAuditModels({ otherUsers: [{ _id: OTHER_ID, email: OTHER_TEST_EMAIL, activo: true }] }).models
+  });
+  const testDesactivado = await auditSingleTestUserChatData({
+    env: chatAuditEnv(),
+    models: chatAuditModels({ otherUsers: [{ _id: OTHER_ID, email: OTHER_TEST_EMAIL, activo: false }] }).models
+  });
+  const noTest = await auditSingleTestUserChatData({
+    env: chatAuditEnv(),
+    models: chatAuditModels({ otherUsers: [{ _id: OTHER_ID, email: NON_TEST_EMAIL, activo: false }] }).models
+  });
+
+  assert.equal(testActivo.conversacionesConParticipanteTestActivo, 1);
+  assert.equal(testActivo.bloqueadas, 1);
+  assert.equal(testDesactivado.conversacionesConParticipanteTestDesactivado, 1);
+  assert.equal(testDesactivado.eliminablesConSeguridad, 1);
+  assert.equal(noTest.conversacionesConParticipanteNoTest, 1);
+  assert.equal(noTest.todosLosParticipantesSonTest, false);
+  assert.equal(noTest.bloqueadas, 1);
+  assert.equal(noTest.motivosBloqueo.includes("participante_no_test"), true);
 });
 
 test("auditoría chat bloquea propiedad ausente, inválida o desconocida", async () => {
@@ -316,6 +357,7 @@ test("auditoría chat bloquea ante fallos parciales sin exponer errores crudos",
   assert.equal(summary.bloqueadas, 1);
   assert.equal(summary.motivosBloqueo.includes("participante_desconocido"), true);
   assert.equal(summary.motivosBloqueo.includes("mensajes_desconocidos"), true);
+  assert.equal(summary.todosLosParticipantesSonTest, false);
   assert.doesNotMatch(output, /db detail|private data|507f1f77bcf86cd799439077/);
 });
 
@@ -323,7 +365,7 @@ test("auditoría chat solo declara eliminable con todos los datos válidos", asy
   const summary = await auditSingleTestUserChatData({
     env: chatAuditEnv(),
     models: chatAuditModels({
-      otherUsers: [{ _id: OTHER_ID, activo: false }],
+      otherUsers: [{ _id: OTHER_ID, email: OTHER_TEST_EMAIL, activo: false }],
       propiedades: [],
       mensajes: [
         { _id: "507f1f77bcf86cd799439111", conversacionId: CONV_ID, userId: TARGET_ID },
@@ -334,6 +376,7 @@ test("auditoría chat solo declara eliminable con todos los datos válidos", asy
 
   assert.equal(summary.eliminablesConSeguridad, 1);
   assert.equal(summary.bloqueadas, 0);
+  assert.equal(summary.todosLosParticipantesSonTest, true);
   assert.equal(summary.conversacionesAmbiguas, 0);
   assert.equal(summary.mensajesPropios, 1);
   assert.equal(summary.mensajesDeOtros, 1);
@@ -379,13 +422,14 @@ test("auditoría chat no expone datos personales, IDs ni textos", async () => {
   const summary = await auditSingleTestUserChatData({
     env: chatAuditEnv(),
     models: chatAuditModels({
-      targetUser: { _id: TARGET_ID, email: "sonygr@gmail.com", activo: false, nombre: "Sonia" },
+      targetUser: { _id: TARGET_ID, email: TARGET_EMAIL, activo: false, nombre: "Sonia" },
+      otherUsers: [{ _id: OTHER_ID, email: OTHER_TEST_EMAIL, activo: false, nombre: "Otra" }],
       mensajes: [{ conversacionId: CONV_ID, userId: TARGET_ID, texto: "mensaje privado" }]
     }).models
   });
   const output = JSON.stringify(summary);
 
-  assert.doesNotMatch(output, /sonygr@gmail\.com|Sonia|mensaje privado/);
+  assert.doesNotMatch(output, /sonygr@gmail\.com|sogoro0705@gmail\.com|Sonia|Otra|mensaje privado/);
   assert.doesNotMatch(output, new RegExp(`${TARGET_ID}|${OTHER_ID}|${PROPERTY_ID}|${CONV_ID}`));
 });
 

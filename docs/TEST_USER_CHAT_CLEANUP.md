@@ -30,7 +30,10 @@ El CLI requiere:
 - `MONGODB_URI`
 - `TARGET_USER_ID`
 - `TARGET_EMAIL`
+- `KNOWN_TEST_EMAILS`
 - `EXPECTED_ACTIVE=false`
+
+`KNOWN_TEST_EMAILS` debe ser una lista explícita, separada por comas, de cuentas confirmadas como pruebas. Todos sus valores deben ser emails válidos, no puede contener duplicados y debe incluir `TARGET_EMAIL`. La auditoría usa esta lista solo para clasificar participantes relacionados; nunca imprime los emails.
 
 Para una futura aplicación exigiría además:
 
@@ -48,8 +51,15 @@ La auditoría devuelve solo conteos:
 - `conversacionesConOtroUsuarioActivo`
 - `conversacionesSoloUsuariosDesactivados`
 - `conversacionesConPropiedadExistente`
+- `conversacionesConParticipanteTestActivo`
+- `conversacionesConParticipanteTestDesactivado`
+- `conversacionesConParticipanteNoTest`
+- `conversacionesConParticipanteNoResoluble`
+- `todosLosParticipantesSonTest`
 - `mensajesPropios`
 - `mensajesDeOtros`
+- `conversacionesAmbiguas`
+- `conversacionesAmbiguasPorMotivo`
 - `eliminablesConSeguridad`
 - `bloqueadas`
 - `motivosBloqueo`
@@ -63,6 +73,7 @@ La estrategia recomendada es combinar A y C:
 
 - permitir una limpieza futura solo para conversaciones donde todos los participantes sean cuentas de prueba/desactivadas y no exista propiedad asociada;
 - bloquear cualquier conversación donde el otro participante siga activo;
+- bloquear cualquier conversación donde el otro participante no pertenezca exactamente a `KNOWN_TEST_EMAILS`;
 - bloquear cualquier conversación con participantes ausentes, inválidos, inconsistentes o no resolubles;
 - bloquear cualquier conversación vinculada a una propiedad existente;
 - bloquear si `propiedadId` está ausente, es inválido o la consulta de propiedad no es concluyente;
@@ -71,6 +82,8 @@ La estrategia recomendada es combinar A y C:
 - eliminar conversación completa y todos sus mensajes solo en una fase posterior, con transacción y confirmación explícita.
 
 La regla general es `incertidumbre = bloqueo`: la auditoría no infiere que un dato ausente, inválido, desconocido o no resoluble es seguro. Tampoco interpreta automáticamente que un resultado vacío sea seguro salvo que la consulta se haya ejecutado correctamente y los identificadores auditados sean válidos.
+
+Las conversaciones ambiguas se agrupan con motivos genéricos: `falta_comprador`, `falta_anunciante`, `ambos_participantes_iguales`, `usuario_objetivo_no_participa`, `participante_no_encontrado`, `identificador_invalido`, `estructura_inconsistente` u `otra_ambiguedad`. Estos motivos no incluyen nombres, emails, IDs, textos ni documentos completos.
 
 No se recomienda anonimizar en esta primera fase porque el modelo actual exige `compradorId`, `anuncianteId` y `userId`, y cambiar esas referencias podría afectar lecturas, no leídos e historial de participantes.
 
