@@ -23,6 +23,11 @@ import {
   runCli as runSinglePlanSyncCli,
   validateCli as validateSinglePlanSyncCli
 } from "../scripts/repair-single-plan-sync.js";
+import {
+  clearStaleTestSubscription,
+  runCli as runClearStaleTestSubscriptionCli,
+  validateCli as validateClearStaleTestSubscriptionCli
+} from "../scripts/clear-stale-test-subscription.js";
 
 process.env.STRIPE_PRICE_BASICO = "price_basico";
 process.env.STRIPE_PRICE_DESTACADO = "price_destacado";
@@ -166,6 +171,75 @@ function SingleRepairModel(initialUsers, { updateMatches = true, onFind = () => 
       delete user.pendingPriceId;
       delete user.pendingPlanChangeAt;
       delete user.pendingPlanLabel;
+      return user;
+    }
+  };
+}
+
+function staleCleanupEnv(overrides = {}) {
+  return {
+    CLEAR_STALE_TEST_SUBSCRIPTION: "true",
+    MONGODB_URI: "mongodb://example/test",
+    TARGET_USER_ID: "507f1f77bcf86cd799439022",
+    TARGET_EMAIL: "test.disabled@example.com",
+    EXPECTED_ACTIVE: "false",
+    EXPECTED_CURRENT_PLAN: "agencia_basica",
+    EXPECTED_PENDING_PLAN: "basico",
+    ...overrides
+  };
+}
+
+function staleCleanupCandidate(data = {}) {
+  return {
+    _id: "507f1f77bcf86cd799439022",
+    nombre: "Usuario de Prueba",
+    email: "test.disabled@example.com",
+    activo: false,
+    plan: "agencia_basica",
+    planActivo: false,
+    planFechaFin: new Date("2026-07-01T00:00:00.000Z"),
+    pendingPlan: "basico",
+    pendingPlanLabel: "Básico",
+    pendingPriceId: "price_basico",
+    pendingPlanChangeAt: new Date("2026-07-15T00:00:00.000Z"),
+    stripeCustomerId: "cus_old_test_secret",
+    stripeSubscriptionId: "sub_old_test_secret",
+    subscriptionStatus: undefined,
+    cancelAtPeriodEnd: false,
+    subscriptionCancelAt: null,
+    favoritos: ["prop_1"],
+    trialAccepted: true,
+    launchPromoApplied: true,
+    ...data
+  };
+}
+
+function StaleCleanupModel(initialUsers, { updateMatches = true, onFind = () => {}, onUpdate = () => {} } = {}) {
+  const state = { users: [...initialUsers], findCalls: [], updates: [] };
+  return {
+    state,
+    find(query, projection) {
+      state.findCalls.push({ query, projection });
+      onFind(query, projection);
+      return {
+        limit(value) {
+          state.limit = value;
+          return this;
+        },
+        async lean() {
+          return state.users;
+        }
+      };
+    },
+    async findOneAndUpdate(query, update, options) {
+      state.updates.push({ query, update, options });
+      onUpdate(query, update, options);
+      if (!updateMatches) return null;
+      const user = state.users[0];
+      if (!user) return null;
+      for (const field of Object.keys(update.$unset || {})) {
+        delete user[field];
+      }
       return user;
     }
   };
@@ -1050,4 +1124,326 @@ test("script de reparación individual no importa Stripe ni contiene escrituras 
   assert.doesNotMatch(repair, /\.save\(|\.update\(|\.updateOne\(|\.updateMany\(|\.bulkWrite\(|\.delete\(|\.deleteOne\(|\.deleteMany\(|\.insert\(|\.create\(/);
   assert.equal((repair.match(/findOneAndUpdate/g) || []).length, 1);
   assert.match(repair, /mongooseClient\.disconnect/);
+});
+
+test("limpieza Stripe obsoleta valida flags, datos obligatorios y argumentos", () => {
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: {}, argv: ["node", "script"] }).message, "CLEAR_STALE_TEST_SUBSCRIPTION debe ser exactamente true.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ CLEAR_STALE_TEST_SUBSCRIPTION: "TRUE" }), argv: ["node", "script"] }).ok, false);
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ CLEAR_STALE_TEST_SUBSCRIPTION: "1" }), argv: ["node", "script"] }).ok, false);
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ MONGODB_URI: "" }), argv: ["node", "script"] }).message, "Falta MONGODB_URI.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ TARGET_USER_ID: "" }), argv: ["node", "script"] }).message, "Falta TARGET_USER_ID.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ TARGET_USER_ID: "no-es-objectid" }), argv: ["node", "script"] }).message, "TARGET_USER_ID no es un ObjectId válido.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ TARGET_EMAIL: "" }), argv: ["node", "script"] }).message, "Falta TARGET_EMAIL.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ TARGET_EMAIL: "email-invalido" }), argv: ["node", "script"] }).message, "TARGET_EMAIL no tiene un formato válido.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ EXPECTED_ACTIVE: "true" }), argv: ["node", "script"] }).message, "EXPECTED_ACTIVE debe ser exactamente false.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ EXPECTED_CURRENT_PLAN: "" }), argv: ["node", "script"] }).message, "Falta EXPECTED_CURRENT_PLAN.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv({ EXPECTED_PENDING_PLAN: "" }), argv: ["node", "script"] }).message, "Falta EXPECTED_PENDING_PLAN.");
+  assert.equal(validateClearStaleTestSubscriptionCli({ env: staleCleanupEnv(), argv: ["node", "script", "--apply"] }).message, "Esta limpieza no acepta argumentos ni opciones.");
+});
+
+test("limpieza Stripe obsoleta aborta validaciones previas sin conectar", async () => {
+  for (const env of [
+    staleCleanupEnv({ TARGET_USER_ID: "no-es-objectid" }),
+    staleCleanupEnv({ TARGET_EMAIL: "mal" }),
+    staleCleanupEnv({ EXPECTED_ACTIVE: "false " })
+  ]) {
+    const calls = [];
+    const code = await runClearStaleTestSubscriptionCli({
+      env,
+      argv: ["node", "script"],
+      stdout: () => {},
+      stderr: () => {},
+      mongooseClient: {
+        async connect() { calls.push("connect"); },
+        async disconnect() { calls.push("disconnect"); }
+      },
+      UsuarioModel: StaleCleanupModel([staleCleanupCandidate()])
+    });
+
+    assert.equal(code, 1);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("limpieza Stripe obsoleta exige confirmación explícita para aplicar", () => {
+  assert.equal(validateClearStaleTestSubscriptionCli({
+    env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "TRUE", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" }),
+    argv: ["node", "script"]
+  }).ok, true);
+  assert.equal(validateClearStaleTestSubscriptionCli({
+    env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true" }),
+    argv: ["node", "script"]
+  }).message, "CONFIRM_STALE_TEST_CLEANUP no coincide con la confirmación requerida.");
+  assert.deepEqual(validateClearStaleTestSubscriptionCli({
+    env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" }),
+    argv: ["node", "script"]
+  }), { ok: true });
+});
+
+test("limpieza Stripe obsoleta en dry-run no escribe y devuelve solo resumen seguro", async () => {
+  const model = StaleCleanupModel([staleCleanupCandidate()]);
+  const report = await clearStaleTestSubscription({
+    env: staleCleanupEnv(),
+    UsuarioModel: model
+  });
+
+  assert.deepEqual(Object.keys(report), [
+    "encontrado",
+    "usuarioDesactivado",
+    "planCoincide",
+    "pendingPlanCoincide",
+    "tieneStripeCustomer",
+    "tieneStripeSubscription",
+    "tienePendingChange",
+    "accionPropuesta",
+    "aplicariaCambios"
+  ]);
+  assert.equal(report.encontrado, true);
+  assert.equal(report.usuarioDesactivado, true);
+  assert.equal(report.planCoincide, true);
+  assert.equal(report.pendingPlanCoincide, true);
+  assert.equal(report.tieneStripeCustomer, true);
+  assert.equal(report.tieneStripeSubscription, true);
+  assert.equal(report.tienePendingChange, true);
+  assert.equal(report.accionPropuesta, "limpiar_stripe_obsoleto_usuario_test_desactivado");
+  assert.equal(report.aplicariaCambios, false);
+  assert.equal(model.state.updates.length, 0);
+});
+
+test("limpieza Stripe obsoleta protege aplicación desde la función core exportada", async () => {
+  const scenarios = [
+    [{}, false, undefined],
+    [{ apply: false }, false, undefined],
+    [{ apply: true }, true, "confirmacion_requerida"],
+    [{ apply: true, confirm: "MAL" }, true, "confirmacion_requerida"]
+  ];
+
+  for (const [params, hasApplyFields, abortReason] of scenarios) {
+    const model = StaleCleanupModel([staleCleanupCandidate()]);
+    const report = await clearStaleTestSubscription({
+      env: staleCleanupEnv(),
+      UsuarioModel: model,
+      ...params
+    });
+
+    assert.equal(model.state.updates.length, 0);
+    assert.equal(report.aplicariaCambios, false);
+    if (hasApplyFields) {
+      assert.equal(report.abortReason, abortReason);
+    } else {
+      assert.equal("abortReason" in report, false);
+    }
+  }
+});
+
+test("limpieza Stripe obsoleta solo permite escribir con confirmación core exacta", async () => {
+  const model = StaleCleanupModel([staleCleanupCandidate()]);
+  const report = await clearStaleTestSubscription({
+    env: staleCleanupEnv(),
+    UsuarioModel: model,
+    apply: true,
+    confirm: "CLEAR_ONE_DISABLED_TEST_USER"
+  });
+
+  assert.equal(report.aplicado, true);
+  assert.equal(report.modifiedCount, 1);
+  assert.equal(model.state.updates.length, 1);
+});
+
+test("limpieza Stripe obsoleta aborta si la selección estricta no coincide", async () => {
+  const cases = [
+    [staleCleanupCandidate({ activo: true }), "usuario_no_desactivado"],
+    [staleCleanupCandidate({ email: "otra@example.com" }), "email_no_coincide"],
+    [staleCleanupCandidate({ plan: "destacado" }), "plan_actual_no_coincide"],
+    [staleCleanupCandidate({ pendingPlan: "destacado" }), "pending_plan_no_coincide"],
+    [staleCleanupCandidate({ stripeSubscriptionId: "" }), "sin_stripe_subscription"]
+  ];
+
+  for (const [candidate, reason] of cases) {
+    const model = StaleCleanupModel([candidate]);
+    const report = await clearStaleTestSubscription({
+      env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" }),
+      UsuarioModel: model,
+      apply: true,
+      confirm: "CLEAR_ONE_DISABLED_TEST_USER"
+    });
+
+    assert.equal(report.abortReason, reason);
+    assert.equal(report.aplicado, false);
+    assert.equal(model.state.updates.length, 0);
+  }
+});
+
+test("limpieza Stripe obsoleta aplica una única actualización condicional sin upsert", async () => {
+  const model = StaleCleanupModel([staleCleanupCandidate()]);
+  const report = await clearStaleTestSubscription({
+    env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" }),
+    UsuarioModel: model,
+    apply: true,
+    confirm: "CLEAR_ONE_DISABLED_TEST_USER"
+  });
+
+  assert.equal(report.aplicado, true);
+  assert.equal(report.modifiedCount, 1);
+  assert.equal(model.state.updates.length, 1);
+  assert.deepEqual(model.state.updates[0].query, {
+    _id: "507f1f77bcf86cd799439022",
+    email: "test.disabled@example.com",
+    activo: false,
+    plan: "agencia_basica",
+    pendingPlan: "basico",
+    stripeSubscriptionId: "sub_old_test_secret",
+    pendingPlanChangeAt: new Date("2026-07-15T00:00:00.000Z"),
+    pendingPriceId: "price_basico"
+  });
+  assert.deepEqual(Object.keys(model.state.updates[0].update.$unset).sort(), [
+    "cancelAtPeriodEnd",
+    "pendingPlan",
+    "pendingPlanChangeAt",
+    "pendingPlanLabel",
+    "pendingPriceId",
+    "stripeCustomerId",
+    "stripeSubscriptionId",
+    "subscriptionCancelAt",
+    "subscriptionStatus"
+  ].sort());
+  assert.equal("$set" in model.state.updates[0].update, false);
+  assert.deepEqual(model.state.updates[0].options, { new: true, projection: {
+    email: 1,
+    activo: 1,
+    plan: 1,
+    planActivo: 1,
+    planFechaFin: 1,
+    pendingPlan: 1,
+    pendingPlanLabel: 1,
+    pendingPriceId: 1,
+    pendingPlanChangeAt: 1,
+    stripeCustomerId: 1,
+    stripeSubscriptionId: 1,
+    subscriptionStatus: 1,
+    cancelAtPeriodEnd: 1,
+    subscriptionCancelAt: 1
+  } });
+  assert.equal("upsert" in model.state.updates[0].options, false);
+});
+
+test("limpieza Stripe obsoleta aborta con 0 coincidencias sin reintento", async () => {
+  const model = StaleCleanupModel([staleCleanupCandidate()], { updateMatches: false });
+  const report = await clearStaleTestSubscription({
+    env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" }),
+    UsuarioModel: model,
+    apply: true,
+    confirm: "CLEAR_ONE_DISABLED_TEST_USER"
+  });
+
+  assert.equal(report.abortReason, "actualizacion_condicional_sin_coincidencias");
+  assert.equal(report.aplicado, false);
+  assert.equal(model.state.updates.length, 1);
+});
+
+test("limpieza Stripe obsoleta limpia solo campos permitidos y preserva plan y activo", async () => {
+  const user = staleCleanupCandidate();
+  const report = await clearStaleTestSubscription({
+    env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" }),
+    UsuarioModel: StaleCleanupModel([user]),
+    apply: true,
+    confirm: "CLEAR_ONE_DISABLED_TEST_USER"
+  });
+
+  assert.equal(user.plan, "agencia_basica");
+  assert.equal(user.planActivo, false);
+  assert.equal(user.planFechaFin.toISOString(), "2026-07-01T00:00:00.000Z");
+  assert.equal(user.activo, false);
+  assert.equal(user.nombre, "Usuario de Prueba");
+  assert.equal(user.email, "test.disabled@example.com");
+  assert.deepEqual(user.favoritos, ["prop_1"]);
+  assert.equal(user.trialAccepted, true);
+  assert.equal(user.launchPromoApplied, true);
+  assert.equal(user.stripeCustomerId, undefined);
+  assert.equal(user.stripeSubscriptionId, undefined);
+  assert.equal(user.subscriptionStatus, undefined);
+  assert.equal(user.pendingPlan, undefined);
+  assert.equal(user.pendingPriceId, undefined);
+  assert.equal(user.pendingPlanChangeAt, undefined);
+  assert.equal(user.pendingPlanLabel, undefined);
+  assert.deepEqual(report.verificacionPosterior, {
+    sigueDesactivado: true,
+    planPreservado: true,
+    stripeFieldsVacios: true,
+    pendingFieldsVacios: true
+  });
+});
+
+test("limpieza Stripe obsoleta no expone datos personales ni IDs", async () => {
+  const report = await clearStaleTestSubscription({
+    env: staleCleanupEnv(),
+    UsuarioModel: StaleCleanupModel([staleCleanupCandidate()])
+  });
+  const output = JSON.stringify(report);
+
+  assert.doesNotMatch(output, /Usuario de Prueba|test\.disabled@example\.com/);
+  assert.doesNotMatch(output, /507f1f77bcf86cd799439022|sub_old_test_secret|cus_old_test_secret|price_basico/);
+});
+
+test("limpieza Stripe obsoleta cierra conexión en finally", async () => {
+  const calls = [];
+  const code = await runClearStaleTestSubscriptionCli({
+    env: staleCleanupEnv(),
+    argv: ["node", "script"],
+    stdout: () => {},
+    stderr: () => {},
+    mongooseClient: {
+      async connect() { calls.push("connect"); },
+      async disconnect() { calls.push("disconnect"); }
+    },
+    UsuarioModel: StaleCleanupModel([staleCleanupCandidate()])
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(calls, ["connect", "disconnect"]);
+});
+
+test("limpieza Stripe obsoleta CLI pasa apply y confirm a la función core", async () => {
+  const calls = [];
+  const model = StaleCleanupModel([staleCleanupCandidate()]);
+  const code = await runClearStaleTestSubscriptionCli({
+    env: staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" }),
+    argv: ["node", "script"],
+    stdout: () => {},
+    stderr: () => {},
+    mongooseClient: {
+      async connect() { calls.push("connect"); },
+      async disconnect() { calls.push("disconnect"); }
+    },
+    UsuarioModel: model
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(calls, ["connect", "disconnect"]);
+  assert.equal(model.state.updates.length, 1);
+});
+
+test("limpieza Stripe obsoleta es idempotente: segunda ejecución no vuelve a aplicar", async () => {
+  const user = staleCleanupCandidate();
+  const model = StaleCleanupModel([user]);
+  const env = staleCleanupEnv({ APPLY_STALE_TEST_CLEANUP: "true", CONFIRM_STALE_TEST_CLEANUP: "CLEAR_ONE_DISABLED_TEST_USER" });
+  const first = await clearStaleTestSubscription({ env, UsuarioModel: model, apply: true, confirm: "CLEAR_ONE_DISABLED_TEST_USER" });
+  const second = await clearStaleTestSubscription({ env, UsuarioModel: model, apply: true, confirm: "CLEAR_ONE_DISABLED_TEST_USER" });
+
+  assert.equal(first.aplicado, true);
+  assert.equal(second.aplicado, false);
+  assert.equal(second.abortReason, "pending_plan_no_coincide");
+  assert.equal(model.state.updates.length, 1);
+});
+
+test("script de limpieza Stripe obsoleta no importa Stripe, Propiedad ni efectos prohibidos", () => {
+  const cleanup = fs.readFileSync(new URL("../scripts/clear-stale-test-subscription.js", import.meta.url), "utf8");
+
+  assert.doesNotMatch(cleanup, /from "stripe"|from 'stripe'|import\("stripe"\)|import\('stripe'\)/);
+  assert.doesNotMatch(cleanup, /Propiedad|from "\.\.\/routes|from '\.\.\/routes|server\.js/);
+  assert.doesNotMatch(cleanup, /schedulePendingPlanChanges|scheduleManualPlanExpirations|scheduleVipTrialExpiration/);
+  assert.doesNotMatch(cleanup, /aplicarLimitesPlanTrasTrial|enviarCorreo|nodemailer|sendMail/);
+  assert.doesNotMatch(cleanup, /\.save\(|\.update\(|\.updateOne\(|\.updateMany\(|\.bulkWrite\(|\.delete\(|\.deleteOne\(|\.deleteMany\(|\.insert\(|\.create\(/);
+  assert.equal((cleanup.match(/findOneAndUpdate/g) || []).length, 1);
+  assert.match(cleanup, /mongooseClient\.disconnect/);
 });

@@ -93,6 +93,43 @@ Procedimiento seguro:
 
 Rollback manual seguro: usar el `before` del dry-run/aplicación y restaurar manualmente solo los campos de plan afectados (`plan`, `planActivo`, `subscriptionStatus`, `pendingPlan`, `pendingPriceId`, `pendingPlanChangeAt`, `pendingPlanLabel`) para el mismo usuario explícito. No hay rollback automático para evitar escrituras adicionales no supervisadas.
 
+## Limpieza individual de suscripción Stripe obsoleta
+
+`scripts/clear-stale-test-subscription.js` sirve solo para limpiar los datos Stripe locales obsoletos de una única cuenta de prueba desactivada. No elimina al usuario, no consulta Stripe, no modifica Stripe, no cambia el plan, no toca propiedades, no aplica límites y no debe reutilizarse como limpieza masiva.
+
+Por defecto funciona en dry-run. Requiere selección explícita y coincidencia exacta del estado esperado:
+
+- `CLEAR_STALE_TEST_SUBSCRIPTION=true`
+- `MONGODB_URI`
+- `TARGET_USER_ID`
+- `TARGET_EMAIL`
+- `EXPECTED_ACTIVE=false`
+- `EXPECTED_CURRENT_PLAN`
+- `EXPECTED_PENDING_PLAN`
+
+Para aplicar la limpieza, además requiere doble confirmación:
+
+- `APPLY_STALE_TEST_CLEANUP=true`
+- `CONFIRM_STALE_TEST_CLEANUP=CLEAR_ONE_DISABLED_TEST_USER`
+
+El CLI traduce esas variables a los parámetros internos `apply:true` y `confirm:"CLEAR_ONE_DISABLED_TEST_USER"`. La función de aplicación también exige esa confirmación internamente, así que importar `clearStaleTestSubscription` directamente no evita las barreras de escritura.
+
+La primera ejecución prevista es para `EXPECTED_CURRENT_PLAN=agencia_basica` y `EXPECTED_PENDING_PLAN=basico`. La herramienta exige que el usuario esté desactivado, que el email coincida exactamente, que conserve una `stripeSubscriptionId` local y que los planes actual y pendiente coincidan con los valores esperados.
+
+La aplicación realiza una única actualización condicional y atómica, sin `upsert`, para vaciar solo estos campos locales:
+
+- `stripeCustomerId`
+- `stripeSubscriptionId`
+- `subscriptionStatus`
+- `cancelAtPeriodEnd`
+- `subscriptionCancelAt`
+- `pendingPlan`
+- `pendingPriceId`
+- `pendingPlanChangeAt`
+- `pendingPlanLabel`
+
+Preserva `plan`, `planActivo`, `planFechaFin`, datos personales, rol, verificación, trial, promociones, favoritos, propiedades, imágenes, chats y cualquier otro campo no listado. Después de limpiarlo, todavía será necesario implementar una eliminación administrativa protegida si se quiere borrar la cuenta desde el panel.
+
 ## Procedimiento posterior
 
 1. Desplegar con todos los nuevos flags apagados.
