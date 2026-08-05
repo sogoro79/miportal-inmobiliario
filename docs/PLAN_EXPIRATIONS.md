@@ -51,14 +51,22 @@ No debe incluir emails, tokens, secretos ni datos personales innecesarios.
 
 `scripts/audit-plan-expirations.js` es una auditoría agregada de solo lectura. Requiere `AUDIT_PLAN_EXPIRATIONS=true` y `MONGODB_URI`, no importa Stripe, no guarda documentos y no muestra identificadores personales.
 
+`scripts/audit-pending-plan-changes.js` es una auditoría detallada de cambios de plan programados vencidos. Requiere `AUDIT_PENDING_PLAN_CHANGES=true` y `MONGODB_URI`; si existe `STRIPE_SECRET_KEY`, consulta Stripe únicamente con `subscriptions.retrieve` para clasificar cada caso sin mostrar identificadores reales.
+
+- No modifica MongoDB.
+- No modifica Stripe.
+- No envía correos.
+- No importa rutas del servidor ni arranca schedulers.
+- Si falta `STRIPE_SECRET_KEY`, completa la parte MongoDB, marca `stripeDisponible=false` y deja la comprobación Stripe como pendiente.
+- Devuelve agregados y casos numerados efímeros, sin emails, nombres, IDs completos, customer IDs, subscription IDs, price IDs, metadata ni documentos.
+
 ## Procedimiento posterior
 
 1. Desplegar con todos los nuevos flags apagados.
 2. Ejecutar la auditoría real agregada.
-3. Revisar conteos por categoría.
-4. Decidir plan por plan.
-5. Activar un solo procesador de forma controlada.
-6. Revisar resultados.
-7. Activar periodicidad si procede.
+3. Ejecutar la auditoría detallada de cambios programados.
+4. Revisar conteos, clasificación y bloqueos.
+5. Decidir si procede una ejecución controlada.
+6. No activar todavía el scheduler periódico.
 
 No deben activarse a la vez varios procesadores ni cambiar red/credenciales durante una corrección.

@@ -14,8 +14,16 @@ import {
   scheduleManualPlanExpirations
 } from "../utils/manualPlanExpirations.js";
 import { envFlagEnabled } from "../utils/envFlags.js";
+import {
+  auditPendingPlanChanges,
+  validateCli as validatePendingPlanAuditCli
+} from "../scripts/audit-pending-plan-changes.js";
 
 process.env.STRIPE_PRICE_BASICO = "price_basico";
+process.env.STRIPE_PRICE_DESTACADO = "price_destacado";
+process.env.STRIPE_PRICE_STARTER = "price_starter";
+process.env.STRIPE_PRICE_PRO_AGENTES = "price_pro_agentes";
+process.env.STRIPE_PRICE_AGENCIA_BASICA = "price_agencia_basica";
 
 function usuarioMock(data) {
   return {
@@ -37,6 +45,57 @@ function loggerMock() {
     info(...args) { this.infos.push(args); },
     warn(...args) { this.warnings.push(args); },
     error(...args) { this.errors.push(args); }
+  };
+}
+
+function pendingCandidate(data = {}) {
+  return {
+    plan: "agencia_basica",
+    planActivo: true,
+    planFechaFin: new Date("2026-08-05T00:00:00.000Z"),
+    pendingPlan: "basico",
+    pendingPlanLabel: "Básico",
+    pendingPriceId: "price_basico",
+    pendingPlanChangeAt: new Date("2026-07-01T00:00:00.000Z"),
+    stripeCustomerId: "cus_secret_123",
+    stripeSubscriptionId: "sub_secret_123",
+    subscriptionStatus: "active",
+    cancelAtPeriodEnd: false,
+    subscriptionCancelAt: null,
+    nombre: "Persona Privada",
+    email: "privada@example.com",
+    numDoc: "12345678Z",
+    telefono: "600000000",
+    direccion: "Calle Privada",
+    _id: "507f1f77bcf86cd799439011",
+    ...data
+  };
+}
+
+function UsuarioModelForPendingAudit(candidatos, onFind = () => {}) {
+  return {
+    find(query, projection) {
+      onFind(query, projection);
+      return {
+        async lean() {
+          return candidatos;
+        }
+      };
+    }
+  };
+}
+
+function stripeRetrieveMock(resultOrError) {
+  const calls = [];
+  return {
+    calls,
+    subscriptions: {
+      async retrieve(subscriptionId) {
+        calls.push(subscriptionId);
+        if (resultOrError instanceof Error) throw resultOrError;
+        return resultOrError;
+      }
+    }
   };
 }
 
@@ -399,4 +458,227 @@ test("auditoría real es solo lectura y requiere flag explícito", () => {
   assert.match(audit, /soloLectura: true/);
   assert.match(dryRun, /tipo: "simulacion_local"/);
   assert.match(dryRun, /auditoriaProduccion: false/);
+});
+
+test("auditoría de cambios pendientes valida flag exacta, MongoDB URI y argumentos", () => {
+  assert.deepEqual(
+    validatePendingPlanAuditCli({ env: {}, argv: ["node", "script"] }),
+    { ok: false, code: 1, message: "AUDIT_PENDING_PLAN_CHANGES debe ser exactamente true." }
+  );
+  assert.deepEqual(
+    validatePendingPlanAuditCli({ env: { AUDIT_PENDING_PLAN_CHANGES: "TRUE", MONGODB_URI: "mongodb://example/test" }, argv: ["node", "script"] }),
+    { ok: false, code: 1, message: "AUDIT_PENDING_PLAN_CHANGES debe ser exactamente true." }
+  );
+  assert.deepEqual(
+    validatePendingPlanAuditCli({ env: { AUDIT_PENDING_PLAN_CHANGES: "true" }, argv: ["node", "script"] }),
+    { ok: false, code: 1, message: "Falta MONGODB_URI." }
+  );
+  assert.deepEqual(
+    validatePendingPlanAuditCli({ env: { AUDIT_PENDING_PLAN_CHANGES: "true", MONGODB_URI: "mongodb://example/test" }, argv: ["node", "script", "--apply"] }),
+    { ok: false, code: 1, message: "Esta auditoría no acepta argumentos ni opciones." }
+  );
+  assert.deepEqual(
+    validatePendingPlanAuditCli({ env: { AUDIT_PENDING_PLAN_CHANGES: "true", MONGODB_URI: "mongodb://example/test" }, argv: ["node", "script"] }),
+    { ok: true }
+  );
+});
+
+test("auditoría de cambios pendientes consulta solo candidatos vencidos y proyecta campos mínimos", async () => {
+  let queryReceived = null;
+  let projectionReceived = null;
+  await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    stripeSecretKey: "",
+    UsuarioModel: UsuarioModelForPendingAudit([], (query, projection) => {
+      queryReceived = query;
+      projectionReceived = projection;
+    })
+  });
+
+  assert.deepEqual(queryReceived.pendingPlan, { $exists: true, $nin: [null, ""] });
+  assert.deepEqual(queryReceived.pendingPriceId, { $exists: true, $nin: [null, ""] });
+  assert.deepEqual(queryReceived.stripeSubscriptionId, { $exists: true, $nin: [null, ""] });
+  assert.deepEqual(queryReceived.pendingPlanChangeAt, { $lte: new Date("2026-08-05T00:00:00.000Z") });
+  for (const field of [
+    "plan",
+    "planActivo",
+    "planFechaFin",
+    "pendingPlan",
+    "pendingPlanLabel",
+    "pendingPriceId",
+    "pendingPlanChangeAt",
+    "stripeCustomerId",
+    "stripeSubscriptionId",
+    "subscriptionStatus",
+    "cancelAtPeriodEnd",
+    "subscriptionCancelAt"
+  ]) {
+    assert.equal(projectionReceived[field], 1, field);
+  }
+});
+
+test("auditoría de cambios pendientes funciona sin Stripe y no intenta consultar", async () => {
+  const summary = await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    stripeSecretKey: "",
+    UsuarioModel: UsuarioModelForPendingAudit([pendingCandidate()])
+  });
+
+  assert.equal(summary.stripeDisponible, false);
+  assert.equal(summary.totalCandidatos, 1);
+  assert.equal(summary.stripeConsultadas, 0);
+  assert.equal(summary.comprobacionStripePendiente, 1);
+  assert.equal(summary.candidatosBloqueados, 1);
+  assert.equal(summary.casos[0].caso, 1);
+  assert.equal(summary.casos[0].clasificacion, "bloqueado");
+});
+
+test("auditoría clasifica candidato coherente active con un item como aplicable", async () => {
+  const stripe = stripeRetrieveMock({
+    status: "active",
+    cancel_at_period_end: false,
+    items: { data: [{ price: { id: "price_agencia_basica" } }] }
+  });
+
+  const summary = await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    UsuarioModel: UsuarioModelForPendingAudit([pendingCandidate()]),
+    stripeClient: stripe
+  });
+
+  assert.equal(stripe.calls.length, 1);
+  assert.equal(summary.stripeEstadoActive, 1);
+  assert.equal(summary.stripeConUnItem, 1);
+  assert.equal(summary.stripePriceActualCoincideConPlanActual, 1);
+  assert.equal(summary.candidatosAplicables, 1);
+  assert.equal(summary.casos[0].clasificacion, "aplicable");
+  assert.equal(summary.casos[0].priceActualRepresentaPlanActual, true);
+});
+
+test("auditoría acepta Stripe trialing con un item como aplicable", async () => {
+  const stripe = stripeRetrieveMock({
+    status: "trialing",
+    items: { data: [{ price: { id: "price_agencia_basica" } }] }
+  });
+
+  const summary = await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    UsuarioModel: UsuarioModelForPendingAudit([pendingCandidate()]),
+    stripeClient: stripe
+  });
+
+  assert.equal(summary.stripeEstadoTrialing, 1);
+  assert.equal(summary.candidatosAplicables, 1);
+});
+
+test("auditoría marca incoherente pendingPlan inválido o price no correspondiente", async () => {
+  const stripe = stripeRetrieveMock({
+    status: "active",
+    items: { data: [{ price: { id: "price_agencia_basica" } }] }
+  });
+  const summary = await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    UsuarioModel: UsuarioModelForPendingAudit([
+      pendingCandidate({ pendingPlan: "inventado", pendingPriceId: "price_inventado" }),
+      pendingCandidate({ pendingPlan: "basico", pendingPriceId: "price_destacado" })
+    ]),
+    stripeClient: stripe
+  });
+
+  assert.equal(summary.pendingPlanInvalido, 1);
+  assert.equal(summary.pendingPriceNoConfigurado, 2);
+  assert.equal(summary.inconsistenciasMongoStripe, 2);
+  assert.equal(summary.casos[0].pendienteCoherente, false);
+  assert.equal(summary.casos[1].pendienteCoherente, false);
+});
+
+test("auditoría bloquea suscripción no encontrada, canceled, past_due y múltiples items", async () => {
+  const missing = new Error("missing");
+  missing.code = "resource_missing";
+  const scenarios = [
+    stripeRetrieveMock(missing),
+    stripeRetrieveMock({ status: "canceled", items: { data: [{ price: { id: "price_agencia_basica" } }] } }),
+    stripeRetrieveMock({ status: "past_due", items: { data: [{ price: { id: "price_agencia_basica" } }] } }),
+    stripeRetrieveMock({ status: "active", items: { data: [{ price: { id: "price_agencia_basica" } }, { price: { id: "price_basico" } }] } })
+  ];
+
+  const results = [];
+  for (const stripe of scenarios) {
+    results.push(await auditPendingPlanChanges({
+      now: new Date("2026-08-05T00:00:00.000Z"),
+      UsuarioModel: UsuarioModelForPendingAudit([pendingCandidate()]),
+      stripeClient: stripe
+    }));
+  }
+
+  assert.equal(results[0].stripeNoEncontradas, 1);
+  assert.equal(results[1].stripeEstadoIncompatible, 1);
+  assert.equal(results[2].stripeEstadoIncompatible, 1);
+  assert.equal(results[3].stripeConMultiplesItems, 1);
+  for (const summary of results) {
+    assert.equal(summary.candidatosBloqueados, 1);
+    assert.equal(summary.casos[0].clasificacion, "bloqueado");
+  }
+});
+
+test("auditoría detecta Stripe ya aplicado al price pendiente", async () => {
+  const summary = await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    UsuarioModel: UsuarioModelForPendingAudit([pendingCandidate()]),
+    stripeClient: stripeRetrieveMock({
+      status: "active",
+      items: { data: [{ price: { id: "price_basico" } }] }
+    })
+  });
+
+  assert.equal(summary.stripePriceActualYaCoincideConPlanPendiente, 1);
+  assert.equal(summary.candidatosYaAplicadosEnStripe, 1);
+  assert.equal(summary.casos[0].clasificacion, "ya_aplicado_en_stripe");
+});
+
+test("auditoría detecta price actual desconocido como inconsistente", async () => {
+  const summary = await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    UsuarioModel: UsuarioModelForPendingAudit([pendingCandidate()]),
+    stripeClient: stripeRetrieveMock({
+      status: "active",
+      items: { data: [{ price: { id: "price_unknown" } }] }
+    })
+  });
+
+  assert.equal(summary.stripePriceActualNoReconocido, 1);
+  assert.equal(summary.inconsistenciasMongoStripe, 1);
+  assert.equal(summary.casos[0].clasificacion, "inconsistente");
+});
+
+test("auditoría de cambios pendientes no expone IDs ni datos personales", async () => {
+  const summary = await auditPendingPlanChanges({
+    now: new Date("2026-08-05T00:00:00.000Z"),
+    UsuarioModel: UsuarioModelForPendingAudit([pendingCandidate()]),
+    stripeClient: stripeRetrieveMock({
+      status: "active",
+      items: { data: [{ price: { id: "price_agencia_basica" } }] },
+      metadata: { userId: "507f1f77bcf86cd799439011" }
+    })
+  });
+  const output = JSON.stringify(summary);
+
+  assert.doesNotMatch(output, /Persona Privada|privada@example\.com|12345678Z|600000000|Calle Privada/);
+  assert.doesNotMatch(output, /507f1f77bcf86cd799439011|cus_secret_123|sub_secret_123/);
+  assert.doesNotMatch(output, /price_basico|price_agencia_basica|price_unknown/);
+  assert.doesNotMatch(output, /metadata/);
+});
+
+test("script de auditoría de cambios pendientes no contiene escrituras ni efectos prohibidos", () => {
+  const audit = fs.readFileSync(new URL("../scripts/audit-pending-plan-changes.js", import.meta.url), "utf8");
+
+  assert.match(audit, /AUDIT_PENDING_PLAN_CHANGES !== "true"/);
+  assert.match(audit, /MONGODB_URI/);
+  assert.match(audit, /subscriptions\.retrieve/);
+  assert.match(audit, /mongoose\.disconnect/);
+  assert.doesNotMatch(audit, /from "\.\.\/routes|from '\.\.\/routes/);
+  assert.doesNotMatch(audit, /schedulePendingPlanChanges|scheduleManualPlanExpirations|scheduleVipTrialExpiration/);
+  assert.doesNotMatch(audit, /\.save\(|\.update\(|\.updateOne\(|\.updateMany\(|\.findOneAndUpdate\(|\.bulkWrite\(|\.delete\(|\.deleteOne\(|\.deleteMany\(|\.insert\(|\.create\(/);
+  assert.doesNotMatch(audit, /subscriptions\.update|subscriptions\.cancel|subscriptionItems\.update/);
+  assert.doesNotMatch(audit, /enviarCorreo|nodemailer|sendMail/);
 });
