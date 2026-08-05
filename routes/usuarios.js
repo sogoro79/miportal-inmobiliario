@@ -3,10 +3,28 @@ import express from "express";
 import Usuario from "../models/Usuario.js";
 import { requireAuth } from "../middleware/auth.js";
 import { canjearCodigoVipTrial, mensajeErrorCodigoVipTrial } from "../utils/vipTrialCodes.js";
+import { processManualPlanExpirations } from "../utils/manualPlanExpirations.js";
+import { envFlagEnabled } from "../utils/envFlags.js";
 
 const router = express.Router();
 
-function usuarioSeguro(usuario) {
+function fechaVencida(fecha, now = new Date()) {
+  if (!fecha) return false;
+  const time = new Date(fecha).getTime();
+  return Number.isFinite(time) && time <= now.getTime();
+}
+
+function estadoPlanCalculado(usuario, now = new Date()) {
+  const planDateExpired = Boolean(usuario.plan && usuario.plan !== "gratis" && fechaVencida(usuario.planFechaFin, now));
+  const pendingPlanChangeOverdue = Boolean(usuario.pendingPlan && fechaVencida(usuario.pendingPlanChangeAt, now));
+  return {
+    planDateExpired,
+    pendingPlanChangeOverdue,
+    stripePlanSyncPending: Boolean(usuario.stripeSubscriptionId && (planDateExpired || pendingPlanChangeOverdue))
+  };
+}
+
+function usuarioSeguro(usuario, estadoPlan = estadoPlanCalculado(usuario)) {
   return {
     _id: usuario._id,
     nombre: usuario.nombre,
@@ -28,15 +46,28 @@ function usuarioSeguro(usuario) {
     launchPromoApplied: usuario.launchPromoApplied || false,
     launchPromoSuccessfulPayments: usuario.launchPromoSuccessfulPayments || 0,
     launchPromoAppliedAt: usuario.launchPromoAppliedAt || null,
-    launchPromoAppliedSubscriptionId: usuario.launchPromoAppliedSubscriptionId || null
+    launchPromoAppliedSubscriptionId: usuario.launchPromoAppliedSubscriptionId || null,
+    ...estadoPlan
   };
 }
 
 // Usuario autenticado
 router.get("/me", requireAuth, async (req, res) => {
   try {
-    const usuario = await Usuario.findById(req.user.id);
+    let usuario = await Usuario.findById(req.user.id);
     if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+    if (envFlagEnabled("ENABLE_PLAN_READ_REPAIR")) {
+      try {
+        const repairResult = await processManualPlanExpirations(new Date(), { usuarios: [usuario], apply: true, logger: console });
+        if (repairResult.aplicados > 0) {
+          usuario = await Usuario.findById(req.user.id);
+          if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+        }
+      } catch (normalizationErr) {
+        console.error("No se pudo normalizar el plan manual vencido en /usuarios/me:", normalizationErr.message);
+      }
+    }
+    const estadoPlan = estadoPlanCalculado(usuario);
     console.log("DEBUG /usuarios/me", {
       userId: usuario._id.toString(),
       plan: usuario.plan || "gratis",
@@ -52,9 +83,10 @@ router.get("/me", requireAuth, async (req, res) => {
       launchPromoApplied: Boolean(usuario.launchPromoApplied),
       launchPromoSuccessfulPayments: usuario.launchPromoSuccessfulPayments || 0,
       launchPromoAppliedAt: usuario.launchPromoAppliedAt || null,
-      launchPromoAppliedSubscriptionId: usuario.launchPromoAppliedSubscriptionId || null
+      launchPromoAppliedSubscriptionId: usuario.launchPromoAppliedSubscriptionId || null,
+      ...estadoPlan
     });
-    res.json(usuarioSeguro(usuario));
+    res.json(usuarioSeguro(usuario, estadoPlan));
   } catch (e) {
     res.status(500).json({ error: "Error en servidor" });
   }

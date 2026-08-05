@@ -774,6 +774,12 @@ function formatearFechaPlan(fecha) {
     : 'la fecha de renovación';
 }
 
+function fechaPasada(fecha) {
+  if (!fecha) return false;
+  const time = new Date(fecha).getTime();
+  return Number.isFinite(time) && time <= Date.now();
+}
+
 function renderLaunchPromo(usuario) {
   const card = document.getElementById("launchPromoCard");
   if (!card) return;
@@ -832,7 +838,11 @@ const planInfo = planActualInfo;
 document.getElementById("planNombre").textContent = planInfo.nombre;
 const fechaFin = usuario.plan !== 'gratis' && usuario.planFechaFin ? new Date(usuario.planFechaFin) : null;
 const fechaTexto = fechaFin
-  ? `Activo hasta el ${fechaFin.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}`
+  ? (usuario.planDateExpired || fechaPasada(fechaFin)
+    ? (usuario.stripePlanSyncPending
+      ? "La suscripción está pendiente de sincronización."
+      : "La fecha registrada de este plan ya ha vencido.")
+    : `Activo hasta el ${fechaFin.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}`)
   : precioPlanTexto(planInfo);
 document.getElementById("planDetalle").textContent = fechaTexto;
 document.getElementById("planStats").innerHTML = `
@@ -844,7 +854,9 @@ document.getElementById("planStats").innerHTML = `
 const pendingPlanNotice = document.getElementById("pendingPlanNotice");
 if (usuario.pendingPlan && usuario.pendingPlanChangeAt) {
   const pendingName = usuario.pendingPlanLabel || PLANES_CATALOGO[usuario.pendingPlan]?.nombre || usuario.pendingPlan;
-  pendingPlanNotice.textContent = `Cambio programado a ${pendingName} el ${formatearFechaPlan(usuario.pendingPlanChangeAt)}. Hasta entonces mantienes tu plan actual.`;
+  pendingPlanNotice.textContent = usuario.pendingPlanChangeOverdue || fechaPasada(usuario.pendingPlanChangeAt)
+    ? `Hay un cambio de plan pendiente de actualización a ${pendingName}. Estaba previsto para el ${formatearFechaPlan(usuario.pendingPlanChangeAt)}.`
+    : `Cambio programado a ${pendingName} el ${formatearFechaPlan(usuario.pendingPlanChangeAt)}. Hasta entonces mantienes tu plan actual.`;
   pendingPlanNotice.style.display = "block";
 }
 

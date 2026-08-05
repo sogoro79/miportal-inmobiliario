@@ -11,8 +11,11 @@ import fs from "node:fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { scheduleVipTrialExpiration } from "./utils/trials.js";
+import { schedulePendingPlanChanges } from "./utils/planChanges.js";
+import { scheduleManualPlanExpirations } from "./utils/manualPlanExpirations.js";
 import { crearRutaPropiedadSeo } from "./utils/seoSlug.js";
 import { filtroNoCaducado } from "./utils/freeListingExpiration.js";
+import { envFlagEnabled } from "./utils/envFlags.js";
 import { createCorsOptions, createHelmetMiddleware, securityRateLimits } from "./utils/security.js";
 
 // =============================
@@ -460,6 +463,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
     .then(() => {
       console.log("✅ MongoDB conectado");
       scheduleVipTrialExpiration();
+      if (envFlagEnabled("ENABLE_PENDING_PLAN_CHANGES")) {
+        schedulePendingPlanChanges();
+      } else {
+        console.log("Cambios de plan programados desactivados por configuración");
+      }
+      if (envFlagEnabled("ENABLE_MANUAL_PLAN_EXPIRATIONS")) {
+        scheduleManualPlanExpirations();
+      } else {
+        console.log("Expiraciones de planes manuales desactivadas por configuración");
+      }
       app.listen(PORT, () => {
         console.log(`🚀 Servidor activo en http://localhost:${PORT}`);
       });
