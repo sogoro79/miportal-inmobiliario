@@ -62,6 +62,9 @@ Sin confirmacion de aplicacion, la herramienta solo lee y devuelve conteos y boo
 - `mensajesAutorizados`
 - `alertasPropias`
 - `notificacionesPropias`
+- `usuariosConStripeLocalObsoleto`
+- `usuariosConCambioPlanPendiente`
+- `stripeLocalPermitidoParaEliminacion`
 - `eliminacionPermitida`
 - `motivosBloqueo`
 - `aplicariaCambios:false`
@@ -91,20 +94,32 @@ La eliminacion se bloquea si:
 - falta alguna de las cinco cuentas;
 - alguna esta activa;
 - alguna tiene propiedades;
-- alguna conserva `stripeCustomerId` o `stripeSubscriptionId`;
 - alguna conserva cambios de plan pendientes;
 - aparece una conversacion con usuarios externos reales;
 - la cuenta protegida no existe, no esta activa o no tiene `role:"admin"`;
 - cambia cualquier condicion entre el dry-run y la aplicacion.
 
-Una cuenta ficticia con `role:"admin"` historico no bloquea por si sola si esta en la lista exacta autorizada, esta desactivada, no es la cuenta protegida y no tiene Stripe, propiedades ni relaciones externas.
+Los identificadores Stripe locales obsoletos (`stripeCustomerId` o `stripeSubscriptionId`) tampoco bloquean por si solos cuando se cumplen simultaneamente todas estas condiciones:
+
+- el email pertenece exactamente a `TARGET_TEST_EMAILS`;
+- la cuenta esta desactivada;
+- no es `PROTECTED_ADMIN_EMAIL`;
+- no tiene propiedades;
+- no tiene `pendingPlan`, `pendingPriceId`, `pendingPlanChangeAt` ni `pendingPlanLabel`;
+- todas sus conversaciones estan dentro del conjunto autorizado;
+- no existe relacion con usuarios externos;
+- la aplicacion usa la confirmacion exacta de eliminacion definitiva.
+
+En ese caso el dry-run informa `usuariosConStripeLocalObsoleto` y `stripeLocalPermitidoParaEliminacion`. No imprime los valores de los identificadores. La aplicacion no llama a Stripe, no cancela suscripciones y no hace una limpieza previa separada; esos campos locales desaparecen solo porque se elimina el documento `Usuario` autorizado dentro de la transaccion.
+
+Una cuenta ficticia con `role:"admin"` historico no bloquea por si sola si esta en la lista exacta autorizada, esta desactivada, no es la cuenta protegida y no tiene propiedades, cambios pendientes ni relaciones externas.
 
 ## Datos que elimina
 
 Dentro de una unica transaccion MongoDB:
 
 1. Revalida las cinco cuentas.
-2. Revalida que siguen desactivadas, sin propiedades, sin Stripe y sin cambios pendientes.
+2. Revalida que siguen desactivadas, sin propiedades y sin cambios pendientes.
 3. Revalida las conversaciones.
 4. Elimina mensajes de conversaciones autorizadas.
 5. Elimina esas conversaciones.

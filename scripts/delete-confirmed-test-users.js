@@ -89,6 +89,9 @@ function createEmptySummary() {
     usuariosActivos: 0,
     usuariosConRoleUser: 0,
     usuariosConRoleAdminHistorico: 0,
+    usuariosConStripeLocalObsoleto: 0,
+    usuariosConCambioPlanPendiente: 0,
+    stripeLocalPermitidoParaEliminacion: false,
     propiedadesAsociadas: 0,
     conversacionesAutorizadas: 0,
     conversacionesConAdminProtegido: 0,
@@ -258,6 +261,8 @@ function summarizeDeletionState(state) {
   summary.usuariosActivos = usuarios.filter(usuario => usuario.activo === true).length;
   summary.usuariosConRoleUser = usuarios.filter(usuario => usuario.role === "user").length;
   summary.usuariosConRoleAdminHistorico = usuarios.filter(usuario => usuario.role === "admin").length;
+  summary.usuariosConStripeLocalObsoleto = usuarios.filter(userHasStripe).length;
+  summary.usuariosConCambioPlanPendiente = usuarios.filter(userHasPendingPlanChange).length;
   summary.propiedadesAsociadas = state.propiedadesAsociadas;
   summary.alertasPropias = state.alertasPropias;
   summary.notificacionesPropias = state.notificacionesPropias;
@@ -271,7 +276,6 @@ function summarizeDeletionState(state) {
   if (usuarios.some(usuario => normalizeEmail(usuario.email) === PROTECTED_ADMIN_EMAIL)) {
     addBlock(summary, "admin_protegido_en_objetivos");
   }
-  if (usuarios.some(userHasStripe)) addBlock(summary, "stripe_local_presente");
   if (usuarios.some(userHasPendingPlanChange)) addBlock(summary, "cambios_pendientes");
   if (usuarios.some(usuario => !["user", "admin"].includes(usuario.role))) addBlock(summary, "role_no_permitido");
   if (state.propiedadesAsociadas > 0) addBlock(summary, "propiedades_presentes");
@@ -314,6 +318,17 @@ function summarizeDeletionState(state) {
     }
   }
 
+  summary.stripeLocalPermitidoParaEliminacion = summary.usuariosConStripeLocalObsoleto > 0 &&
+    summary.usuariosEncontrados === AUTHORIZED_TEST_EMAILS.length &&
+    summary.usuariosDesactivados === AUTHORIZED_TEST_EMAILS.length &&
+    summary.usuariosActivos === 0 &&
+    summary.usuariosConCambioPlanPendiente === 0 &&
+    summary.propiedadesAsociadas === 0 &&
+    summary.conversacionesConUsuariosExternos === 0 &&
+    !summary.motivosBloqueo.includes("admin_protegido_en_objetivos") &&
+    !summary.motivosBloqueo.includes("admin_protegido_invalido") &&
+    !summary.motivosBloqueo.includes("role_no_permitido") &&
+    !summary.motivosBloqueo.includes("mensajes_con_autor_externo");
   summary.eliminacionPermitida = summary.motivosBloqueo.length === 0;
   return summary;
 }
@@ -344,8 +359,6 @@ function userDeleteFilter(usuarios) {
   return {
     $or: usuarios.map(usuario => ({ _id: usuario._id, email: normalizeEmail(usuario.email) })),
     activo: false,
-    stripeCustomerId: { $in: [null, ""] },
-    stripeSubscriptionId: { $in: [null, ""] },
     pendingPlan: { $in: [null, ""] },
     pendingPriceId: { $in: [null, ""] },
     pendingPlanChangeAt: { $in: [null, ""] },

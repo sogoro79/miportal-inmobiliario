@@ -316,6 +316,9 @@ test("eliminación confirmada dry-run no escribe y devuelve resumen seguro", asy
   assert.equal(summary.usuariosDesactivados, 5);
   assert.equal(summary.usuariosActivos, 0);
   assert.equal(summary.usuariosConRoleUser, 5);
+  assert.equal(summary.usuariosConStripeLocalObsoleto, 0);
+  assert.equal(summary.usuariosConCambioPlanPendiente, 0);
+  assert.equal(summary.stripeLocalPermitidoParaEliminacion, false);
   assert.equal(summary.conversacionesAutorizadas, 2);
   assert.equal(summary.conversacionesConAdminProtegido, 1);
   assert.equal(summary.mensajesAutorizados, 3);
@@ -357,12 +360,36 @@ test("eliminación confirmada bloquea cuenta activa, cuenta ausente y admin prot
   assert.equal(invalidAdmin.motivosBloqueo.includes("admin_protegido_invalido"), true);
 });
 
-test("eliminación confirmada bloquea propiedades, Stripe local y cambios pendientes", async () => {
+test("eliminación confirmada permite Stripe local obsoleto en cuenta ficticia desactivada y limpia", async () => {
+  const { models, state } = mockModels({
+    users: baseUsers({
+      [AUTHORIZED_TEST_EMAILS[1]]: {
+        plan: "basico",
+        pendingPlan: null,
+        pendingPriceId: undefined,
+        pendingPlanChangeAt: undefined,
+        stripeCustomerId: "cus_secret",
+        stripeSubscriptionId: "sub_secret"
+      }
+    })
+  });
+  const summary = await deleteConfirmedTestUsers({ models });
+
+  assert.equal(summary.usuariosConStripeLocalObsoleto, 1);
+  assert.equal(summary.usuariosConCambioPlanPendiente, 0);
+  assert.equal(summary.stripeLocalPermitidoParaEliminacion, true);
+  assert.equal(summary.eliminacionPermitida, true);
+  assert.equal(summary.motivosBloqueo.includes("stripe_local_presente"), false);
+  assert.equal(summary.aplicariaCambios, false);
+  assert.equal(state.operations.some(op => op.op.includes("deleteMany")), false);
+});
+
+test("eliminación confirmada bloquea propiedades y cambios pendientes aunque exista Stripe local", async () => {
   const cases = [
     [mockModels({ propiedades: [{ usuarioId: oid(TARGET_IDS[0]) }] }).models, "propiedades_presentes"],
-    [mockModels({ users: baseUsers({ [AUTHORIZED_TEST_EMAILS[0]]: { stripeSubscriptionId: "sub_secret" } }) }).models, "stripe_local_presente"],
-    [mockModels({ users: baseUsers({ [AUTHORIZED_TEST_EMAILS[0]]: { stripeCustomerId: "cus_secret" } }) }).models, "stripe_local_presente"],
     [mockModels({ users: baseUsers({ [AUTHORIZED_TEST_EMAILS[0]]: { pendingPlan: "basico" } }) }).models, "cambios_pendientes"],
+    [mockModels({ users: baseUsers({ [AUTHORIZED_TEST_EMAILS[0]]: { pendingPriceId: "price_secret" } }) }).models, "cambios_pendientes"],
+    [mockModels({ users: baseUsers({ [AUTHORIZED_TEST_EMAILS[0]]: { pendingPlanChangeAt: new Date("2026-01-01T00:00:00Z") } }) }).models, "cambios_pendientes"],
     [mockModels({ users: baseUsers({ [AUTHORIZED_TEST_EMAILS[0]]: { pendingPlanLabel: "Basico" } }) }).models, "cambios_pendientes"]
   ];
 
@@ -371,6 +398,40 @@ test("eliminación confirmada bloquea propiedades, Stripe local y cambios pendie
     assert.equal(summary.eliminacionPermitida, false, reason);
     assert.equal(summary.motivosBloqueo.includes(reason), true, reason);
   }
+});
+
+test("eliminación confirmada bloquea cuenta activa con Stripe local", async () => {
+  const summary = await deleteConfirmedTestUsers({
+    models: mockModels({
+      users: baseUsers({
+        [AUTHORIZED_TEST_EMAILS[0]]: {
+          activo: true,
+          stripeCustomerId: "cus_secret",
+          stripeSubscriptionId: "sub_secret"
+        }
+      })
+    }).models
+  });
+
+  assert.equal(summary.usuariosConStripeLocalObsoleto, 1);
+  assert.equal(summary.eliminacionPermitida, false);
+  assert.equal(summary.stripeLocalPermitidoParaEliminacion, false);
+  assert.equal(summary.motivosBloqueo.includes("usuarios_activos"), true);
+});
+
+test("eliminación confirmada rechaza cuenta fuera de la lista exacta aunque tenga Stripe local", () => {
+  const result = validateConfirmedTestUsersConfig({
+    env: env({
+      TARGET_TEST_EMAILS: [
+        ...AUTHORIZED_TEST_EMAILS.slice(0, 4),
+        "externo@example.com"
+      ].join(",")
+    }),
+    argv: ["node", "script"]
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "cuentas_adicionales");
 });
 
 test("eliminación confirmada clasifica conversaciones con ficticias, admin protegido y usuario real", async () => {
@@ -451,7 +512,14 @@ test("eliminación confirmada aplica una transacción y respeta el orden de elim
 });
 
 test("eliminación confirmada usa filtros condicionales estrictos para usuarios y no propiedades", async () => {
-  const { models, state } = mockModels();
+  const { models, state } = mockModels({
+    users: baseUsers({
+      [AUTHORIZED_TEST_EMAILS[1]]: {
+        stripeCustomerId: "cus_secret",
+        stripeSubscriptionId: "sub_secret"
+      }
+    })
+  });
   await deleteConfirmedTestUsers({
     models,
     mongooseClient: mongooseMock(),
@@ -461,13 +529,14 @@ test("eliminación confirmada usa filtros condicionales estrictos para usuarios 
   const userDelete = state.operations.find(op => op.op === "Usuario.deleteMany");
 
   assert.equal(userDelete.filter.activo, false);
-  assert.deepEqual(userDelete.filter.stripeCustomerId, { $in: [null, ""] });
-  assert.deepEqual(userDelete.filter.stripeSubscriptionId, { $in: [null, ""] });
+  assert.equal("stripeCustomerId" in userDelete.filter, false);
+  assert.equal("stripeSubscriptionId" in userDelete.filter, false);
   assert.deepEqual(userDelete.filter.pendingPlan, { $in: [null, ""] });
   assert.deepEqual(userDelete.filter.pendingPriceId, { $in: [null, ""] });
   assert.deepEqual(userDelete.filter.pendingPlanChangeAt, { $in: [null, ""] });
   assert.equal(userDelete.filter.$or.length, 5);
   assert.equal(state.operations.some(op => op.op === "Propiedad.deleteMany"), false);
+  assert.equal(state.operations.some(op => op.op === "Usuario.updateMany" || op.op === "Usuario.findOneAndUpdate"), false);
 });
 
 test("eliminación confirmada hace rollback si falla un paso o la verificación posterior", async () => {
@@ -569,4 +638,5 @@ test("script de eliminación confirmada no importa Stripe, Cloudinary, server ni
   assert.doesNotMatch(source, /from "stripe"|from 'stripe'|new Stripe|stripe\./);
   assert.doesNotMatch(source, /cloudinary|destroyImagesByUrls|upload_stream|\.destroy\(/i);
   assert.doesNotMatch(source, /from "\.\.\/server\.js"|from '\.\.\/server\.js'|sendMail|emails\.send/);
+  assert.doesNotMatch(source, /\.updateMany\(|\.findOneAndUpdate\(|\$unset/);
 });
