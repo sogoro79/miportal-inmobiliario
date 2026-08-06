@@ -8,6 +8,7 @@ import { envFlagEnabled } from "../utils/envFlags.js";
 
 const REQUIRED_CONFIRMATION = "CLEAR_ONE_DISABLED_TEST_USER_CHAT";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CANONICAL_ADMIN_ROLE = "admin";
 const AMBIGUITY_REASONS = [
   "falta_comprador",
   "falta_anunciante",
@@ -92,6 +93,10 @@ function uniqueStrings(values) {
 }
 
 function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeRole(value) {
   return String(value || "").trim().toLowerCase();
 }
 
@@ -198,7 +203,8 @@ async function findUsuarios(UsuarioModel, ids) {
     _id: { $in: ids }
   }, {
     activo: 1,
-    email: 1
+    email: 1,
+    role: 1
   }));
 }
 
@@ -231,7 +237,7 @@ function userEmailMap(usuarios) {
 }
 
 function userRoleMap(usuarios) {
-  return new Map(usuarios.map(usuario => [idString(usuario._id), usuario.role]));
+  return new Map(usuarios.map(usuario => [idString(usuario._id), normalizeRole(usuario.role)]));
 }
 
 function existingPropertySet(propiedades) {
@@ -316,7 +322,7 @@ function participantStatus(conv, targetUserId, activeByUser, emailByUser, roleBy
   const role = roleByUser.get(otherId);
   const knownTest = Boolean(email && knownTestEmails.has(email));
   const knownAdminTest = Boolean(email && email === knownTestAdminEmail);
-  const adminRole = role === "admin";
+  const adminRole = role === CANONICAL_ADMIN_ROLE;
   if (!motivos.length && typeof active !== "boolean") {
     motivos.push("estado_participante_desconocido");
     ambiguityReasons.push("combinacion_no_clasificada");

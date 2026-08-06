@@ -9,8 +9,11 @@ import {
 
 const TARGET_ID = "507f1f77bcf86cd799439066";
 const OTHER_ID = "507f1f77bcf86cd799439077";
+const ANOTHER_ID = "507f1f77bcf86cd799439078";
 const PROPERTY_ID = "507f1f77bcf86cd799439088";
+const ANOTHER_PROPERTY_ID = "507f1f77bcf86cd799439089";
 const CONV_ID = "507f1f77bcf86cd799439099";
+const ANOTHER_CONV_ID = "507f1f77bcf86cd799439100";
 const TARGET_EMAIL = "sonygr@gmail.com";
 const OTHER_TEST_EMAIL = "sogoro0705@gmail.com";
 const ADMIN_TEST_EMAIL = "sogoro.portal@gmail.com";
@@ -340,6 +343,63 @@ test("auditoría chat distingue administrador de prueba activo y roles incoheren
   assert.equal(adminSinRole.motivosBloqueo.includes("admin_test_role_incoherente"), true);
   assert.equal(adminInesperado.conversacionesAmbiguasPorMotivo.combinacion_no_clasificada, 1);
   assert.equal(adminInesperado.motivosBloqueo.includes("role_admin_inesperado"), true);
+});
+
+test("auditoría chat proyecta role y clasifica admin activo sin contradicciones", async () => {
+  const { models, state } = chatAuditModels({
+    otherUsers: [{ _id: OTHER_ID, email: ADMIN_TEST_EMAIL, role: "admin", activo: true }],
+    mensajes: [{ _id: "507f1f77bcf86cd799439136", conversacionId: CONV_ID, userId: TARGET_ID }]
+  });
+  const summary = await auditSingleTestUserChatData({
+    env: chatAuditEnv(),
+    models
+  });
+  const relatedUserRead = state.reads.find(read => read.op === "Usuario.find");
+
+  assert.equal(relatedUserRead.projection.role, 1);
+  assert.equal(relatedUserRead.projection.activo, 1);
+  assert.equal(summary.conversacionesConAdminTestActivo, 1);
+  assert.equal(summary.conversacionesAmbiguasPorMotivo.combinacion_no_clasificada, 0);
+  assert.equal(summary.motivosBloqueo.includes("estado_participante_desconocido"), false);
+  assert.equal(summary.motivosBloqueo.includes("admin_test_role_incoherente"), false);
+  assert.equal(summary.existeRelacionConUsuarioReal, false);
+});
+
+test("auditoría chat cuenta dos admins activos válidos sin contaminar una conversación ambigua", async () => {
+  const ambiguousUserId = "507f1f77bcf86cd799439101";
+  const summary = await auditSingleTestUserChatData({
+    env: chatAuditEnv({
+      KNOWN_TEST_EMAILS: `${TARGET_EMAIL},${OTHER_TEST_EMAIL},${ADMIN_TEST_EMAIL},elpuertoingles@gmail.com`
+    }),
+    models: chatAuditModels({
+      otherUsers: [
+        { _id: OTHER_ID, email: ADMIN_TEST_EMAIL, role: "admin", activo: true },
+        { _id: ANOTHER_ID, email: ADMIN_TEST_EMAIL, role: "admin", activo: true },
+        { _id: ambiguousUserId, email: OTHER_TEST_EMAIL, role: "user", activo: false }
+      ],
+      conversaciones: [
+        { _id: CONV_ID, compradorId: TARGET_ID, anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID },
+        { _id: ANOTHER_CONV_ID, compradorId: TARGET_ID, anuncianteId: ANOTHER_ID, propiedadId: ANOTHER_PROPERTY_ID },
+        { _id: "507f1f77bcf86cd799439102", compradorId: TARGET_ID, anuncianteId: ambiguousUserId, propiedadId: "bad" }
+      ],
+      mensajes: [
+        { _id: "507f1f77bcf86cd799439137", conversacionId: CONV_ID, userId: TARGET_ID },
+        { _id: "507f1f77bcf86cd799439138", conversacionId: ANOTHER_CONV_ID, userId: TARGET_ID },
+        { _id: "507f1f77bcf86cd799439139", conversacionId: "507f1f77bcf86cd799439102", userId: TARGET_ID }
+      ]
+    }).models
+  });
+
+  assert.equal(summary.conversacionesConAdminTestActivo, 2);
+  assert.equal(summary.conversacionesAdminTestValidas, 2);
+  assert.equal(summary.conversacionesAmbiguas, 1);
+  assert.equal(summary.conversacionesAmbiguasPorMotivo.propiedad_no_resoluble, 1);
+  assert.equal(summary.conversacionesAmbiguasPorMotivo.combinacion_no_clasificada, 0);
+  assert.equal(summary.motivosBloqueo.includes("admin_test_role_incoherente"), false);
+  assert.equal(summary.motivosBloqueo.includes("estado_participante_desconocido"), false);
+  assert.equal(summary.existeRelacionConUsuarioReal, false);
+  assert.equal(summary.conversacionesConRelacionesExternas, 0);
+  assert.equal(summary.candidataLimpiezaControladaFutura, false);
 });
 
 test("auditoría chat candidata futura exige solo cuentas test, sin propiedades reales ni relaciones inconsistentes", async () => {
