@@ -16,6 +16,14 @@ const AMBIGUITY_REASONS = [
   "participante_no_encontrado",
   "identificador_invalido",
   "estructura_inconsistente",
+  "propiedad_no_resoluble",
+  "mensaje_fuera_de_conversacion",
+  "autor_no_es_participante",
+  "conversacion_sin_mensajes",
+  "duplicado_inconsistente",
+  "campos_extra_incompatibles",
+  "resultado_consultas_incompleto",
+  "combinacion_no_clasificada",
   "otra_ambiguedad"
 ];
 
@@ -49,9 +57,20 @@ function safeEmptySummary() {
     conversacionesConPropiedadExistente: 0,
     conversacionesConParticipanteTestActivo: 0,
     conversacionesConParticipanteTestDesactivado: 0,
+    conversacionesConAdminTestActivo: 0,
+    conversacionesConAdminTestDesactivado: 0,
+    conversacionesConOtroTestActivoNoAdmin: 0,
+    conversacionesConOtroTestDesactivado: 0,
     conversacionesConParticipanteNoTest: 0,
     conversacionesConParticipanteNoResoluble: 0,
     todosLosParticipantesSonTest: true,
+    todosLosChatsPertenecenSoloACuentasTest: true,
+    existeRelacionConUsuarioReal: false,
+    existeRelacionConPropiedadReal: false,
+    candidataLimpiezaControladaFutura: false,
+    conversacionesAdminTestValidas: 0,
+    conversacionesTestDesactivadasValidas: 0,
+    conversacionesConRelacionesExternas: 0,
     mensajesPropios: 0,
     mensajesDeOtros: 0,
     conversacionesAmbiguas: 0,
@@ -87,6 +106,21 @@ function parseKnownTestEmails(value) {
     return { ok: false, message: "KNOWN_TEST_EMAILS no admite duplicados." };
   }
   return { ok: true, emails };
+}
+
+function parseKnownTestAdminEmail(value, knownTestEmails, targetEmail) {
+  const email = normalizeEmail(value);
+  if (!email) return { ok: false, message: "Falta KNOWN_TEST_ADMIN_EMAIL." };
+  if (!EMAIL_RE.test(email)) {
+    return { ok: false, message: "KNOWN_TEST_ADMIN_EMAIL no tiene un formato válido." };
+  }
+  if (!knownTestEmails.includes(email)) {
+    return { ok: false, message: "KNOWN_TEST_ADMIN_EMAIL debe estar incluido en KNOWN_TEST_EMAILS." };
+  }
+  if (email === normalizeEmail(targetEmail)) {
+    return { ok: false, message: "KNOWN_TEST_ADMIN_EMAIL debe ser distinto de TARGET_EMAIL." };
+  }
+  return { ok: true, email };
 }
 
 function idString(value) {
@@ -143,7 +177,8 @@ async function findTargetUser(UsuarioModel, env) {
     email: env.TARGET_EMAIL
   }, {
     activo: 1,
-    email: 1
+    email: 1,
+    role: 1
   }));
 }
 
@@ -195,6 +230,10 @@ function userEmailMap(usuarios) {
   return new Map(usuarios.map(usuario => [idString(usuario._id), normalizeEmail(usuario.email)]));
 }
 
+function userRoleMap(usuarios) {
+  return new Map(usuarios.map(usuario => [idString(usuario._id), usuario.role]));
+}
+
 function existingPropertySet(propiedades) {
   return new Set(propiedades.map(propiedad => idString(propiedad._id)));
 }
@@ -207,7 +246,23 @@ async function safeRelatedRead(loader) {
   }
 }
 
-function participantStatus(conv, targetUserId, activeByUser, emailByUser, knownTestEmails, usersQueryOk) {
+function detectInconsistentDuplicateIds(items = [], comparableFields = []) {
+  const seen = new Map();
+  const inconsistent = new Set();
+  for (const item of items) {
+    const id = idString(item?._id);
+    if (!id) continue;
+    const signature = comparableFields.map(field => idString(item?.[field])).join("|");
+    if (seen.has(id) && seen.get(id) !== signature) {
+      inconsistent.add(id);
+    } else {
+      seen.set(id, signature);
+    }
+  }
+  return inconsistent;
+}
+
+function participantStatus(conv, targetUserId, activeByUser, emailByUser, roleByUser, knownTestEmails, knownTestAdminEmail, usersQueryOk) {
   const compradorId = idString(conv?.compradorId);
   const anuncianteId = idString(conv?.anuncianteId);
   const conversationId = idString(conv?._id);
@@ -218,6 +273,10 @@ function participantStatus(conv, targetUserId, activeByUser, emailByUser, knownT
   if (!conversationId || !isValidObjectIdValue(conversationId)) {
     motivos.push("relacion_mensaje_inconsistente");
     ambiguityReasons.push("estructura_inconsistente");
+  }
+  if (Array.isArray(conv?.participantes) || conv?.userId || conv?.emisorId || conv?.receptorId) {
+    motivos.push("estructura_inconsistente");
+    ambiguityReasons.push("campos_extra_incompatibles");
   }
   if (!compradorId) {
     motivos.push("participante_faltante");
@@ -245,7 +304,7 @@ function participantStatus(conv, targetUserId, activeByUser, emailByUser, knownT
   const otherId = compradorEsTarget ? anuncianteId : compradorId;
   if (!motivos.length && !usersQueryOk) {
     motivos.push("participante_desconocido");
-    ambiguityReasons.push("participante_no_encontrado");
+    ambiguityReasons.push("resultado_consultas_incompleto");
   }
   if (!motivos.length && !activeByUser.has(otherId)) {
     motivos.push("participante_desconocido");
@@ -254,15 +313,28 @@ function participantStatus(conv, targetUserId, activeByUser, emailByUser, knownT
 
   const active = activeByUser.get(otherId);
   const email = emailByUser.get(otherId);
+  const role = roleByUser.get(otherId);
   const knownTest = Boolean(email && knownTestEmails.has(email));
+  const knownAdminTest = Boolean(email && email === knownTestAdminEmail);
+  const adminRole = role === "admin";
   if (!motivos.length && typeof active !== "boolean") {
     motivos.push("estado_participante_desconocido");
-    ambiguityReasons.push("otra_ambiguedad");
+    ambiguityReasons.push("combinacion_no_clasificada");
+  }
+  if (!motivos.length && knownAdminTest && !adminRole) {
+    motivos.push("admin_test_role_incoherente");
+    ambiguityReasons.push("combinacion_no_clasificada");
+  }
+  if (!motivos.length && !knownAdminTest && adminRole) {
+    motivos.push("role_admin_inesperado");
+    ambiguityReasons.push("combinacion_no_clasificada");
   }
   return {
     otherActive: active === true,
     otherInactive: active === false,
     knownTest,
+    knownAdminTest,
+    adminRole,
     notTest: !motivos.length && !knownTest,
     resolvable: motivos.length === 0,
     ambiguityReasons,
@@ -284,6 +356,7 @@ function propertyStatus(conv, existingProperties, propertiesQueryOk) {
   return {
     exists,
     absentConfirmed: !motivos.length && !exists,
+    ambiguityReasons: motivos.map(motivo => (motivo === "propiedad_existente" ? "" : "propiedad_no_resoluble")).filter(Boolean),
     motivos
   };
 }
@@ -318,7 +391,12 @@ function messageStatus({ conv, mensajes, targetUserId, activeByUser, usersQueryO
   if (!messagesQueryOk) {
     status.relacionInconsistente += 1;
     status.motivos.push("mensajes_desconocidos");
+    status.motivos.push("resultado_consultas_incompleto");
     return status;
+  }
+  if (mensajes.length === 0) {
+    status.relacionInconsistente += 1;
+    status.motivos.push("conversacion_sin_mensajes");
   }
 
   for (const mensaje of mensajes) {
@@ -327,7 +405,7 @@ function messageStatus({ conv, mensajes, targetUserId, activeByUser, usersQueryO
 
     if (mensajeConversationId !== conversationId) {
       status.relacionInconsistente += 1;
-      status.motivos.push("relacion_mensaje_inconsistente");
+      status.motivos.push("mensaje_fuera_de_conversacion");
       continue;
     }
     if (!authorId || !isValidObjectIdValue(authorId)) {
@@ -337,7 +415,7 @@ function messageStatus({ conv, mensajes, targetUserId, activeByUser, usersQueryO
     }
     if (!participantes.has(authorId)) {
       status.relacionInconsistente += 1;
-      status.motivos.push("relacion_mensaje_inconsistente");
+      status.motivos.push("autor_no_es_participante");
       continue;
     }
     if (authorId !== target && (!usersQueryOk || !activeByUser.has(authorId))) {
@@ -354,12 +432,15 @@ function messageStatus({ conv, mensajes, targetUserId, activeByUser, usersQueryO
   return status;
 }
 
-function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados, propiedades, knownTestEmails, queryStatus = {} }) {
+function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados, propiedades, knownTestEmails, knownTestAdminEmail, queryStatus = {} }) {
   const summary = safeEmptySummary();
+  const conversationDuplicateInconsistencies = detectInconsistentDuplicateIds(conversaciones, ["compradorId", "anuncianteId", "propiedadId"]);
+  const messageDuplicateInconsistencies = detectInconsistentDuplicateIds(mensajes, ["conversacionId", "userId"]);
   const uniqueConversations = dedupeByInternalId(conversaciones);
   const uniqueMessages = dedupeByInternalId(mensajes);
   const activeByUser = userActiveMap(usuariosRelacionados);
   const emailByUser = userEmailMap(usuariosRelacionados);
+  const roleByUser = userRoleMap(usuariosRelacionados);
   const existingProperties = existingPropertySet(propiedades);
   const byConversation = messagesByConversation(uniqueMessages);
   const blockingReasons = new Set();
@@ -369,24 +450,37 @@ function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados
 
   summary.conversacionesTotales = uniqueConversations.length;
   summary.mensajesTotales = uniqueMessages.length;
+  const knownConversationIds = new Set(uniqueConversations.map(conv => idString(conv?._id)).filter(Boolean));
+  const orphanMessages = uniqueMessages.filter(mensaje => !knownConversationIds.has(idString(mensaje?.conversacionId)));
+  if (orphanMessages.length > 0) {
+    summary.mensajesRelacionInconsistente += orphanMessages.length;
+    summary.conversacionesAmbiguasPorMotivo.mensaje_fuera_de_conversacion += orphanMessages.length;
+    blockingReasons.add("mensaje_fuera_de_conversacion");
+  }
 
   if (!usersQueryOk) blockingReasons.add("participante_desconocido");
   if (!propertiesQueryOk) blockingReasons.add("propiedad_desconocida");
   if (!messagesQueryOk) blockingReasons.add("mensajes_desconocidos");
 
   for (const conv of uniqueConversations) {
-    const participant = participantStatus(conv, targetUserId, activeByUser, emailByUser, knownTestEmails, usersQueryOk);
+    const conversationId = idString(conv?._id);
+    const participant = participantStatus(conv, targetUserId, activeByUser, emailByUser, roleByUser, knownTestEmails, knownTestAdminEmail, usersQueryOk);
     const property = propertyStatus(conv, existingProperties, propertiesQueryOk);
+    const conversationMessages = byConversation.get(conversationId) || [];
     const message = messageStatus({
       conv,
-      mensajes: byConversation.get(idString(conv?._id)) || [],
+      mensajes: conversationMessages,
       targetUserId,
       activeByUser,
       usersQueryOk,
       messagesQueryOk
     });
-    const motivos = [...participant.motivos, ...property.motivos, ...message.motivos];
+    const duplicateInconsistent = conversationDuplicateInconsistencies.has(conversationId)
+      || conversationMessages.some(mensaje => messageDuplicateInconsistencies.has(idString(mensaje?._id)));
+    const duplicateMotivos = duplicateInconsistent ? ["duplicado_inconsistente"] : [];
+    const motivos = [...participant.motivos, ...property.motivos, ...message.motivos, ...duplicateMotivos];
     const ambiguous = motivos.length > 0;
+    const externalRelation = participant.notTest || property.exists;
 
     summary.mensajesPropios += message.propios;
     summary.mensajesDeOtros += message.deOtros;
@@ -396,30 +490,50 @@ function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados
     if (participant.otherActive) summary.conversacionesConOtroUsuarioActivo += 1;
     if (participant.knownTest && participant.otherActive) summary.conversacionesConParticipanteTestActivo += 1;
     if (participant.knownTest && participant.otherInactive) summary.conversacionesConParticipanteTestDesactivado += 1;
+    if (participant.knownAdminTest && participant.otherActive) summary.conversacionesConAdminTestActivo += 1;
+    if (participant.knownAdminTest && participant.otherInactive) summary.conversacionesConAdminTestDesactivado += 1;
+    if (participant.knownTest && !participant.knownAdminTest && participant.otherActive) summary.conversacionesConOtroTestActivoNoAdmin += 1;
+    if (participant.knownTest && !participant.knownAdminTest && participant.otherInactive) summary.conversacionesConOtroTestDesactivado += 1;
     if (participant.notTest) summary.conversacionesConParticipanteNoTest += 1;
     if (participant.motivos.includes("participante_desconocido")) summary.conversacionesConParticipanteNoResoluble += 1;
     if (property.exists) summary.conversacionesConPropiedadExistente += 1;
     if (participant.knownTest && participant.otherInactive && property.absentConfirmed && !ambiguous) {
       summary.conversacionesSoloUsuariosDesactivados += 1;
     }
+    if (participant.knownAdminTest && participant.adminRole && participant.otherActive && property.absentConfirmed && !ambiguous) {
+      summary.conversacionesAdminTestValidas += 1;
+    }
+    if (participant.knownTest && !participant.knownAdminTest && participant.otherInactive && property.absentConfirmed && !ambiguous) {
+      summary.conversacionesTestDesactivadasValidas += 1;
+    }
+    if (externalRelation) summary.conversacionesConRelacionesExternas += 1;
 
     if (participant.motivos.includes("participante_desconocido")) summary.participantesDesconocidos += 1;
     if (property.motivos.includes("propiedad_desconocida")) summary.propiedadesDesconocidas += 1;
     if (ambiguous) {
       summary.conversacionesAmbiguas += 1;
-      for (const reason of participant.ambiguityReasons) {
+      const ambiguityReasons = [
+        ...participant.ambiguityReasons,
+        ...property.ambiguityReasons,
+        ...message.motivos.filter(motivo => AMBIGUITY_REASONS.includes(motivo)),
+        ...duplicateMotivos
+      ];
+      for (const reason of ambiguityReasons) {
         summary.conversacionesAmbiguasPorMotivo[reason] += 1;
       }
-      if (participant.ambiguityReasons.length === 0 && motivos.length > 0) {
+      if (ambiguityReasons.length === 0 && motivos.length > 0) {
         summary.conversacionesAmbiguasPorMotivo.otra_ambiguedad += 1;
       }
     }
     if (ambiguous || participant.notTest || !participant.knownTest || participant.otherActive || property.exists || message.autorDesconocido > 0 || message.relacionInconsistente > 0) {
       summary.bloqueadas += 1;
-    } else {
-      summary.eliminablesConSeguridad += 1;
     }
-    if (!participant.knownTest) summary.todosLosParticipantesSonTest = false;
+    if (!participant.knownTest) {
+      summary.todosLosParticipantesSonTest = false;
+      summary.todosLosChatsPertenecenSoloACuentasTest = false;
+      summary.existeRelacionConUsuarioReal = true;
+    }
+    if (property.exists) summary.existeRelacionConPropiedadReal = true;
 
     for (const motivo of motivos) blockingReasons.add(motivo);
     if (participant.otherActive) blockingReasons.add("otro_usuario_activo");
@@ -431,6 +545,15 @@ function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados
   if (summary.mensajesDeOtros > 0) blockingReasons.add("mensajes_de_otros");
   if (summary.bloqueadas > 0) blockingReasons.add("relaciones_compartidas");
   summary.motivosBloqueo = [...blockingReasons].sort();
+  summary.candidataLimpiezaControladaFutura = summary.conversacionesTotales > 0
+    && summary.todosLosChatsPertenecenSoloACuentasTest
+    && !summary.existeRelacionConUsuarioReal
+    && !summary.existeRelacionConPropiedadReal
+    && summary.mensajesAutorDesconocido === 0
+    && summary.relacionesInconsistentes === 0
+    && summary.conversacionesConOtroTestActivoNoAdmin === 0
+    && summary.conversacionesConAdminTestDesactivado === 0
+    && summary.conversacionesConParticipanteNoResoluble === 0;
   return summary;
 }
 
@@ -460,6 +583,10 @@ export function validateCli({ env = process.env, argv = process.argv } = {}) {
   if (!knownTestEmails.emails.includes(normalizeEmail(env.TARGET_EMAIL))) {
     return { ok: false, code: 1, message: "KNOWN_TEST_EMAILS debe incluir TARGET_EMAIL." };
   }
+  const knownTestAdminEmail = parseKnownTestAdminEmail(env.KNOWN_TEST_ADMIN_EMAIL, knownTestEmails.emails, env.TARGET_EMAIL);
+  if (!knownTestAdminEmail.ok) {
+    return { ok: false, code: 1, message: knownTestAdminEmail.message };
+  }
   if (env.EXPECTED_ACTIVE !== "false") {
     return { ok: false, code: 1, message: "EXPECTED_ACTIVE debe ser exactamente false." };
   }
@@ -481,6 +608,11 @@ export async function auditSingleTestUserChatData({
   const shouldApply = apply === true;
   const knownTestEmailsResult = parseKnownTestEmails(env.KNOWN_TEST_EMAILS);
   const knownTestEmails = new Set(knownTestEmailsResult.ok ? knownTestEmailsResult.emails : [normalizeEmail(env.TARGET_EMAIL)].filter(Boolean));
+  const knownTestAdminEmail = parseKnownTestAdminEmail(
+    env.KNOWN_TEST_ADMIN_EMAIL,
+    knownTestEmailsResult.ok ? knownTestEmailsResult.emails : [],
+    env.TARGET_EMAIL
+  );
   const targetUser = await findTargetUser(models.Usuario, env);
   const summary = safeEmptySummary();
 
@@ -511,6 +643,7 @@ export async function auditSingleTestUserChatData({
     usuariosRelacionados: usuariosResult.data,
     propiedades: propiedadesResult.data,
     knownTestEmails,
+    knownTestAdminEmail: knownTestAdminEmail.ok ? knownTestAdminEmail.email : "",
     queryStatus: {
       usuarios: usuariosResult.ok,
       propiedades: propiedadesResult.ok,

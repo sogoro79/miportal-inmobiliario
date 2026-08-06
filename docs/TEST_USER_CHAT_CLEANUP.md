@@ -31,9 +31,12 @@ El CLI requiere:
 - `TARGET_USER_ID`
 - `TARGET_EMAIL`
 - `KNOWN_TEST_EMAILS`
+- `KNOWN_TEST_ADMIN_EMAIL`
 - `EXPECTED_ACTIVE=false`
 
 `KNOWN_TEST_EMAILS` debe ser una lista explícita, separada por comas, de cuentas confirmadas como pruebas. Todos sus valores deben ser emails válidos, no puede contener duplicados y debe incluir `TARGET_EMAIL`. La auditoría usa esta lista solo para clasificar participantes relacionados; nunca imprime los emails.
+
+`KNOWN_TEST_ADMIN_EMAIL` identifica la cuenta administradora de prueba que puede seguir activa durante la auditoría. Debe ser un email válido, estar incluido en `KNOWN_TEST_EMAILS` y ser distinto de `TARGET_EMAIL`. La auditoría comprueba de forma agregada si esa cuenta tiene `role: admin` y si está activa, sin imprimir su email.
 
 Para una futura aplicación exigiría además:
 
@@ -53,9 +56,20 @@ La auditoría devuelve solo conteos:
 - `conversacionesConPropiedadExistente`
 - `conversacionesConParticipanteTestActivo`
 - `conversacionesConParticipanteTestDesactivado`
+- `conversacionesConAdminTestActivo`
+- `conversacionesConAdminTestDesactivado`
+- `conversacionesConOtroTestActivoNoAdmin`
+- `conversacionesConOtroTestDesactivado`
 - `conversacionesConParticipanteNoTest`
 - `conversacionesConParticipanteNoResoluble`
 - `todosLosParticipantesSonTest`
+- `todosLosChatsPertenecenSoloACuentasTest`
+- `existeRelacionConUsuarioReal`
+- `existeRelacionConPropiedadReal`
+- `candidataLimpiezaControladaFutura`
+- `conversacionesAdminTestValidas`
+- `conversacionesTestDesactivadasValidas`
+- `conversacionesConRelacionesExternas`
 - `mensajesPropios`
 - `mensajesDeOtros`
 - `conversacionesAmbiguas`
@@ -71,8 +85,9 @@ No devuelve nombres, emails, IDs, textos de mensajes, documentos completos, toke
 
 La estrategia recomendada es combinar A y C:
 
-- permitir una limpieza futura solo para conversaciones donde todos los participantes sean cuentas de prueba/desactivadas y no exista propiedad asociada;
-- bloquear cualquier conversación donde el otro participante siga activo;
+- permitir una limpieza futura solo para conversaciones donde todos los participantes sean cuentas de prueba conocidas y no exista propiedad asociada;
+- distinguir la cuenta administradora de prueba conocida, que puede estar activa, del resto de cuentas de prueba;
+- bloquear cualquier conversación donde el otro participante siga activo y no sea la cuenta administradora de prueba conocida;
 - bloquear cualquier conversación donde el otro participante no pertenezca exactamente a `KNOWN_TEST_EMAILS`;
 - bloquear cualquier conversación con participantes ausentes, inválidos, inconsistentes o no resolubles;
 - bloquear cualquier conversación vinculada a una propiedad existente;
@@ -83,7 +98,9 @@ La estrategia recomendada es combinar A y C:
 
 La regla general es `incertidumbre = bloqueo`: la auditoría no infiere que un dato ausente, inválido, desconocido o no resoluble es seguro. Tampoco interpreta automáticamente que un resultado vacío sea seguro salvo que la consulta se haya ejecutado correctamente y los identificadores auditados sean válidos.
 
-Las conversaciones ambiguas se agrupan con motivos genéricos: `falta_comprador`, `falta_anunciante`, `ambos_participantes_iguales`, `usuario_objetivo_no_participa`, `participante_no_encontrado`, `identificador_invalido`, `estructura_inconsistente` u `otra_ambiguedad`. Estos motivos no incluyen nombres, emails, IDs, textos ni documentos completos.
+Las conversaciones ambiguas se agrupan con motivos genéricos: `falta_comprador`, `falta_anunciante`, `ambos_participantes_iguales`, `usuario_objetivo_no_participa`, `participante_no_encontrado`, `identificador_invalido`, `estructura_inconsistente`, `propiedad_no_resoluble`, `mensaje_fuera_de_conversacion`, `autor_no_es_participante`, `conversacion_sin_mensajes`, `duplicado_inconsistente`, `campos_extra_incompatibles`, `resultado_consultas_incompleto`, `combinacion_no_clasificada` u `otra_ambiguedad`. Estos motivos no incluyen nombres, emails, IDs, textos ni documentos completos.
+
+`candidataLimpiezaControladaFutura` solo puede ser `true` si todos los participantes pertenecen a `KNOWN_TEST_EMAILS`, no existe relación con usuarios reales, no existe propiedad real asociada, no hay autores desconocidos, no hay relaciones inconsistentes y la única cuenta activa relacionada es `KNOWN_TEST_ADMIN_EMAIL` con `role: admin`. Incluso en ese caso, esta fase mantiene `aplicariaCambios:false` y no borra nada.
 
 No se recomienda anonimizar en esta primera fase porque el modelo actual exige `compradorId`, `anuncianteId` y `userId`, y cambiar esas referencias podría afectar lecturas, no leídos e historial de participantes.
 
