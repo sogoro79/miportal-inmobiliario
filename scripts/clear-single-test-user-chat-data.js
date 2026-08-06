@@ -24,6 +24,8 @@ const AMBIGUITY_REASONS = [
   "duplicado_inconsistente",
   "campos_extra_incompatibles",
   "resultado_consultas_incompleto",
+  "otro_test_admin_desactivado",
+  "otro_test_admin_activo_no_autorizado",
   "combinacion_no_clasificada",
   "otra_ambiguedad"
 ];
@@ -62,6 +64,8 @@ function safeEmptySummary() {
     conversacionesConAdminTestDesactivado: 0,
     conversacionesConOtroTestActivoNoAdmin: 0,
     conversacionesConOtroTestDesactivado: 0,
+    conversacionesConOtroTestAdminDesactivado: 0,
+    conversacionesConOtroTestAdminActivoNoAutorizado: 0,
     conversacionesConParticipanteNoTest: 0,
     conversacionesConParticipanteNoResoluble: 0,
     todosLosParticipantesSonTest: true,
@@ -76,6 +80,23 @@ function safeEmptySummary() {
     mensajesDeOtros: 0,
     conversacionesAmbiguas: 0,
     conversacionesAmbiguasPorMotivo: Object.fromEntries(AMBIGUITY_REASONS.map(reason => [reason, 0])),
+    diagnosticoCombinaciones: {
+      participante_es_admin_test: 0,
+      participante_es_otro_test: 0,
+      participante_activo: 0,
+      participante_desactivado: 0,
+      propiedad_existe: 0,
+      propiedad_no_existe: 0,
+      tiene_mensajes_propios: 0,
+      tiene_mensajes_otros: 0,
+      todos_autores_son_participantes: 0,
+      objetivo_es_comprador: 0,
+      objetivo_es_anunciante: 0,
+      otro_es_comprador: 0,
+      otro_es_anunciante: 0,
+      cantidad_participantes_validos: 0,
+      clasificacion_previa_aplicada: 0
+    },
     relacionesInconsistentes: 0,
     participantesDesconocidos: 0,
     propiedadesDesconocidas: 0,
@@ -332,8 +353,8 @@ function participantStatus(conv, targetUserId, activeByUser, emailByUser, roleBy
     ambiguityReasons.push("combinacion_no_clasificada");
   }
   if (!motivos.length && !knownAdminTest && adminRole) {
-    motivos.push("role_admin_inesperado");
-    ambiguityReasons.push("combinacion_no_clasificada");
+    motivos.push(active === false ? "otro_test_admin_desactivado" : "otro_test_admin_activo_no_autorizado");
+    ambiguityReasons.push(active === false ? "otro_test_admin_desactivado" : "otro_test_admin_activo_no_autorizado");
   }
   return {
     otherActive: active === true,
@@ -438,6 +459,35 @@ function messageStatus({ conv, mensajes, targetUserId, activeByUser, usersQueryO
   return status;
 }
 
+function addCombinationDiagnostics(summary, { conv, targetUserId, participant, property, message, ambiguous }) {
+  const compradorId = idString(conv?.compradorId);
+  const anuncianteId = idString(conv?.anuncianteId);
+  const target = idString(targetUserId);
+  const objetivoEsComprador = compradorId && compradorId === target;
+  const objetivoEsAnunciante = anuncianteId && anuncianteId === target;
+  const participantesValidos = [compradorId, anuncianteId].filter(isValidObjectIdValue).length;
+
+  if (participant.knownAdminTest) summary.diagnosticoCombinaciones.participante_es_admin_test += 1;
+  if (participant.knownTest && !participant.knownAdminTest) summary.diagnosticoCombinaciones.participante_es_otro_test += 1;
+  if (participant.otherActive) summary.diagnosticoCombinaciones.participante_activo += 1;
+  if (participant.otherInactive) summary.diagnosticoCombinaciones.participante_desactivado += 1;
+  if (property.exists) summary.diagnosticoCombinaciones.propiedad_existe += 1;
+  if (property.absentConfirmed) summary.diagnosticoCombinaciones.propiedad_no_existe += 1;
+  if (message.propios > 0) summary.diagnosticoCombinaciones.tiene_mensajes_propios += 1;
+  if (message.deOtros > 0) summary.diagnosticoCombinaciones.tiene_mensajes_otros += 1;
+  if (message.autorDesconocido === 0 && message.relacionInconsistente === 0) {
+    summary.diagnosticoCombinaciones.todos_autores_son_participantes += 1;
+  }
+  if (objetivoEsComprador) summary.diagnosticoCombinaciones.objetivo_es_comprador += 1;
+  if (objetivoEsAnunciante) summary.diagnosticoCombinaciones.objetivo_es_anunciante += 1;
+  if (objetivoEsComprador) summary.diagnosticoCombinaciones.otro_es_anunciante += 1;
+  if (objetivoEsAnunciante) summary.diagnosticoCombinaciones.otro_es_comprador += 1;
+  summary.diagnosticoCombinaciones.cantidad_participantes_validos += participantesValidos;
+  if (ambiguous || participant.knownAdminTest || participant.knownTest || participant.notTest || property.exists || property.absentConfirmed) {
+    summary.diagnosticoCombinaciones.clasificacion_previa_aplicada += 1;
+  }
+}
+
 function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados, propiedades, knownTestEmails, knownTestAdminEmail, queryStatus = {} }) {
   const summary = safeEmptySummary();
   const conversationDuplicateInconsistencies = detectInconsistentDuplicateIds(conversaciones, ["compradorId", "anuncianteId", "propiedadId"]);
@@ -487,6 +537,7 @@ function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados
     const motivos = [...participant.motivos, ...property.motivos, ...message.motivos, ...duplicateMotivos];
     const ambiguous = motivos.length > 0;
     const externalRelation = participant.notTest || property.exists;
+    addCombinationDiagnostics(summary, { conv, targetUserId, participant, property, message, ambiguous });
 
     summary.mensajesPropios += message.propios;
     summary.mensajesDeOtros += message.deOtros;
@@ -500,6 +551,8 @@ function classify({ targetUserId, conversaciones, mensajes, usuariosRelacionados
     if (participant.knownAdminTest && participant.otherInactive) summary.conversacionesConAdminTestDesactivado += 1;
     if (participant.knownTest && !participant.knownAdminTest && participant.otherActive) summary.conversacionesConOtroTestActivoNoAdmin += 1;
     if (participant.knownTest && !participant.knownAdminTest && participant.otherInactive) summary.conversacionesConOtroTestDesactivado += 1;
+    if (participant.knownTest && !participant.knownAdminTest && participant.adminRole && participant.otherInactive) summary.conversacionesConOtroTestAdminDesactivado += 1;
+    if (participant.knownTest && !participant.knownAdminTest && participant.adminRole && participant.otherActive) summary.conversacionesConOtroTestAdminActivoNoAutorizado += 1;
     if (participant.notTest) summary.conversacionesConParticipanteNoTest += 1;
     if (participant.motivos.includes("participante_desconocido")) summary.conversacionesConParticipanteNoResoluble += 1;
     if (property.exists) summary.conversacionesConPropiedadExistente += 1;

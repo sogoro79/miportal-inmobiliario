@@ -341,8 +341,10 @@ test("auditoría chat distingue administrador de prueba activo y roles incoheren
   assert.equal(adminActivo.candidataLimpiezaControladaFutura, true);
   assert.equal(adminSinRole.conversacionesAmbiguasPorMotivo.combinacion_no_clasificada, 1);
   assert.equal(adminSinRole.motivosBloqueo.includes("admin_test_role_incoherente"), true);
-  assert.equal(adminInesperado.conversacionesAmbiguasPorMotivo.combinacion_no_clasificada, 1);
-  assert.equal(adminInesperado.motivosBloqueo.includes("role_admin_inesperado"), true);
+  assert.equal(adminInesperado.conversacionesAmbiguasPorMotivo.otro_test_admin_desactivado, 1);
+  assert.equal(adminInesperado.conversacionesAmbiguasPorMotivo.combinacion_no_clasificada, 0);
+  assert.equal(adminInesperado.conversacionesConOtroTestAdminDesactivado, 1);
+  assert.equal(adminInesperado.motivosBloqueo.includes("otro_test_admin_desactivado"), true);
 });
 
 test("auditoría chat proyecta role y clasifica admin activo sin contradicciones", async () => {
@@ -400,6 +402,64 @@ test("auditoría chat cuenta dos admins activos válidos sin contaminar una conv
   assert.equal(summary.existeRelacionConUsuarioReal, false);
   assert.equal(summary.conversacionesConRelacionesExternas, 0);
   assert.equal(summary.candidataLimpiezaControladaFutura, false);
+});
+
+test("auditoría chat diagnostica cuenta test desactivada con rol admin sin usar combinación no clasificada", async () => {
+  const thirdUserId = "507f1f77bcf86cd799439103";
+  const thirdConversationId = "507f1f77bcf86cd799439104";
+  const thirdPropertyId = "507f1f77bcf86cd799439105";
+  const summary = await auditSingleTestUserChatData({
+    env: chatAuditEnv({
+      KNOWN_TEST_EMAILS: `${TARGET_EMAIL},${OTHER_TEST_EMAIL},${ADMIN_TEST_EMAIL},elpuertoingles@gmail.com`
+    }),
+    models: chatAuditModels({
+      otherUsers: [
+        { _id: OTHER_ID, email: ADMIN_TEST_EMAIL, role: "admin", activo: true },
+        { _id: ANOTHER_ID, email: ADMIN_TEST_EMAIL, role: "admin", activo: true },
+        { _id: thirdUserId, email: OTHER_TEST_EMAIL, role: "admin", activo: false }
+      ],
+      conversaciones: [
+        { _id: CONV_ID, compradorId: TARGET_ID, anuncianteId: OTHER_ID, propiedadId: PROPERTY_ID },
+        { _id: ANOTHER_CONV_ID, compradorId: TARGET_ID, anuncianteId: ANOTHER_ID, propiedadId: ANOTHER_PROPERTY_ID },
+        { _id: thirdConversationId, compradorId: TARGET_ID, anuncianteId: thirdUserId, propiedadId: thirdPropertyId }
+      ],
+      mensajes: [
+        { _id: "507f1f77bcf86cd799439140", conversacionId: CONV_ID, userId: TARGET_ID },
+        { _id: "507f1f77bcf86cd799439141", conversacionId: CONV_ID, userId: OTHER_ID },
+        { _id: "507f1f77bcf86cd799439142", conversacionId: ANOTHER_CONV_ID, userId: TARGET_ID },
+        { _id: "507f1f77bcf86cd799439143", conversacionId: ANOTHER_CONV_ID, userId: ANOTHER_ID },
+        { _id: "507f1f77bcf86cd799439144", conversacionId: thirdConversationId, userId: TARGET_ID },
+        { _id: "507f1f77bcf86cd799439145", conversacionId: thirdConversationId, userId: thirdUserId }
+      ]
+    }).models
+  });
+
+  assert.equal(summary.conversacionesTotales, 3);
+  assert.equal(summary.conversacionesAdminTestValidas, 2);
+  assert.equal(summary.conversacionesConAdminTestActivo, 2);
+  assert.equal(summary.conversacionesConOtroTestDesactivado, 1);
+  assert.equal(summary.conversacionesConOtroTestAdminDesactivado, 1);
+  assert.equal(summary.conversacionesAmbiguas, 1);
+  assert.equal(summary.conversacionesAmbiguasPorMotivo.otro_test_admin_desactivado, 1);
+  assert.equal(summary.conversacionesAmbiguasPorMotivo.combinacion_no_clasificada, 0);
+  assert.equal(summary.existeRelacionConUsuarioReal, false);
+  assert.equal(summary.existeRelacionConPropiedadReal, false);
+  assert.equal(summary.mensajesAutorDesconocido, 0);
+  assert.equal(summary.mensajesRelacionInconsistente, 0);
+  assert.equal(summary.diagnosticoCombinaciones.participante_es_admin_test, 2);
+  assert.equal(summary.diagnosticoCombinaciones.participante_es_otro_test, 1);
+  assert.equal(summary.diagnosticoCombinaciones.participante_activo, 2);
+  assert.equal(summary.diagnosticoCombinaciones.participante_desactivado, 1);
+  assert.equal(summary.diagnosticoCombinaciones.propiedad_no_existe, 3);
+  assert.equal(summary.diagnosticoCombinaciones.tiene_mensajes_propios, 3);
+  assert.equal(summary.diagnosticoCombinaciones.tiene_mensajes_otros, 3);
+  assert.equal(summary.diagnosticoCombinaciones.todos_autores_son_participantes, 3);
+  assert.equal(summary.diagnosticoCombinaciones.objetivo_es_comprador, 3);
+  assert.equal(summary.diagnosticoCombinaciones.otro_es_anunciante, 3);
+  assert.equal(summary.diagnosticoCombinaciones.cantidad_participantes_validos, 6);
+  assert.equal(summary.diagnosticoCombinaciones.clasificacion_previa_aplicada, 3);
+  assert.equal(summary.candidataLimpiezaControladaFutura, false);
+  assert.equal(summary.aplicariaCambios, false);
 });
 
 test("auditoría chat candidata futura exige solo cuentas test, sin propiedades reales ni relaciones inconsistentes", async () => {
