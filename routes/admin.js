@@ -16,6 +16,7 @@ import { generarCodigoVipTrial } from '../utils/vipTrialCodes.js';
 import { authenticateAdminCredentials, createAdminJwt } from '../utils/authentication.js';
 import { createRateLimit } from '../utils/rateLimit.js';
 import { destroyImagesByUrls } from '../utils/cloudinaryService.js';
+import { getCloudinaryPublicIdFromUrl } from '../utils/imageSecurity.js';
 import { securityRateLimits } from '../utils/security.js';
 import { validateBody, z } from '../utils/validation.js';
 
@@ -48,9 +49,19 @@ const USUARIO_ELIMINACION_PROJECTION = {
   favoritos: 1,
   stripeCustomerId: 1,
   stripeSubscriptionId: 1,
+  subscriptionStatus: 1,
+  cancelAtPeriodEnd: 1,
+  subscriptionCancelAt: 1,
   pendingPlan: 1,
   pendingPriceId: 1,
-  pendingPlanChangeAt: 1
+  pendingPlanChangeAt: 1,
+  pendingPlanLabel: 1
+};
+
+const PROPIEDAD_ELIMINACION_PROJECTION = {
+  _id: 1,
+  usuarioId: 1,
+  imagenes: 1
 };
 
 const TIPOS_INMUEBLE_VALIDOS = [
@@ -114,15 +125,101 @@ function usuarioTieneStripe(usuario = {}) {
 }
 
 function usuarioTieneCambiosPendientes(usuario = {}) {
-  return Boolean(tieneValor(usuario.pendingPlan) || tieneValor(usuario.pendingPriceId) || tieneValor(usuario.pendingPlanChangeAt));
+  return Boolean(
+    tieneValor(usuario.pendingPlan) ||
+    tieneValor(usuario.pendingPriceId) ||
+    tieneValor(usuario.pendingPlanChangeAt) ||
+    tieneValor(usuario.pendingPlanLabel)
+  );
+}
+
+function usuarioTieneStripeBloqueante(usuario = {}) {
+  if (usuarioTieneCambiosPendientes(usuario)) return true;
+  if (!usuarioTieneStripe(usuario)) return false;
+
+  const estado = String(usuario.subscriptionStatus || '').trim().toLowerCase();
+  if (['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused'].includes(estado)) return true;
+  if (usuario.cancelAtPeriodEnd === true) return true;
+  if (tieneValor(usuario.subscriptionCancelAt) && estado !== 'canceled') return true;
+
+  return false;
 }
 
 async function contarDocumento(Model, filtro, session) {
   return Number(await aplicarSesion(Model.countDocuments(filtro), session));
 }
 
-async function buscarDocumentos(Model, filtro, session) {
-  return aplicarSesion(Model.find(filtro), session);
+async function buscarDocumentos(Model, filtro, projectionOrSession, maybeSession) {
+  const tieneProjection = maybeSession !== undefined;
+  const projection = tieneProjection ? projectionOrSession : undefined;
+  const session = tieneProjection ? maybeSession : projectionOrSession;
+  const query = projection === undefined ? Model.find(filtro) : Model.find(filtro, projection);
+  const resultado = await aplicarSesion(query, session);
+  return Array.isArray(resultado) ? resultado : [];
+}
+
+function imagenesDePropiedades(propiedades = []) {
+  return propiedades.flatMap(propiedad => (
+    Array.isArray(propiedad?.imagenes)
+      ? propiedad.imagenes.filter(url => typeof url === 'string' && url.trim())
+      : []
+  ));
+}
+
+function resumenImagenesPropiedades(propiedades = []) {
+  const urls = imagenesDePropiedades(propiedades);
+  const publicIds = urls.map(getCloudinaryPublicIdFromUrl).filter(Boolean);
+  return {
+    imagenes: urls.length,
+    imagenesCloudinary: publicIds.length
+  };
+}
+
+async function prepararEliminacionPropiedadesUsuario({ targetUserId, models, session }) {
+  const propiedadesUsuario = await buscarDocumentos(
+    models.Propiedad,
+    { usuarioId: targetUserId },
+    PROPIEDAD_ELIMINACION_PROJECTION,
+    session
+  );
+  const urlsPorPublicId = new Map();
+
+  for (const url of imagenesDePropiedades(propiedadesUsuario)) {
+    const publicId = getCloudinaryPublicIdFromUrl(url);
+    if (publicId && !urlsPorPublicId.has(publicId)) urlsPorPublicId.set(publicId, url);
+  }
+
+  if (urlsPorPublicId.size === 0) {
+    return {
+      propiedadesUsuario,
+      imagenesParaEliminar: [],
+      imagenesCompartidasPreservadas: 0
+    };
+  }
+
+  const otrasPropiedades = await buscarDocumentos(
+    models.Propiedad,
+    { usuarioId: { $ne: targetUserId }, imagenes: { $exists: true, $ne: [] } },
+    PROPIEDAD_ELIMINACION_PROJECTION,
+    session
+  );
+  const publicIdsCompartidos = new Set(imagenesDePropiedades(otrasPropiedades).map(getCloudinaryPublicIdFromUrl).filter(Boolean));
+  const imagenesParaEliminar = [];
+  let imagenesCompartidasPreservadas = 0;
+
+  for (const [publicId, url] of urlsPorPublicId.entries()) {
+    if (publicIdsCompartidos.has(publicId)) {
+      imagenesCompartidasPreservadas += 1;
+    } else {
+      imagenesParaEliminar.push(url);
+    }
+  }
+
+  return {
+    propiedadesUsuario,
+    imagenesParaEliminar,
+    imagenesCompartidasPreservadas
+  };
 }
 
 async function limpiarChatsDeUsuarioEliminado({ targetUserId, models, session }) {
@@ -179,8 +276,8 @@ export async function construirResumenEliminacionUsuario({
   const usuario = await cargarUsuarioEliminacion(models.Usuario, targetUserId, session);
   if (!usuario) return null;
 
-  const [propiedades, chats, mensajes, alertas, notificaciones] = await Promise.all([
-    contarDocumento(models.Propiedad, { usuarioId: targetUserId }, session),
+  const [propiedadesUsuario, chats, mensajes, alertas, notificaciones] = await Promise.all([
+    buscarDocumentos(models.Propiedad, { usuarioId: targetUserId }, PROPIEDAD_ELIMINACION_PROJECTION, session),
     contarDocumento(models.Conversacion, { $or: [{ compradorId: targetUserId }, { anuncianteId: targetUserId }] }, session),
     contarDocumento(models.Mensaje, { userId: targetUserId }, session),
     contarDocumento(models.Alerta, { usuarioId: targetUserId }, session),
@@ -188,25 +285,30 @@ export async function construirResumenEliminacionUsuario({
   ]);
 
   const favoritos = Array.isArray(usuario.favoritos) ? usuario.favoritos.length : 0;
+  const propiedades = propiedadesUsuario.length;
+  const resumenImagenes = resumenImagenesPropiedades(propiedadesUsuario);
   const usuarioDesactivado = usuario.activo === false;
   const tieneStripe = usuarioTieneStripe(usuario);
+  const stripeBloqueante = usuarioTieneStripeBloqueante(usuario);
   const tieneCambiosPendientes = usuarioTieneCambiosPendientes(usuario);
   const motivosBloqueo = [];
 
   if (String(usuario._id) === String(adminUserId)) motivosBloqueo.push('usuario_autenticado');
   if (usuario.role === 'admin') motivosBloqueo.push('usuario_admin');
-  if (!usuarioDesactivado) motivosBloqueo.push('usuario_activo');
-  if (tieneStripe) motivosBloqueo.push('stripe_presente');
+  if (stripeBloqueante) motivosBloqueo.push('stripe_presente');
   if (tieneCambiosPendientes) motivosBloqueo.push('cambios_pendientes');
-  if (propiedades > 0) motivosBloqueo.push('propiedades_presentes');
 
   return {
     usuario,
     seguro: {
       usuarioDesactivado,
       tieneStripe,
+      stripeLocalObsoleto: tieneStripe && !stripeBloqueante,
+      stripeBloqueante,
       tieneCambiosPendientes,
       propiedades,
+      imagenes: resumenImagenes.imagenes,
+      imagenesCloudinary: resumenImagenes.imagenesCloudinary,
       chats,
       mensajes,
       favoritos,
@@ -222,12 +324,16 @@ function filtroUsuarioEliminable(targetUserId) {
   return {
     _id: targetUserId,
     role: { $ne: 'admin' },
-    activo: false,
-    stripeCustomerId: { $in: [null, ''] },
-    stripeSubscriptionId: { $in: [null, ''] },
+    subscriptionStatus: { $nin: ['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused'] },
+    cancelAtPeriodEnd: { $ne: true },
+    $or: [
+      { subscriptionCancelAt: { $in: [null, ''] } },
+      { subscriptionStatus: 'canceled' }
+    ],
     pendingPlan: { $in: [null, ''] },
     pendingPriceId: { $in: [null, ''] },
-    pendingPlanChangeAt: { $in: [null, ''] }
+    pendingPlanChangeAt: { $in: [null, ''] },
+    pendingPlanLabel: { $in: [null, ''] }
   };
 }
 
@@ -237,6 +343,8 @@ export async function eliminarUsuarioDesactivadoSeguro({
   confirmacion,
   models = modelosEliminacionPorDefecto(),
   mongooseClient = mongoose,
+  cloudinaryClient = cloudinary,
+  destroyImages = destroyImagesByUrls,
   logger = console
 } = {}) {
   if (confirmacion !== CONFIRMACION_ELIMINAR_USUARIO_DESACTIVADO) {
@@ -248,6 +356,8 @@ export async function eliminarUsuarioDesactivadoSeguro({
 
   const session = await mongooseClient.startSession();
   let resultado = null;
+  let imagenesCloudinaryPendientes = [];
+  let imagenesCompartidasPreservadas = 0;
 
   try {
     await session.withTransaction(async () => {
@@ -259,9 +369,13 @@ export async function eliminarUsuarioDesactivadoSeguro({
         throw new EliminacionUsuarioError(409, 'eliminacion_bloqueada', 'El usuario no cumple los requisitos de eliminación.', resumen.seguro);
       }
 
+      const propiedadesPlan = await prepararEliminacionPropiedadesUsuario({ targetUserId, models, session });
+      imagenesCloudinaryPendientes = propiedadesPlan.imagenesParaEliminar;
+      imagenesCompartidasPreservadas = propiedadesPlan.imagenesCompartidasPreservadas;
       const alertasResult = await aplicarSesion(models.Alerta.deleteMany({ usuarioId: targetUserId }), session);
       const notificacionesResult = await aplicarSesion(models.Notificacion.deleteMany({ usuarioId: targetUserId }), session);
       const chatsResult = await limpiarChatsDeUsuarioEliminado({ targetUserId, models, session });
+      const propiedadesResult = await aplicarSesion(models.Propiedad.deleteMany({ usuarioId: targetUserId }), session);
       const usuarioEliminado = await aplicarSesion(models.Usuario.findOneAndDelete(filtroUsuarioEliminable(targetUserId)), session);
 
       if (!usuarioEliminado) {
@@ -275,10 +389,13 @@ export async function eliminarUsuarioDesactivadoSeguro({
         eliminados: {
           alertas: resultadoBorrado(alertasResult),
           notificaciones: resultadoBorrado(notificacionesResult),
+          propiedades: resultadoBorrado(propiedadesResult),
           mensajesPropios: chatsResult.mensajesEliminados,
           conversacionesMarcadas: chatsResult.conversacionesMarcadas,
           conversacionesEliminadas: chatsResult.conversacionesEliminadas,
-          favoritosPropios: resumen.seguro.favoritos
+          favoritosPropios: resumen.seguro.favoritos,
+          imagenesCloudinaryPreparadas: imagenesCloudinaryPendientes.length,
+          imagenesCompartidasPreservadas
         }
       };
     });
@@ -286,14 +403,34 @@ export async function eliminarUsuarioDesactivadoSeguro({
     await session.endSession();
   }
 
-  logger.info('Eliminación administrativa de usuario desactivado completada', {
+  if (imagenesCloudinaryPendientes.length > 0) {
+    const cloudinaryResumen = await destroyImages(imagenesCloudinaryPendientes, { client: cloudinaryClient });
+    const failed = Number(cloudinaryResumen?.failed || 0);
+    if (failed > 0) {
+      throw new EliminacionUsuarioError(502, 'cloudinary_limpieza_incompleta', 'No se pudieron limpiar todas las imágenes del usuario eliminado.', {
+        imagenesCloudinaryPreparadas: imagenesCloudinaryPendientes.length,
+        imagenesCloudinaryFallidas: failed
+      });
+    }
+    resultado.eliminados.imagenesCloudinaryEliminadas = Number(cloudinaryResumen?.deleted || 0);
+    resultado.eliminados.imagenesCloudinaryOmitidas = Number(cloudinaryResumen?.skipped || 0);
+  } else if (resultado?.eliminados) {
+    resultado.eliminados.imagenesCloudinaryEliminadas = 0;
+    resultado.eliminados.imagenesCloudinaryOmitidas = 0;
+  }
+
+  logger.info('Eliminación administrativa de usuario completada', {
     resultado: 'ok',
     propiedades: resultado?.conteos?.propiedades || 0,
     chats: resultado?.conteos?.chats || 0,
     mensajes: resultado?.conteos?.mensajes || 0,
     favoritos: resultado?.conteos?.favoritos || 0,
     alertasEliminadas: resultado?.eliminados?.alertas || 0,
-    notificacionesEliminadas: resultado?.eliminados?.notificaciones || 0
+    notificacionesEliminadas: resultado?.eliminados?.notificaciones || 0,
+    propiedadesEliminadas: resultado?.eliminados?.propiedades || 0,
+    imagenesCloudinaryPreparadas: resultado?.eliminados?.imagenesCloudinaryPreparadas || 0,
+    imagenesCloudinaryEliminadas: resultado?.eliminados?.imagenesCloudinaryEliminadas || 0,
+    imagenesCompartidasPreservadas: resultado?.eliminados?.imagenesCompartidasPreservadas || 0
   });
 
   return resultado;
@@ -768,7 +905,8 @@ router.delete('/usuarios/:id', requireAdmin, async (req, res) => {
 
     const resultado = await eliminarUsuarioDesactivadoSeguro({
       targetUserId: req.params.id,
-      adminUserId: req.user.id
+      adminUserId: req.user.id,
+      confirmacion: req.body?.confirmacion
     });
 
     res.json({

@@ -102,5 +102,5 @@ test("eliminación administrativa preserva mensajes ajenos y marca participante 
   assert.match(adminSource, /contarDocumento\(models\.Mensaje, \{ conversacionId \}, session\)/);
   assert.match(adminSource, /models\.Conversacion\.deleteOne/);
   assert.doesNotMatch(deleteBlock, /models\.Mensaje\.deleteMany\(\{ conversacionId \}\)/);
-  assert.doesNotMatch(deleteBlock, /stripe\.|cloudinary|destroyImagesByUrls/);
+  assert.doesNotMatch(deleteBlock, /stripe\.|subscriptions\.|new Stripe/);
 });
