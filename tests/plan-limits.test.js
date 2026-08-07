@@ -244,6 +244,18 @@ test("perfil.html fallback representa vip, vip_trial y plan desconocido correcta
   assert.match(perfilHtml, /limitePlanTexto\(valor, ilimitado\)[\s\S]*return ilimitado \? "∞" : valor/);
 });
 
+test("perfil oculta códigos promocionales solo durante promoción profesional activa", () => {
+  const perfilHtml = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
+
+  assert.match(perfilHtml, /id="promoCodeCardPerfil"/);
+  assert.match(perfilHtml, /Canjear código promocional/);
+  assert.match(perfilHtml, /function tienePromocionProfesionalActiva\(usuario\)/);
+  assert.match(perfilHtml, /usuario\?\.plan === "professional_trial_60d" && usuario\?\.professionalPromoStatus === "active"/);
+  assert.match(perfilHtml, /card\.style\.display = tienePromocionProfesionalActiva\(usuario\) \? "none" : ""/);
+  assert.match(perfilHtml, /actualizarVisibilidadCodigoPromocional\(usuario\)/);
+  assert.match(perfilHtml, /canjearCodigoVipTrialPerfil/);
+});
+
 test("admin mantiene lista explícita de planes asignables", () => {
   const adminRoutes = fs.readFileSync(new URL("../routes/admin.js", import.meta.url), "utf8");
   const adminHtml = fs.readFileSync(new URL("../public/admin.html", import.meta.url), "utf8");

@@ -610,7 +610,7 @@
     <div class="launch-promo-card" id="launchPromoCard"></div>
   </div>
 
-  <div class="promo-code-card">
+  <div class="promo-code-card" id="promoCodeCardPerfil">
     <h3>Canjear código promocional</h3>
     <p>Si tienes una invitación privada, introduce el código para activar tu prueba VIP.</p>
     <div class="promo-code-form">
@@ -826,8 +826,19 @@ function renderLaunchPromo(usuario) {
   }
 }
 
+function tienePromocionProfesionalActiva(usuario) {
+  return usuario?.plan === "professional_trial_60d" && usuario?.professionalPromoStatus === "active";
+}
+
+function actualizarVisibilidadCodigoPromocional(usuario) {
+  const card = document.getElementById("promoCodeCardPerfil");
+  if (!card) return;
+  card.style.display = tienePromocionProfesionalActiva(usuario) ? "none" : "";
+}
+
 document.getElementById("statPlan").textContent = planActualInfo.nombre;
 document.getElementById("tagPlan").textContent = "Plan " + planActualInfo.nombre;
+actualizarVisibilidadCodigoPromocional(usuario);
 
 const btnMejorarPlan = document.getElementById('btnMejorarPlan');
 const btnGestionarPlan = document.getElementById('btnGestionarPlan');
