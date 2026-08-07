@@ -568,7 +568,7 @@
       </div>
     </div>
     <div class="perfil-acciones">
-      <a href="/publicar" class="btn-perfil green">➕ Publicar anuncio</a>
+      <a href="/planes" class="btn-perfil green" id="btnPerfilPublicar">➕ Publicar anuncio</a>
       <a href="/favoritos" class="btn-perfil outline">❤️ Mis favoritos</a>
       <button class="btn-perfil red" onclick="cerrarSesion()">Cerrar sesión</button>
     </div>
@@ -627,7 +627,7 @@
     <div class="estado-vacio">
       <div class="icono">🏠</div>
       <p>Aún no has publicado ninguna propiedad</p>
-      <a href="/publicar">Publicar mi primera propiedad</a>
+      <a href="/planes" id="btnPerfilPublicarVacio">Publicar mi primera propiedad</a>
     </div>
   </div>
 
@@ -652,11 +652,23 @@
   <a href="/perfil" class="active"><span>👤</span><small>Perfil</small></a>
 </nav>
 
+<script src="/js/publish-flow.js"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");
 
 if (!usuario || !usuario._id || !token) location.replace("/login");
+
+function aplicarFlujoPublicacionPerfil(id) {
+  document.getElementById(id)?.addEventListener("click", event => {
+    if (window.HomeClickPublishFlow?.navegarPublicacion) {
+      window.HomeClickPublishFlow.navegarPublicacion(event);
+    }
+  });
+}
+
+aplicarFlujoPublicacionPerfil("btnPerfilPublicar");
+aplicarFlujoPublicacionPerfil("btnPerfilPublicarVacio");
 
 const paramsUrl = new URLSearchParams(window.location.search);
 const pagoExitoso = paramsUrl.get("pago") === "exitoso";

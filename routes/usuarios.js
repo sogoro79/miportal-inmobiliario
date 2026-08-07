@@ -1,10 +1,15 @@
 import "dotenv/config";
 import express from "express";
 import Usuario from "../models/Usuario.js";
+import Propiedad from "../models/Propiedad.js";
 import { requireAuth } from "../middleware/auth.js";
 import { canjearCodigoVipTrial, mensajeErrorCodigoVipTrial } from "../utils/vipTrialCodes.js";
 import { processManualPlanExpirations } from "../utils/manualPlanExpirations.js";
 import { envFlagEnabled } from "../utils/envFlags.js";
+import {
+  filtroPropiedadesValidasVisibles,
+  getEstadoPublicacionUsuario
+} from "../utils/publishEligibility.js";
 
 const router = express.Router();
 
@@ -87,6 +92,18 @@ router.get("/me", requireAuth, async (req, res) => {
       ...estadoPlan
     });
     res.json(usuarioSeguro(usuario, estadoPlan));
+  } catch (e) {
+    res.status(500).json({ error: "Error en servidor" });
+  }
+});
+
+router.get("/me/publicacion-estado", requireAuth, async (req, res) => {
+  try {
+    const usuario = await Usuario.findById(req.user.id);
+    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+
+    const anunciosActuales = await Propiedad.countDocuments(filtroPropiedadesValidasVisibles(req.user.id));
+    res.json(getEstadoPublicacionUsuario(usuario, anunciosActuales));
   } catch (e) {
     res.status(500).json({ error: "Error en servidor" });
   }

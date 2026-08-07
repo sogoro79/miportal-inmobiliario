@@ -25,10 +25,16 @@ import {
 import { createCloudinaryStreamStorage } from "../utils/cloudinaryStorage.js";
 import {
   calcularFechaExpiracionPlan,
-  getLimiteAnunciosPlan,
   getLimiteFotosPlan,
   planTieneLimiteFotos
 } from "../utils/planLimits.js";
+import {
+  filtroPropiedadesValidasVisibles,
+  getEstadoPublicacionUsuario,
+  getPlanParaFotos,
+  getPlanParaLimites,
+  usuarioTienePlanActivoParaPublicar
+} from "../utils/publishEligibility.js";
 import { filtroNoCaducado } from "../utils/freeListingExpiration.js";
 import { limitarFotosPublicasPorPlan } from "../utils/trialPlanLimits.js";
 import {
@@ -175,22 +181,6 @@ function extraerLocalidadPropiedad(propiedad = {}) {
   return limpias.length > 1 ? limpias[limpias.length - 1] : "";
 }
 
-function getPlanParaFotos(usuario) {
-  let plan = usuario?.plan || "gratis";
-  if (plan === "vip_trial" && (!usuario.trialAccepted || !usuario.planActivo)) {
-    plan = "gratis";
-  }
-  return plan;
-}
-
-function getPlanParaLimites(usuario) {
-  let plan = usuario?.plan || "gratis";
-  if (plan === "vip_trial" && (!usuario.trialAccepted || !usuario.planActivo)) {
-    plan = "gratis";
-  }
-  return plan;
-}
-
 async function limpiarImagenesSubidas(filesOrUrls = []) {
   const urls = Array.isArray(filesOrUrls) && filesOrUrls.some(item => typeof item !== "string")
     ? getUploadedImageUrls(filesOrUrls)
@@ -234,24 +224,6 @@ async function validateBodyOrCleanup(schema, req, res, urlsSubidas, logLabel) {
   await limpiarImagenesSubidas(urlsSubidas);
   res.status(400).json(buildValidationResponse(parsed.error));
   return false;
-}
-
-function usuarioTienePlanActivoParaPublicar(usuario) {
-  const plan = usuario?.plan || "gratis";
-  if (plan === "gratis") return true;
-  if (plan === "vip_trial") return Boolean(usuario.trialAccepted && usuario.planActivo);
-  return Boolean(usuario.planActivo);
-}
-
-function filtroPropiedadesValidasVisibles(usuarioId) {
-  return {
-    usuarioId,
-    visiblePublicamente: { $ne: false },
-    activo: { $ne: false },
-    eliminada: { $ne: true },
-    oculto: { $ne: true },
-    estadoComercial: { $nin: ["Vendido", "Alquilado", "Reservado", "No disponible"] }
-  };
 }
 
 function filtroPropiedadesPublicas(now = new Date()) {
@@ -667,7 +639,6 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
 
       plan = getPlanParaLimites(usuario);
       
-      const limite = getLimiteAnunciosPlan(plan);
       // Límite de fotos
       const planFotos = getPlanParaFotos(usuario);
       const maxFotos = getLimiteFotosPlan(planFotos);
@@ -685,12 +656,13 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
         });
       }
       const totalAnuncios = await Propiedad.countDocuments(filtroPropiedadesValidasVisibles(usuarioId));
-      if (totalAnuncios >= limite) {
+      const estadoPublicacion = getEstadoPublicacionUsuario(usuario, totalAnuncios);
+      if (!estadoPublicacion.puedePublicarAhora) {
         logPublicacion("limite_anuncios", {
           userId: usuarioId,
           plan,
           totalAnuncios,
-          limite
+          limite: estadoPublicacion.limiteAnuncios
         });
         await limpiarImagenesSubidas(urlsSubidas);
         return res.status(403).json({ 

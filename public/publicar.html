@@ -570,6 +570,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="/js/publish-flow.js"></script>
 <script>
 const GEOCODE_KEY = "691dbf7ce0ac5786669402bgm8f835e";
 let mapaPrevio = null;
@@ -750,6 +751,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     const usuario = await refrescarUsuarioPublicar(token);
     await cargarCatalogoPlanesPublicar();
+    window.HomeClickPublishFlow?.marcarSeleccionLocal(usuario);
     const plan = usuario?.plan || "gratis";
     actualizarTextoFotos(plan);
   } catch (err) {

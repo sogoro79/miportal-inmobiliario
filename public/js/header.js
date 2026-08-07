@@ -2,6 +2,20 @@ document.addEventListener("DOMContentLoaded", () => {
   const cont = document.getElementById("main-header");
   if (!cont) return;
 
+  async function asegurarPublishFlow() {
+    if (window.HomeClickPublishFlow) return window.HomeClickPublishFlow;
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "/js/publish-flow.js";
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    }).catch(() => {});
+    return window.HomeClickPublishFlow || null;
+  }
+
+  const publishFlowPromise = asegurarPublishFlow();
+
   // Canonical URL - evitar contenido duplicado sin pisar canonicals definidos en cada página.
   if (!document.querySelector('link[rel="canonical"]')) {
     const canonical = document.createElement('link');
@@ -150,9 +164,8 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ======================
      HEADER CON SESIÓN
   ====================== */
-  const puedePublicar = usuario.planActivo === true;
-  const publicarHref = puedePublicar ? "/publicar" : "/planes";
-  const publicarTexto = puedePublicar ? "+ Publicar anuncio" : "Pon tu anuncio";
+  const publicarHref = "/planes";
+  const publicarTexto = "+ Publicar anuncio";
 
   cont.innerHTML = `
     <header class="header">
@@ -165,7 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="header-actions">
           <a href="/comprar" class="btn-outline">Comprar</a>
           <a href="/alquiler" class="btn-outline">Alquilar</a>
-          <a href="${publicarHref}" class="btn-publish">${publicarTexto}</a>
+          <a href="${publicarHref}" class="btn-publish" id="btnHeaderPublicar">${publicarTexto}</a>
           <a href="/favoritos" class="btn-icon" title="Favoritos">❤️</a>
           <a href="/perfil#chats" class="btn-icon" title="Chats" style="position:relative;">
             💬
@@ -239,6 +252,13 @@ document.addEventListener("DOMContentLoaded", () => {
   `;
 
   iniciarScroll();
+
+  document.getElementById("btnHeaderPublicar")?.addEventListener("click", async event => {
+    const publishFlow = window.HomeClickPublishFlow || await publishFlowPromise;
+    if (publishFlow?.navegarPublicacion) {
+      publishFlow.navegarPublicacion(event);
+    }
+  });
 
   /* ======================
      BADGE NOTIFICACIONES

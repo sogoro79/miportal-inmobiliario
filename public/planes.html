@@ -108,6 +108,7 @@
 
 </div>
 
+<script src="/js/publish-flow.js"></script>
 <script>
 const PLAN_IDS_COMERCIALES = ["gratis", "basico", "destacado", "starter", "pro_agentes", "agencia_basica"];
 const PLAN_IDS_PARTICULARES = ["gratis", "basico", "destacado"];
@@ -146,6 +147,8 @@ const FALLBACK_PLANES_COMERCIALES = [
   }
 ];
 let catalogoPlanes = [...FALLBACK_PLANES_COMERCIALES];
+let usuarioPlanesActual = null;
+let estadoPublicacionPlanes = null;
 
 function textoLimite(valor, ilimitado, unidad) {
   if (ilimitado) return `${unidad} ilimitados`;
@@ -216,21 +219,13 @@ function renderPlanCard(plan) {
     card.appendChild(feature);
   });
 
-  if (plan.id === "gratis") {
-    const link = document.createElement("a");
-    link.href = "/registro";
-    link.className = "plan-btn plan-btn-outline";
-    link.textContent = "Empezar gratis";
-    card.appendChild(link);
-  } else {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `plan-btn ${plan.destacado ? "plan-btn-green" : "plan-btn-outline"}`;
-    button.dataset.plan = plan.id;
-    button.textContent = "Suscribirse";
-    button.addEventListener("click", () => suscribirse(plan.id));
-    card.appendChild(button);
-  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `plan-btn ${plan.id === "gratis" || !plan.destacado ? "plan-btn-outline" : "plan-btn-green"}`;
+  button.dataset.plan = plan.id;
+  button.textContent = plan.id === "gratis" ? "Empezar gratis" : "Suscribirse";
+  button.addEventListener("click", () => suscribirse(plan.id));
+  card.appendChild(button);
 
   return card;
 }
@@ -278,41 +273,53 @@ function usuarioConSuscripcion(usuario) {
   return Boolean(usuario?.stripeSubscriptionId && usuario.plan && usuario.plan !== "gratis");
 }
 
-function actualizarBotonesPlanes(usuario) {
+function actualizarBotonesPlanes(usuario, estadoPublicacion = null) {
   document.querySelectorAll("[data-plan]").forEach(btn => {
     btn.disabled = false;
     btn.style.opacity = "";
     btn.style.cursor = "";
+    const plan = btn.dataset.plan;
+    const esPlanActual = usuario?._id && plan === (estadoPublicacion?.plan || usuario.plan || "gratis");
+    const puedePublicar = estadoPublicacion?.puedePublicarAhora === true;
 
-    if (!usuarioConSuscripcion(usuario)) {
-      btn.textContent = "Suscribirse";
+    if (!usuario?._id) {
+      btn.textContent = plan === "gratis" ? "Empezar gratis" : "Suscribirse";
       return;
     }
 
-    if (btn.dataset.plan === usuario.plan) {
-      btn.textContent = "Plan actual";
-      btn.disabled = true;
-      btn.style.opacity = "0.75";
-      btn.style.cursor = "default";
+    if (plan === "gratis") {
+      btn.textContent = puedePublicar ? "Publicar anuncio" : "Plan actual";
+      btn.disabled = !puedePublicar;
+      btn.style.opacity = puedePublicar ? "" : "0.75";
+      btn.style.cursor = puedePublicar ? "" : "default";
       return;
     }
 
-    btn.textContent = "Gestiona tu plan desde tu perfil";
+    if (esPlanActual) {
+      btn.textContent = puedePublicar ? "Publicar anuncio" : "Plan actual";
+      btn.disabled = !puedePublicar;
+      btn.style.opacity = puedePublicar ? "" : "0.75";
+      btn.style.cursor = puedePublicar ? "" : "default";
+      return;
+    }
+
+    btn.textContent = usuarioConSuscripcion(usuario) ? "Mejorar plan" : "Suscribirse";
   });
 }
 
 async function cargarUsuarioActual(token) {
   try {
-    const res = await fetch("/usuarios/me", {
-      headers: { "Authorization": "Bearer " + token }
-    });
-    if (!res.ok) return JSON.parse(localStorage.getItem("usuario") || "null");
-    const usuarioActualizado = await res.json();
-    localStorage.setItem("usuario", JSON.stringify(usuarioActualizado));
-    return usuarioActualizado;
+    if (window.HomeClickPublishFlow?.cargarUsuarioAutenticado) {
+      return await window.HomeClickPublishFlow.cargarUsuarioAutenticado(token);
+    }
   } catch (error) {
-    return JSON.parse(localStorage.getItem("usuario") || "null");
   }
+  return JSON.parse(localStorage.getItem("usuario") || "null");
+}
+
+async function cargarEstadoPublicacionPlanes(token) {
+  if (!token || !window.HomeClickPublishFlow?.cargarEstadoPublicacion) return null;
+  return window.HomeClickPublishFlow.cargarEstadoPublicacion(token);
 }
 
 async function suscribirse(plan) {
@@ -326,13 +333,26 @@ async function suscribirse(plan) {
 
   try {
     const usuario = await cargarUsuarioActual(token);
+    usuarioPlanesActual = usuario;
+    estadoPublicacionPlanes = await cargarEstadoPublicacionPlanes(token);
 
-    if (usuarioConSuscripcion(usuario)) {
-      window.location.href = "/perfil";
+    if (plan === "gratis") {
+      if (estadoPublicacionPlanes?.puedePublicarAhora) {
+        window.HomeClickPublishFlow?.marcarSeleccionYPublicar(usuario);
+        return;
+      }
+      alert("Has alcanzado el límite de anuncios de tu plan. Elige un plan superior para publicar más.");
+      actualizarBotonesPlanes(usuario, estadoPublicacionPlanes);
       return;
     }
 
-    const response = await fetch('/pagos/crear-sesion', {
+    if (usuario?.plan === plan && estadoPublicacionPlanes?.puedePublicarAhora) {
+      window.HomeClickPublishFlow?.marcarSeleccionYPublicar(usuario);
+      return;
+    }
+
+    const endpoint = usuarioConSuscripcion(usuario) ? "/pagos/cambiar-plan" : "/pagos/crear-sesion";
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -355,7 +375,12 @@ async function suscribirse(plan) {
       return;
     }
 
+    window.HomeClickPublishFlow?.marcarSeleccionLocal(usuario);
+    if (data.usuario) {
+      localStorage.setItem("usuario", JSON.stringify(data.usuario));
+    }
     if (data.url) window.location.href = data.url;
+    else window.location.href = "/perfil?stripe=return";
   } catch (error) {
     alert('Ha ocurrido un error. Por favor inténtalo de nuevo.');
   }
@@ -365,7 +390,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   await cargarCatalogoPlanes();
   const token = localStorage.getItem("token");
   const usuario = token ? await cargarUsuarioActual(token) : JSON.parse(localStorage.getItem("usuario") || "null");
-  actualizarBotonesPlanes(usuario);
+  usuarioPlanesActual = usuario;
+  estadoPublicacionPlanes = token ? await cargarEstadoPublicacionPlanes(token) : null;
+  actualizarBotonesPlanes(usuario, estadoPublicacionPlanes);
 
   const planPendiente = localStorage.getItem("planPendiente");
   if (!token || !planPendiente) return;
