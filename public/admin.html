@@ -2782,6 +2782,10 @@ function renderUsuarios(usuarios) {
     const fecha = u.createdAt ? new Date(u.createdAt).toLocaleDateString('es-ES') : '—';
     const esPago = u.plan && u.plan !== 'gratis';
     const estaActivo = u.activo !== false;
+    const promoProfesionalActiva = u.plan === 'professional_trial_60d' && u.professionalPromoStatus === 'active';
+    const selectorPlanes = promoProfesionalActiva
+      ? '<option value="professional_trial_60d" selected>Promo profesional activa</option>'
+      : PLANES.map(p => `<option value="${p}" ${u.plan === p ? 'selected' : ''}>${p}</option>`).join('');
     return `
       <tr>
         <td class="tabla-title-cell" data-label="Nombre"><span class="cell-title-text">${escapeHtml(u.nombre || 'Sin nombre')}</span></td>
@@ -2802,9 +2806,10 @@ function renderUsuarios(usuarios) {
         <td data-label="Acción">
           <div class="tabla-actions">
             <select onchange="cambiarPlan('${u._id}', this.value)"
-              ${estaActivo ? '' : 'disabled'}
+              ${estaActivo && !promoProfesionalActiva ? '' : 'disabled'}
+              ${promoProfesionalActiva ? 'title="La promoción profesional activa no se modifica desde este selector."' : ''}
               style="padding:7px 9px;border:1.5px solid #eee;border-radius:8px;font-size:0.78rem;font-family:inherit;cursor:pointer;outline:none;">
-              ${PLANES.map(p => `<option value="${p}" ${u.plan === p ? 'selected' : ''}>${p}</option>`).join('')}
+              ${selectorPlanes}
             </select>
             ${renderMenuAccionesUsuario(u, estaActivo)}
           </div>

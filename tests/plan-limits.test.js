@@ -246,6 +246,7 @@ test("perfil.html fallback representa vip, vip_trial y plan desconocido correcta
 
 test("admin mantiene lista explícita de planes asignables", () => {
   const adminRoutes = fs.readFileSync(new URL("../routes/admin.js", import.meta.url), "utf8");
+  const adminHtml = fs.readFileSync(new URL("../public/admin.html", import.meta.url), "utf8");
 
   assert.match(adminRoutes, /const ADMIN_ASSIGNABLE_PLAN_IDS = \[/);
   assert.match(adminRoutes, /'gratis', 'basico', 'destacado', 'starter'/);
@@ -255,4 +256,8 @@ test("admin mantiene lista explícita de planes asignables", () => {
   assert.doesNotMatch(adminRoutes, /getKnownPlanIds/);
   const assignableBlock = adminRoutes.match(/const ADMIN_ASSIGNABLE_PLAN_IDS = \[[\s\S]*?\];/)?.[0] || "";
   assert.doesNotMatch(assignableBlock, /professional_trial/);
+  assert.match(adminHtml, /const promoProfesionalActiva = u\.plan === 'professional_trial_60d' && u\.professionalPromoStatus === 'active'/);
+  assert.match(adminHtml, /Promo profesional activa/);
+  assert.match(adminHtml, /\$\{estaActivo && !promoProfesionalActiva \? '' : 'disabled'\}/);
+  assert.match(adminHtml, /La promoción profesional activa no se modifica desde este selector/);
 });

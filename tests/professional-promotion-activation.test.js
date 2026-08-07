@@ -599,3 +599,20 @@ test("rutas, frontend y admin de promoción no contienen Stripe Cloudinary SMS n
   assert.match(admin, /No se muestran documentos, teléfonos, hashes ni IP/);
   assert.doesNotMatch(flow, /normalizedIdentityHash|normalizedPhoneHash/);
 });
+
+test("estado activo de promoción profesional cambia la presentación y conserva publicación", () => {
+  const page = fs.readFileSync(new URL("../public/profesionales.html", import.meta.url), "utf8");
+  const flow = fs.readFileSync(new URL("../public/js/professional-promotion-flow.js", import.meta.url), "utf8");
+  const activeCopyBlock = flow.match(/function renderActiveCopy[\s\S]*?\n  \}/)?.[0] || "";
+  const inactiveCopyBlock = flow.match(/function renderInactiveCopy[\s\S]*?\n  \}/)?.[0] || "";
+
+  assert.match(page, /data-promo-title>Activa tu Promoción Profesional 60 días/);
+  assert.match(page, /data-promo-requirements>La activación requiere email verificado, móvil, NIF\/DNI\/NIE profesional y aceptación expresa de condiciones\./);
+  assert.match(page, /data-promo-state="active"[\s\S]*Publicar inmueble/);
+  assert.match(activeCopyBlock, /Tu Promoción Profesional 60 días está activa/);
+  assert.match(activeCopyBlock, /Disfruta de prestaciones profesionales sin límites hasta el/);
+  assert.match(activeCopyBlock, /requirements\.hidden = true/);
+  assert.match(activeCopyBlock, /Fecha de fin:/);
+  assert.doesNotMatch(activeCopyBlock, /La activación requiere email verificado/);
+  assert.match(inactiveCopyBlock, /La activación requiere email verificado, móvil, NIF\/DNI\/NIE profesional/);
+});

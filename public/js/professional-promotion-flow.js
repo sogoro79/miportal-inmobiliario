@@ -24,6 +24,37 @@
     });
   }
 
+  function renderInactiveCopy(panel) {
+    text(panel.querySelector("[data-promo-title]"), "Activa tu Promoción Profesional 60 días");
+    text(
+      panel.querySelector("[data-promo-description]"),
+      "Disfruta de un plan profesional sin límites durante 60 días. Es gratis, sin tarjeta, sin permanencia y sin renovación automática."
+    );
+    const requirements = panel.querySelector("[data-promo-requirements]");
+    if (requirements) {
+      requirements.hidden = false;
+      requirements.textContent = "La activación requiere email verificado, móvil, NIF/DNI/NIE profesional y aceptación expresa de condiciones.";
+    }
+  }
+
+  function renderActiveCopy(panel, endsAt = "") {
+    text(panel.querySelector("[data-promo-title]"), "Tu Promoción Profesional 60 días está activa");
+    text(
+      panel.querySelector("[data-promo-description]"),
+      endsAt
+        ? `Disfruta de prestaciones profesionales sin límites hasta el ${endsAt}.`
+        : "Disfruta de prestaciones profesionales sin límites durante el periodo promocional."
+    );
+    const requirements = panel.querySelector("[data-promo-requirements]");
+    if (requirements) requirements.hidden = true;
+    text(
+      panel.querySelector("[data-promo-active-description]"),
+      endsAt
+        ? `Fecha de fin: ${endsAt}.`
+        : "Fecha de fin visible en el estado de la promoción."
+    );
+  }
+
   async function fetchJson(url, options = {}) {
     const res = await fetch(url, options);
     const data = await res.json().catch(() => ({}));
@@ -60,9 +91,11 @@
     const endsAt = status.endsAt ? new Date(status.endsAt).toLocaleDateString("es-ES") : "";
     if (status.promocionActiva) {
       setPanelState(panel, "active");
+      renderActiveCopy(panel, endsAt);
       text(message, endsAt ? `Ya disfrutas de la Promoción Profesional 60 días hasta el ${endsAt}.` : "Ya disfrutas de la Promoción Profesional 60 días.");
       return;
     }
+    renderInactiveCopy(panel);
     if (!status.campaignActive) {
       setPanelState(panel, "blocked");
       text(message, "Esta promoción ya ha finalizado.");
