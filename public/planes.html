@@ -40,6 +40,14 @@
     .btn-guia-publicacion { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 11px 16px; border-radius: 10px; background: #7cc242; color: #fff; font-size: 0.9rem; font-weight: 700; text-decoration: none; box-shadow: 0 4px 14px rgba(124, 194, 66, 0.28); transition: transform 0.2s ease, background 0.2s ease; }
     .btn-guia-publicacion.secondary { background: #fff; color: #4d8d2c; border: 1px solid #d8edc9; box-shadow: none; }
     .btn-guia-publicacion:hover { background: #6aad35; transform: translateY(-1px); }
+    .planes-promo-profesional { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: -20px 0 42px; padding: 22px 24px; border-radius: 16px; border: 1px solid #dbe9d0; background: linear-gradient(135deg, #f8fbf4 0%, #ffffff 100%); box-shadow: 0 8px 24px rgba(26, 35, 50, 0.07); }
+    .planes-promo-profesional h2 { margin: 0 0 6px; color: #1a1a1a; font-size: 1.12rem; }
+    .planes-promo-profesional p { margin: 0; color: #52606d; line-height: 1.5; font-size: 0.92rem; }
+    .planes-promo-profesional strong { color: #2f7d32; }
+    .planes-promo-profesional .promo-note { margin-top: 5px; color: #7a8694; font-size: 0.84rem; }
+    .planes-promo-profesional a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 10px 14px; border-radius: 10px; background: #7cc242; color: #fff; text-decoration: none; font-weight: 800; white-space: nowrap; box-shadow: 0 6px 16px rgba(124, 194, 66, 0.24); }
+    .planes-promo-profesional a:hover { background: #6aad35; }
+    .planes-promo-profesional a:focus-visible { outline: 3px solid #1a2332; outline-offset: 3px; }
     .planes-section-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: #aaa; margin: 50px 0 20px; }
     .planes-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 10px; }
     .planes-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 10px; }
@@ -65,6 +73,8 @@
       .planes-ayuda { align-items: flex-start; flex-direction: column; margin: -30px 0 34px; padding: 18px; }
       .planes-ayuda-actions { width: 100%; justify-content: flex-start; }
       .btn-guia-publicacion { width: 100%; }
+      .planes-promo-profesional { align-items: flex-start; flex-direction: column; margin: -18px 0 34px; padding: 18px; }
+      .planes-promo-profesional a { width: 100%; white-space: normal; text-align: center; }
     }
   </style>
 </head>
@@ -94,6 +104,15 @@
     </div>
   </section>
 
+  <section class="planes-promo-profesional" data-professional-promo aria-labelledby="planesPromoProfesionalTitle">
+    <div>
+      <h2 id="planesPromoProfesionalTitle">Promoción Profesional 60 días</h2>
+      <p><strong>60 días gratis</strong> para profesionales e inmobiliarias que se registren hasta el 31 de octubre.</p>
+      <p class="promo-note">Sin tarjeta. Sin permanencia. Activación sujeta a verificación profesional.</p>
+    </div>
+    <a href="/registro?promo=professional-60" data-professional-promo-cta>Quiero mis 60 días gratis</a>
+  </section>
+
   <!-- PARTICULARES -->
   <p class="planes-section-label">Particulares</p>
   <div class="planes-grid" id="planesParticulares"></div>
@@ -109,6 +128,7 @@
 </div>
 
 <script src="/js/publish-flow.js"></script>
+<script src="/js/professional-promo.js"></script>
 <script>
 const PLAN_IDS_COMERCIALES = ["gratis", "basico", "destacado", "starter", "pro_agentes", "agencia_basica"];
 const PLAN_IDS_PARTICULARES = ["gratis", "basico", "destacado"];

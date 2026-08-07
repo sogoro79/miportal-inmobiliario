@@ -343,6 +343,95 @@
     }
 
     /* ==============================
+       PROMOCIÓN PROFESIONAL
+    ============================== */
+    .professional-promo-home {
+      max-width: 1200px;
+      margin: 42px auto 0;
+      padding: 0 20px;
+    }
+
+    .professional-promo-card {
+      overflow: hidden;
+      border: 1px solid #dbe9d0;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 12px 32px rgba(26, 35, 50, 0.10);
+    }
+
+    .professional-promo-media {
+      background: #f4f8ef;
+    }
+
+    .professional-promo-media img {
+      display: block;
+      width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+      background: #f4f8ef;
+    }
+
+    .professional-promo-content {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: center;
+      padding: 22px 24px 24px;
+    }
+
+    .professional-promo-content h2 {
+      margin: 0 0 8px;
+      color: #1a1a1a;
+      font-size: clamp(1.35rem, 2.4vw, 2rem);
+      line-height: 1.2;
+    }
+
+    .professional-promo-content p {
+      margin: 0;
+      color: #52606d;
+      line-height: 1.55;
+    }
+
+    .professional-promo-support {
+      margin-top: 8px !important;
+      color: #2f5f21 !important;
+      font-weight: 800;
+    }
+
+    .professional-promo-note {
+      margin-top: 8px !important;
+      color: #7a8694 !important;
+      font-size: 0.9rem;
+    }
+
+    .professional-promo-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 12px 18px;
+      border-radius: 12px;
+      background: #7cc242;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      box-shadow: 0 8px 20px rgba(124, 194, 66, 0.28);
+      transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .professional-promo-cta:hover {
+      background: #6aad35;
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(124, 194, 66, 0.34);
+    }
+
+    .professional-promo-cta:focus-visible {
+      outline: 3px solid #1a2332;
+      outline-offset: 3px;
+    }
+
+    /* ==============================
        VIVIENDAS DESTACADAS
     ============================== */
     .home-feature-section {
@@ -703,6 +792,26 @@
         grid-template-columns: 1fr;
       }
 
+      .professional-promo-home {
+        margin-top: 30px;
+        padding: 0 14px;
+      }
+
+      .professional-promo-content {
+        grid-template-columns: 1fr;
+        padding: 18px;
+      }
+
+      .professional-promo-media img {
+        max-height: none;
+      }
+
+      .professional-promo-cta {
+        width: 100%;
+        white-space: normal;
+        text-align: center;
+      }
+
       .lista {
         grid-template-columns: 1fr;
       }
@@ -873,6 +982,28 @@
     <span></span>
   </div>
 
+</section>
+
+<section class="professional-promo-home" data-professional-promo aria-labelledby="professionalPromoHomeTitle">
+  <div class="professional-promo-card">
+    <div class="professional-promo-media">
+      <img
+        src="/img/promociones/Promocion_60_dias_banner.jpg"
+        alt="Promoción Profesional 60 días gratis para profesionales e inmobiliarias en HomeClick24"
+        width="1916"
+        height="821"
+      >
+    </div>
+    <div class="professional-promo-content">
+      <div>
+        <h2 id="professionalPromoHomeTitle">Promoción Profesional 60 días</h2>
+        <p>Si eres profesional o inmobiliaria, regístrate hasta el 31 de octubre y disfruta de 60 días gratis en HomeClick24.</p>
+        <p class="professional-promo-support">Sin tarjeta. Sin permanencia. Activación sujeta a verificación profesional.</p>
+        <p class="professional-promo-note">Promoción limitada a una prueba por profesional o empresa. Requiere verificación de email, móvil y NIF/DNI/NIE.</p>
+      </div>
+      <a class="professional-promo-cta" href="/registro?promo=professional-60" data-professional-promo-cta>Quiero mis 60 días gratis</a>
+    </div>
+  </div>
 </section>
 
 <!-- ================================
@@ -1185,6 +1316,7 @@ input.addEventListener("keypress", (e) => {
 
 <script src="/js/header.js" defer></script>
 <script src="/js/seo-slug.js" defer></script>
+<script src="/js/professional-promo.js"></script>
 <script src="/js/home-destacadas.js" defer></script>
 <script src="/js/home-ultimas.js" defer></script>
 <script src="/js/cookies.js"></script>
