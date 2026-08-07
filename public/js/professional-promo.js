@@ -16,14 +16,40 @@
     return Boolean(token && token !== "null" && token !== "undefined");
   }
 
+  function isProfessionalPromoRequest() {
+    return new URLSearchParams(window.location.search).get("promo") === PROMO_KEY;
+  }
+
+  function professionalPromoRegisterTarget() {
+    return `/registro?promo=${PROMO_KEY}`;
+  }
+
+  function professionalPromoLoginTarget() {
+    return `/login?promo=${PROMO_KEY}`;
+  }
+
+  function professionalPromoActivationTarget() {
+    return `/profesionales?promo=${PROMO_KEY}`;
+  }
+
   function professionalPromoTarget() {
     return hasToken()
-      ? `/profesionales?promo=${PROMO_KEY}`
-      : `/registro?promo=${PROMO_KEY}`;
+      ? professionalPromoActivationTarget()
+      : professionalPromoRegisterTarget();
   }
 
   function rememberProfessionalPromoIntent() {
     localStorage.setItem(PROMO_INTENT_KEY, "true");
+  }
+
+  function hasProfessionalPromoIntent() {
+    return isProfessionalPromoRequest() || localStorage.getItem(PROMO_INTENT_KEY) === "true";
+  }
+
+  function professionalPromoLoginRedirectTarget(fallback = "/index.html") {
+    if (hasProfessionalPromoIntent()) return professionalPromoActivationTarget();
+    const returnUrl = new URLSearchParams(window.location.search).get("returnUrl");
+    return returnUrl && returnUrl.startsWith("/") ? returnUrl : fallback;
   }
 
   function handleProfessionalPromoClick(event) {
@@ -34,6 +60,8 @@
 
   function setupProfessionalPromo(root = document, now = new Date()) {
     const active = isProfessionalPromoActive(now);
+    if (isProfessionalPromoRequest()) rememberProfessionalPromoIntent();
+
     root.querySelectorAll("[data-professional-promo]").forEach(section => {
       section.hidden = !active;
       section.setAttribute("aria-hidden", active ? "false" : "true");
@@ -43,6 +71,18 @@
       link.href = professionalPromoTarget();
       link.addEventListener("click", handleProfessionalPromoClick);
     });
+
+    root.querySelectorAll("[data-professional-promo-register]").forEach(link => {
+      link.href = professionalPromoRegisterTarget();
+    });
+
+    root.querySelectorAll("[data-professional-promo-login]").forEach(link => {
+      link.href = professionalPromoLoginTarget();
+    });
+
+    root.querySelectorAll("[data-professional-promo-notice]").forEach(notice => {
+      notice.hidden = !hasProfessionalPromoIntent();
+    });
   }
 
   window.HomeClickProfessionalPromo = {
@@ -50,8 +90,14 @@
     PROMO_INTENT_KEY,
     PROMO_END_ISO,
     isProfessionalPromoActive,
+    isProfessionalPromoRequest,
+    professionalPromoRegisterTarget,
+    professionalPromoLoginTarget,
+    professionalPromoActivationTarget,
     professionalPromoTarget,
     rememberProfessionalPromoIntent,
+    hasProfessionalPromoIntent,
+    professionalPromoLoginRedirectTarget,
     handleProfessionalPromoClick,
     setupProfessionalPromo
   };

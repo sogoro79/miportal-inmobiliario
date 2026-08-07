@@ -136,6 +136,18 @@
       margin-bottom: 32px;
     }
 
+    .promo-auth-notice {
+      margin: -14px 0 24px;
+      padding: 12px 14px;
+      border: 1px solid #dbe9d0;
+      border-radius: 12px;
+      background: #f7fbf2;
+      color: #3f6f24;
+      font-size: 0.88rem;
+      line-height: 1.45;
+      font-weight: 600;
+    }
+
     .form-group { margin-bottom: 18px; }
 
     .form-group label {
@@ -328,6 +340,9 @@
   <div id="formulario">
     <h1>Crear cuenta</h1>
     <p class="subtitulo">Únete a HomeClick24 gratis</p>
+    <div class="promo-auth-notice" data-professional-promo-notice hidden>
+      Estás accediendo a la Promoción Profesional 60 días.
+    </div>
 
     <div class="form-group">
       <label>Nombre completo</label>
@@ -371,7 +386,7 @@
     <p class="mensaje" id="mensaje"></p>
 
     <div class="auth-footer">
-      ¿Ya tienes cuenta? <a href="/login">Iniciar sesión</a>
+      ¿Ya tienes cuenta? <a href="/login" data-professional-promo-login>Iniciar sesión</a>
     </div>
   </div>
 
@@ -385,14 +400,18 @@
     <div class="confirmacion-nota">
       Haz clic en el enlace para crear tu contraseña y activar tu cuenta. Caduca en 24 horas.
     </div>
+    <div class="confirmacion-nota" data-professional-promo-notice hidden>
+      Después de crear tu contraseña, inicia sesión para continuar con la Promoción Profesional 60 días.
+    </div>
     <div class="auth-footer" style="margin-top:24px;">
-      ¿Ya tienes cuenta? <a href="/login">Iniciar sesión</a>
+      ¿Ya tienes cuenta? <a href="/login" data-professional-promo-login>Iniciar sesión</a>
     </div>
   </div>
 
 </div>
 
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script src="/js/professional-promo.js"></script>
 
 <script>
 

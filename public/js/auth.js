@@ -93,7 +93,11 @@ async function login() {
   localStorage.setItem("usuario", JSON.stringify(data.usuario));
 
   mostrarMensaje("✅ Sesión iniciada. Redirigiendo...", "green");
-  const returnUrl = new URLSearchParams(window.location.search).get("returnUrl");
-  const destino = returnUrl && returnUrl.startsWith("/") ? returnUrl : "/index.html";
+  const destino = window.HomeClickProfessionalPromo?.professionalPromoLoginRedirectTarget
+    ? window.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/index.html")
+    : (() => {
+        const returnUrl = new URLSearchParams(window.location.search).get("returnUrl");
+        return returnUrl && returnUrl.startsWith("/") ? returnUrl : "/index.html";
+      })();
   setTimeout(() => location.href = destino, 1000);
 }
