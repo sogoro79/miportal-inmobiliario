@@ -412,6 +412,53 @@
       color: #1a1a1a;
     }
 
+    .professional-promo-admin {
+      background: #f8fcf4;
+      border: 1px solid #dfeeda;
+      border-radius: 12px;
+      padding: 18px;
+      margin: 0 0 24px;
+    }
+
+    .professional-promo-admin h2 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+      color: #1f2937;
+    }
+
+    .professional-promo-admin p {
+      margin: 0 0 14px;
+      color: #667085;
+      font-size: 0.88rem;
+    }
+
+    .professional-promo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 10px;
+    }
+
+    .professional-promo-stat {
+      background: #fff;
+      border: 1px solid #e5efdd;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .professional-promo-stat strong {
+      display: block;
+      font-size: 1.3rem;
+      color: #5a9e2f;
+    }
+
+    .professional-promo-stat span {
+      color: #667085;
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
     /* TABLA */
     .tabla-wrap {
       background: #fff;
@@ -514,6 +561,7 @@
     .badge-gratis { background: #f0f0f0; color: #888; }
     .badge-pago { background: #f0f9e8; color: #5a9e2f; }
     .badge-inactivo { background: #fee2e2; color: #b91c1c; }
+    .badge-promo-profesional { background: #eaf7df; color: #3f7f1f; }
 
     .trial-info {
       margin-top: 8px;
@@ -1791,6 +1839,18 @@
     <h2 style="font-size:1rem;font-weight:700;margin-bottom:14px;">Distribución de planes</h2>
     <div class="planes-grid" id="planesGrid"></div>
 
+    <section class="professional-promo-admin" aria-labelledby="professionalPromoAdminTitle">
+      <h2 id="professionalPromoAdminTitle">Promoción Profesional 60 días</h2>
+      <p>Conteos agregados. No se muestran documentos, teléfonos, hashes ni IP.</p>
+      <div class="professional-promo-grid" id="professionalPromoAdminGrid">
+        <div class="professional-promo-stat"><strong>—</strong><span>Totales</span></div>
+        <div class="professional-promo-stat"><strong>—</strong><span>Activas</span></div>
+        <div class="professional-promo-stat"><strong>—</strong><span>Expiradas</span></div>
+        <div class="professional-promo-stat"><strong>—</strong><span>Bloqueadas</span></div>
+        <div class="professional-promo-stat"><strong>—</strong><span>Expiran <=7 días</span></div>
+      </div>
+    </section>
+
     <!-- GESTIÓN DE REDES -->
     <section class="gestion-redes admin-section" id="redes-admin">
       <div class="admin-section-title">
@@ -2567,7 +2627,8 @@ async function cargarStats() {
     gratis: 'Gratis', basico: 'Básico', destacado: 'Destacado',
     starter: 'Starter', pro_agentes: 'Pro Agentes',
     agencia_basica: 'Agencia Básica', agencia_pro: 'Agencia Pro',
-    vip: 'VIP', vip_trial: 'Prueba VIP'
+    vip: 'VIP', vip_trial: 'Prueba VIP',
+    professional_trial_60d: 'Promo profesional'
   };
 
   document.getElementById('planesGrid').innerHTML = data.planes.map(p => `
@@ -2576,6 +2637,24 @@ async function cargarStats() {
       <div class="plan-total">${p.total}</div>
     </div>
   `).join('');
+
+  const promo = data.promocionProfesional || {};
+  const promoGrid = document.getElementById('professionalPromoAdminGrid');
+  if (promoGrid) {
+    const items = [
+      ['Totales', promo.activacionesTotales || 0],
+      ['Activas', promo.activas || 0],
+      ['Expiradas', promo.expiradas || 0],
+      ['Bloqueadas', promo.bloqueadas || 0],
+      ['Expiran <=7 días', promo.proximasAExpirar || 0]
+    ];
+    promoGrid.innerHTML = items.map(([label, value]) => `
+      <div class="professional-promo-stat">
+        <strong>${Number(value || 0)}</strong>
+        <span>${escapeHtml(label)}</span>
+      </div>
+    `).join('');
+  }
 }
 
 let todosLosUsuarios = [];
@@ -2649,6 +2728,20 @@ function renderInfoVipTrial(u = {}) {
   `;
 }
 
+function renderInfoPromocionProfesional(u = {}) {
+  if (u.plan !== 'professional_trial_60d' && !u.professionalPromoStatus) return '';
+  const fin = u.professionalPromoEndsAt ? formatearFecha(u.professionalPromoEndsAt) : 'Sin fecha';
+  const estado = u.professionalPromoStatus === 'active'
+    ? 'Promo profesional activa'
+    : `Promo profesional ${u.professionalPromoStatus || 'registrada'}`;
+  return `
+    <div class="trial-info">
+      <strong>${escapeHtml(estado)}</strong>
+      <span>Fin: ${escapeHtml(fin)}</span>
+    </div>
+  `;
+}
+
 function renderMenuAccionesUsuario(u, estaActivo) {
   const tieneSuscripcionActiva = usuarioTieneSuscripcionActiva(u);
   const esAdministrador = u.role === 'admin';
@@ -2697,7 +2790,9 @@ function renderUsuarios(usuarios) {
           <span class="badge-plan ${estaActivo ? (esPago ? 'badge-pago' : 'badge-gratis') : 'badge-inactivo'}">
             ${estaActivo ? (u.plan || 'gratis') : 'desactivado'}
           </span>
+          ${u.plan === 'professional_trial_60d' ? '<span class="badge-plan badge-promo-profesional">Promo profesional</span>' : ''}
           ${renderInfoVipTrial(u)}
+          ${renderInfoPromocionProfesional(u)}
         </td>
         <td data-label="Verificado">
           <span class="${u.verificado ? 'badge-verificado' : 'badge-noverificado'}"></span>

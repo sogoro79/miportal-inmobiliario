@@ -12,6 +12,13 @@ const UsuarioSchema = new mongoose.Schema({
   token:      { type: String },
   tipoDoc:    { type: String },
   numDoc:     { type: String },
+  telefonoMovil: { type: String },
+  nombreComercial: { type: String },
+  tipoProfesional: {
+    type: String,
+    enum: ["inmobiliaria", "agente_autonomo", "otro_profesional_inmobiliario", ""],
+    default: ""
+  },
 
   // Suscripción Stripe
   plan:                  { type: String, default: "gratis" },
@@ -33,6 +40,18 @@ const UsuarioSchema = new mongoose.Schema({
   launchPromoLastPaymentAt:      { type: Date },
   launchPromoAppliedAt:          { type: Date },
   launchPromoAppliedSubscriptionId: { type: String },
+
+  // Promoción Profesional 60 días
+  professionalPromoCampaign: { type: String },
+  professionalPromoStatus: {
+    type: String,
+    enum: ["active", "expired", "converted", "blocked", ""],
+    default: ""
+  },
+  professionalPromoActivatedAt: { type: Date },
+  professionalPromoEndsAt: { type: Date },
+  professionalPromoAcceptedAt: { type: Date },
+  professionalPromoRedemptionId: { type: mongoose.Schema.Types.ObjectId, ref: "ProfessionalTrialRedemption" },
 
   // Prueba gratuita VIP
   trialAccepted:         { type: Boolean, default: false },

@@ -153,6 +153,24 @@ export const PLAN_CATALOG = deepFreeze({
     orden: 80,
     destacado: false
   },
+  professional_trial_60d: {
+    id: "professional_trial_60d",
+    nombre: "Promoción Profesional 60 días",
+    categoria: "interno",
+    precio: "60 días gratis",
+    precioDetalle: "",
+    anuncios: Infinity,
+    fotos: Infinity,
+    duracionAnunciosDias: null,
+    dependeDeStripe: false,
+    ilimitadoAnuncios: true,
+    ilimitadoFotos: true,
+    esTrial: true,
+    planDestinoAlExpirar: "gratis",
+    visiblePublicamente: false,
+    orden: 85,
+    destacado: false
+  },
   vip: {
     id: "vip",
     nombre: "VIP",

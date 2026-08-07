@@ -8,6 +8,7 @@ import Conversacion from '../models/Conversacion.js';
 import Mensaje from '../models/Mensaje.js';
 import EstadisticaAnuncio from '../models/EstadisticaAnuncio.js';
 import CodigoVipTrial from '../models/CodigoVipTrial.js';
+import ProfessionalTrialRedemption from '../models/ProfessionalTrialRedemption.js';
 import mongoose from 'mongoose';
 import { requireAdmin } from '../middleware/auth.js';
 import { normalizeSpanishPrice } from '../utils/prices.js';
@@ -19,6 +20,7 @@ import { destroyImagesByUrls } from '../utils/cloudinaryService.js';
 import { getCloudinaryPublicIdFromUrl } from '../utils/imageSecurity.js';
 import { securityRateLimits } from '../utils/security.js';
 import { validateBody, z } from '../utils/validation.js';
+import { getProfessionalPromotionAdminStats } from '../utils/professionalPromotion.js';
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -567,7 +569,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
       gratis: 0, basico: 9.90, destacado: 19.90,
       starter: 29.90, pro_agentes: 59.90,
       agencia_basica: 79.90, agencia_pro: 149.90,
-      vip: 0, vip_trial: 0
+      vip: 0, vip_trial: 0, professional_trial_60d: 0
     };
 
     const usuariosConPagoReal = await Usuario.find(filtroSuscripcionRealActiva, { plan: 1 }).lean();
@@ -575,7 +577,11 @@ router.get('/stats', requireAdmin, async (req, res) => {
       total + (PRECIOS[usuario.plan] || 0)
     ), 0);
 
-    res.json({ totalUsuarios, totalPropiedades, usuariosPago, ingresosMes, planes });
+    const promocionProfesional = await getProfessionalPromotionAdminStats({
+      models: { Usuario, ProfessionalTrialRedemption }
+    });
+
+    res.json({ totalUsuarios, totalPropiedades, usuariosPago, ingresosMes, planes, promocionProfesional });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -689,7 +695,9 @@ router.get('/usuarios', requireAdmin, async (req, res) => {
       nombre: 1, email: 1, plan: 1, planActivo: 1, createdAt: 1, verificado: 1,
       activo: 1, desactivadoAt: 1,
       stripeSubscriptionId: 1, subscriptionStatus: 1, cancelAtPeriodEnd: 1, subscriptionCancelAt: 1,
-      trialAccepted: 1, trialStartDate: 1, trialEndDate: 1, trialReminderSent: 1
+      trialAccepted: 1, trialStartDate: 1, trialEndDate: 1, trialReminderSent: 1,
+      professionalPromoCampaign: 1, professionalPromoStatus: 1,
+      professionalPromoActivatedAt: 1, professionalPromoEndsAt: 1
     }).sort({ createdAt: -1 });
     res.json(usuarios);
   } catch (err) {

@@ -13,6 +13,7 @@ import { fileURLToPath } from "url";
 import { scheduleVipTrialExpiration } from "./utils/trials.js";
 import { schedulePendingPlanChanges } from "./utils/planChanges.js";
 import { scheduleManualPlanExpirations } from "./utils/manualPlanExpirations.js";
+import { scheduleProfessionalPromotionExpiration } from "./utils/professionalPromotion.js";
 import { crearRutaPropiedadSeo } from "./utils/seoSlug.js";
 import { filtroNoCaducado } from "./utils/freeListingExpiration.js";
 import { envFlagEnabled } from "./utils/envFlags.js";
@@ -36,6 +37,7 @@ import pagosRoutes from "./routes/pagos.js";
 import webhookRoutes from "./routes/webhook.js";
 import adminRoutes from "./routes/admin.js";
 import planesRoutes from "./routes/planes.js";
+import professionalPromotionRoutes from "./routes/professionalPromotion.js";
 
 // =============================
 // FIX __dirname (ES MODULES)
@@ -435,6 +437,7 @@ app.use("/usuarios", usuariosRoutes);
 app.use("/alertas", alertasRoutes);
 app.use("/notificaciones", notificacionesRoutes);
 app.use("/api/planes", planesRoutes);
+app.use("/api/promocion-profesional", professionalPromotionRoutes);
 app.use("/pagos", pagosRoutes);
 app.use("/admin", adminRoutes);
 
@@ -463,6 +466,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
     .then(() => {
       console.log("✅ MongoDB conectado");
       scheduleVipTrialExpiration();
+      scheduleProfessionalPromotionExpiration();
       if (envFlagEnabled("ENABLE_PENDING_PLAN_CHANGES")) {
         schedulePendingPlanChanges();
       } else {

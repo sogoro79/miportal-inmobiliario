@@ -52,6 +52,15 @@ function usuarioSeguro(usuario, estadoPlan = estadoPlanCalculado(usuario)) {
     launchPromoSuccessfulPayments: usuario.launchPromoSuccessfulPayments || 0,
     launchPromoAppliedAt: usuario.launchPromoAppliedAt || null,
     launchPromoAppliedSubscriptionId: usuario.launchPromoAppliedSubscriptionId || null,
+    nombreComercial: usuario.nombreComercial || "",
+    tipoProfesional: usuario.tipoProfesional || "",
+    telefonoMovil: usuario.telefonoMovil || "",
+    tipoDoc: usuario.tipoDoc || "",
+    numDoc: usuario.numDoc || "",
+    professionalPromoCampaign: usuario.professionalPromoCampaign || "",
+    professionalPromoStatus: usuario.professionalPromoStatus || "",
+    professionalPromoActivatedAt: usuario.professionalPromoActivatedAt || null,
+    professionalPromoEndsAt: usuario.professionalPromoEndsAt || null,
     ...estadoPlan
   };
 }

@@ -30,6 +30,7 @@ const EXPECTED_LIMITS = {
   agencia_basica: { anuncios: 50, fotos: 40, duracionAnunciosDias: null, categoria: "profesional", stripe: true, trial: false },
   agencia_pro: { anuncios: Infinity, fotos: 50, duracionAnunciosDias: null, categoria: "profesional", stripe: false, trial: false },
   vip_trial: { anuncios: Infinity, fotos: Infinity, duracionAnunciosDias: null, categoria: "interno", stripe: false, trial: true },
+  professional_trial_60d: { anuncios: Infinity, fotos: Infinity, duracionAnunciosDias: null, categoria: "interno", stripe: false, trial: true },
   vip: { anuncios: Infinity, fotos: Infinity, duracionAnunciosDias: null, categoria: "interno", stripe: false, trial: false }
 };
 const COMMERCIAL_PLAN_IDS = ["gratis", "basico", "destacado", "starter", "pro_agentes", "agencia_basica"];
@@ -126,20 +127,30 @@ test("planes ilimitados y downgrade de vip_trial se expresan de forma estable", 
   assert.equal(getLimiteFotosPlan("vip"), Infinity);
   assert.equal(getLimiteAnunciosPlan("vip_trial"), Infinity);
   assert.equal(getLimiteFotosPlan("vip_trial"), Infinity);
+  assert.equal(getLimiteAnunciosPlan("professional_trial_60d"), Infinity);
+  assert.equal(getLimiteFotosPlan("professional_trial_60d"), Infinity);
   assert.equal(planTieneLimiteFotos("vip_trial"), false);
+  assert.equal(planTieneLimiteFotos("professional_trial_60d"), false);
   assert.equal(getPlanConfig("vip_trial").planDestinoAlExpirar, "gratis");
+  assert.equal(getPlanConfig("professional_trial_60d").planDestinoAlExpirar, "gratis");
 });
 
 test("catálogo público no serializa infinitos ni expone secretos", () => {
   const catalogo = getPublicPlanCatalog();
   const json = JSON.stringify(catalogo);
   const vipTrial = catalogo.find(plan => plan.id === "vip_trial");
+  const professionalTrial = catalogo.find(plan => plan.id === "professional_trial_60d");
 
   assert.ok(vipTrial);
   assert.equal(vipTrial.anuncios, null);
   assert.equal(vipTrial.fotos, null);
   assert.equal(vipTrial.ilimitadoAnuncios, true);
   assert.equal(vipTrial.ilimitadoFotos, true);
+  assert.ok(professionalTrial);
+  assert.equal(professionalTrial.visiblePublicamente, false);
+  assert.equal(professionalTrial.dependeDeStripe, false);
+  assert.equal(professionalTrial.anuncios, null);
+  assert.equal(professionalTrial.fotos, null);
   assert.doesNotMatch(json, /STRIPE_|PRICE|sk_test|whsec|secret|coupon/i);
 });
 
@@ -216,6 +227,7 @@ test("publicar.html separa fallo de catálogo de fallo de sesión y mantiene fal
   assert.match(publicarHtml, /catch \(error\)[\s\S]*FALLBACK_PLANES_PUBLICAR/);
   assert.match(publicarHtml, /catalogoPlanesPublicar\.gratis \|\| FALLBACK_PLANES_PUBLICAR\.gratis/);
   assert.match(publicarHtml, /vip_trial: \{ fotos: null, ilimitadoFotos: true \}/);
+  assert.match(publicarHtml, /professional_trial_60d: \{ fotos: null, ilimitadoFotos: true \}/);
   assert.match(publicarHtml, /vip: \{ fotos: null, ilimitadoFotos: true \}/);
   assert.match(publicarHtml, /const plan = usuario\?\.plan \|\| "gratis"/);
 });
@@ -225,6 +237,7 @@ test("perfil.html fallback representa vip, vip_trial y plan desconocido correcta
 
   assert.match(perfilHtml, /FALLBACK_PLANES_PERFIL/);
   assert.match(perfilHtml, /id: "vip_trial"[\s\S]*nombre: "Prueba VIP"[\s\S]*ilimitadoAnuncios: true[\s\S]*ilimitadoFotos: true/);
+  assert.match(perfilHtml, /id: "professional_trial_60d"[\s\S]*nombre: "Promoción Profesional 60 días"[\s\S]*ilimitadoAnuncios: true[\s\S]*ilimitadoFotos: true/);
   assert.match(perfilHtml, /id: "vip"[\s\S]*nombre: "VIP"[\s\S]*ilimitadoAnuncios: true[\s\S]*ilimitadoFotos: true/);
   assert.match(perfilHtml, /id: "agencia_pro"[\s\S]*fotos: 50[\s\S]*ilimitadoAnuncios: true/);
   assert.match(perfilHtml, /PLANES_CATALOGO\[usuario\.plan\] \|\| PLANES_CATALOGO\.gratis/);
@@ -240,5 +253,6 @@ test("admin mantiene lista explícita de planes asignables", () => {
   assert.match(adminRoutes, /'vip', 'vip_trial'/);
   assert.match(adminRoutes, /const PLANES_VALIDOS = ADMIN_ASSIGNABLE_PLAN_IDS/);
   assert.doesNotMatch(adminRoutes, /getKnownPlanIds/);
-  assert.doesNotMatch(adminRoutes, /professional_trial/);
+  const assignableBlock = adminRoutes.match(/const ADMIN_ASSIGNABLE_PLAN_IDS = \[[\s\S]*?\];/)?.[0] || "";
+  assert.doesNotMatch(assignableBlock, /professional_trial/);
 });
