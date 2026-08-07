@@ -17,6 +17,20 @@ const ConversacionSchema = new mongoose.Schema(
       ref: "Usuario",
       required: true,
     },
+    hiddenFor: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Usuario",
+      default: [],
+    },
+    deletedParticipants: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Usuario",
+      default: [],
+    },
+    creado: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );

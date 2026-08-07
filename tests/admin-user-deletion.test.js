@@ -47,6 +47,9 @@ function sessionable(value, onSession = () => {}) {
 function deletionModels({
   usuario = usuarioEliminable(),
   counts = {},
+  conversaciones = [],
+  remainingMessagesByConversation = {},
+  deletedOwnMessagesByConversation = {},
   updateMatches = true,
   failAt = null
 } = {}) {
@@ -83,12 +86,30 @@ function deletionModels({
         countDocuments(filter) {
           state.operations.push({ op: "chatsCount", filter });
           return q(count("chats"), "chatsCount", filter);
+        },
+        find(filter) {
+          state.operations.push({ op: "chatsFind", filter });
+          return q(conversaciones, "chatsFind", filter);
+        },
+        updateOne(filter, update) {
+          state.operations.push({ op: "chatsUpdateOne", filter, update });
+          return q({ matchedCount: 1, modifiedCount: 1 }, "chatsUpdateOne", filter);
+        },
+        deleteOne(filter) {
+          state.operations.push({ op: "chatsDeleteOne", filter });
+          return q({ deletedCount: 1 }, "chatsDeleteOne", filter);
         }
       },
       Mensaje: {
         countDocuments(filter) {
           state.operations.push({ op: "mensajesCount", filter });
-          return q(count("mensajes"), "mensajesCount", filter);
+          const conversacionId = filter?.conversacionId ? String(filter.conversacionId) : null;
+          return q(conversacionId ? Number(remainingMessagesByConversation[conversacionId] || 0) : count("mensajes"), "mensajesCount", filter);
+        },
+        deleteMany(filter) {
+          state.operations.push({ op: "mensajesDeleteMany", filter });
+          const conversacionId = filter?.conversacionId ? String(filter.conversacionId) : null;
+          return q({ deletedCount: Number(deletedOwnMessagesByConversation[conversacionId] || 0) }, "mensajesDeleteMany", filter);
         }
       },
       Alerta: {
@@ -182,19 +203,19 @@ test("resumen bloquea usuario activo, admin, propio admin, Stripe y pending fiel
   }
 });
 
-test("resumen bloquea propiedades y relaciones compartidas", async () => {
-  const cases = [
-    [{ propiedades: 1 }, "propiedades_presentes"],
-    [{ chats: 1 }, "chats_presentes"],
-    [{ mensajes: 1 }, "mensajes_presentes"]
-  ];
+test("resumen bloquea propiedades pero permite historial de chat preservable", async () => {
+  const { models: propsModels } = deletionModels({ counts: { propiedades: 1 } });
+  const propsResumen = await construirResumenEliminacionUsuario({ targetUserId: TARGET_ID, adminUserId: ADMIN_ID, models: propsModels });
+  assert.equal(propsResumen.seguro.puedeEliminar, false);
+  assert.equal(propsResumen.seguro.motivosBloqueo.includes("propiedades_presentes"), true);
 
-  for (const [counts, motivo] of cases) {
-    const { models } = deletionModels({ counts });
-    const resumen = await construirResumenEliminacionUsuario({ targetUserId: TARGET_ID, adminUserId: ADMIN_ID, models });
-    assert.equal(resumen.seguro.puedeEliminar, false);
-    assert.equal(resumen.seguro.motivosBloqueo.includes(motivo), true, motivo);
-  }
+  const { models } = deletionModels({ counts: { chats: 1, mensajes: 2 } });
+  const resumen = await construirResumenEliminacionUsuario({ targetUserId: TARGET_ID, adminUserId: ADMIN_ID, models });
+  assert.equal(resumen.seguro.chats, 1);
+  assert.equal(resumen.seguro.mensajes, 2);
+  assert.equal(resumen.seguro.puedeEliminar, true);
+  assert.equal(resumen.seguro.motivosBloqueo.includes("chats_presentes"), false);
+  assert.equal(resumen.seguro.motivosBloqueo.includes("mensajes_presentes"), false);
 });
 
 test("eliminación exige confirmación, usuario existente y transacción", async () => {
@@ -263,7 +284,14 @@ test("usuario desactivado y limpio se elimina con filtro condicional y sin upser
 
   assert.equal(resultado.ok, true);
   assert.equal(resultado.usuarioEliminado, true);
-  assert.deepEqual(resultado.eliminados, { alertas: 2, notificaciones: 1, favoritosPropios: 1 });
+  assert.deepEqual(resultado.eliminados, {
+    alertas: 2,
+    notificaciones: 1,
+    mensajesPropios: 0,
+    conversacionesMarcadas: 0,
+    conversacionesEliminadas: 0,
+    favoritosPropios: 1
+  });
   assert.equal(sessionState.sessions, 1);
   assert.equal(sessionState.ended, 1);
   assert.deepEqual(state.operations.map(op => op.op).filter(op => /Delete|findOneAndDelete/.test(op)), [
@@ -285,6 +313,64 @@ test("usuario desactivado y limpio se elimina con filtro condicional y sin upser
   });
   assert.equal("upsert" in userDelete.filter, false);
   assert.doesNotMatch(JSON.stringify(log.infos), /persona@example\.com|507f1f77bcf86cd799439055|sub_|cus_|price_/);
+});
+
+test("eliminación conserva historial de otros participantes y marca usuario eliminado", async () => {
+  const convId = "507f1f77bcf86cd799439066";
+  const { models, state } = deletionModels({
+    counts: { chats: 1, mensajes: 1 },
+    conversaciones: [{ _id: convId, compradorId: TARGET_ID, anuncianteId: "507f1f77bcf86cd799439088" }],
+    deletedOwnMessagesByConversation: { [convId]: 1 },
+    remainingMessagesByConversation: { [convId]: 2 }
+  });
+
+  const resultado = await eliminarUsuarioDesactivadoSeguro({
+    targetUserId: TARGET_ID,
+    adminUserId: ADMIN_ID,
+    confirmacion: CONFIRMACION_ELIMINAR_USUARIO_DESACTIVADO,
+    models,
+    mongooseClient: mongooseMock(),
+    logger: loggerMock()
+  });
+
+  assert.equal(resultado.eliminados.mensajesPropios, 1);
+  assert.equal(resultado.eliminados.conversacionesMarcadas, 1);
+  assert.equal(resultado.eliminados.conversacionesEliminadas, 0);
+  assert.deepEqual(state.operations.find(op => op.op === "mensajesDeleteMany").filter, {
+    conversacionId: convId,
+    userId: TARGET_ID
+  });
+  assert.deepEqual(state.operations.find(op => op.op === "chatsUpdateOne").update, {
+    $addToSet: { deletedParticipants: TARGET_ID, hiddenFor: TARGET_ID }
+  });
+  assert.equal(state.operations.some(op => op.op === "chatsDeleteOne"), false);
+});
+
+test("eliminación borra físicamente conversación solo cuando no quedan mensajes", async () => {
+  const convId = "507f1f77bcf86cd799439066";
+  const { models, state } = deletionModels({
+    counts: { chats: 1, mensajes: 1 },
+    conversaciones: [{ _id: convId, compradorId: TARGET_ID, anuncianteId: "507f1f77bcf86cd799439088" }],
+    deletedOwnMessagesByConversation: { [convId]: 1 },
+    remainingMessagesByConversation: { [convId]: 0 }
+  });
+
+  const resultado = await eliminarUsuarioDesactivadoSeguro({
+    targetUserId: TARGET_ID,
+    adminUserId: ADMIN_ID,
+    confirmacion: CONFIRMACION_ELIMINAR_USUARIO_DESACTIVADO,
+    models,
+    mongooseClient: mongooseMock(),
+    logger: loggerMock()
+  });
+
+  assert.equal(resultado.eliminados.conversacionesMarcadas, 0);
+  assert.equal(resultado.eliminados.conversacionesEliminadas, 1);
+  assert.deepEqual(state.operations.find(op => op.op === "chatsDeleteOne").filter, {
+    _id: convId,
+    $or: [{ compradorId: TARGET_ID }, { anuncianteId: TARGET_ID }]
+  });
+  assert.equal(state.operations.some(op => op.op === "chatsUpdateOne"), false);
 });
 
 test("cambio concurrente provoca aborto sin segunda eliminación de usuario", async () => {
@@ -352,6 +438,7 @@ test("frontend habilita eliminar solo para usuarios desactivados y confirma ante
   assert.match(adminHtml, /eliminarUsuarioDesactivado\('\$\{u\._id\}'\)/);
   assert.match(adminHtml, /\/admin\/usuarios\/\$\{usuarioId\}\/eliminacion-resumen/);
   assert.match(adminHtml, /confirm\('Esta acción eliminará definitivamente un usuario desactivado/);
+  assert.match(adminHtml, /Los mensajes de otros usuarios se conservarán/);
   assert.match(adminHtml, /method: 'DELETE'/);
   assert.match(adminHtml, /confirmacion: 'ELIMINAR_USUARIO_DESACTIVADO'/);
   assert.match(adminHtml, /await cargarUsuarios\(\);[\s\S]*await cargarStats\(\);/);

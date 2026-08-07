@@ -34,6 +34,11 @@
       gap: 12px;
     }
 
+    .chat-header-info {
+      min-width: 0;
+      flex: 1;
+    }
+
     .chat-header-icon {
       width: 42px;
       height: 42px;
@@ -56,6 +61,40 @@
     .chat-header-info small {
       color: #888;
       font-size: 0.8rem;
+    }
+
+    .chat-actions {
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .chat-danger-btn,
+    .msg-delete-btn {
+      border: 1px solid #fecaca;
+      background: #fff;
+      color: #b91c1c;
+      border-radius: 999px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 700;
+    }
+
+    .chat-danger-btn {
+      padding: 8px 12px;
+      font-size: 0.82rem;
+    }
+
+    .msg-delete-btn {
+      margin-top: 6px;
+      padding: 4px 8px;
+      font-size: 0.72rem;
+      opacity: 0.9;
+    }
+
+    .me .msg-delete-btn {
+      border-color: rgba(255,255,255,0.55);
+      background: rgba(255,255,255,0.18);
+      color: #fff;
     }
 
     .chat-messages {
@@ -143,6 +182,16 @@
     }
 
     .chat-input button:hover { background: #63a831; }
+
+    .chat-input.disabled {
+      background: #f3f4f6;
+    }
+
+    .chat-input.disabled input,
+    .chat-input.disabled button {
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
 
     .volver-chat {
       display: inline-block;
@@ -248,6 +297,9 @@
         <strong id="chatTitulo">Cargando...</strong>
         <small>Conversación sobre la propiedad</small>
       </div>
+      <div class="chat-actions">
+        <button type="button" class="chat-danger-btn" id="btnEliminarConversacion">Eliminar conversación</button>
+      </div>
     </div>
 
     <div class="chat-messages" id="chatMessages">
@@ -273,6 +325,7 @@
 const usuario       = JSON.parse(localStorage.getItem("usuario") || "null");
 const token         = localStorage.getItem("token");
 const conversacionId = new URLSearchParams(window.location.search).get("id");
+let puedeResponderActual = true;
 
 if (!usuario || !usuario._id || !token) location.replace("/login");
 if (!conversacionId) location.replace("/perfil");
@@ -293,7 +346,17 @@ function escapeHtml(value = "") {
 
 function renderPropiedadContext(propiedad) {
   const cont = document.getElementById("propertyContext");
-  if (!cont || !propiedad?._id) return;
+  if (!cont) return;
+  if (!propiedad?._id) {
+    cont.innerHTML = `
+      <div class="property-context-info">
+        <strong>Anuncio no disponible</strong>
+        <div class="property-context-address">La publicación asociada ya no está disponible.</div>
+      </div>
+    `;
+    cont.style.display = "flex";
+    return;
+  }
 
   const imagen = escapeHtml(propiedad.imagen || "https://via.placeholder.com/240x180?text=Sin+imagen");
   const precio = Number(propiedad.precio || 0).toLocaleString("es-ES");
@@ -318,9 +381,32 @@ async function cargarConversacion() {
       headers: { "Authorization": "Bearer " + token }
     });
     const data = await res.json();
-    document.getElementById("chatTitulo").textContent = data.propiedadTitulo || "Conversación";
+    if (!res.ok) {
+      document.getElementById("chatTitulo").textContent = "Conversación no disponible";
+      desactivarEnvio("Esta conversación no está disponible");
+      return;
+    }
+    const esAnunciante = String(data.anuncianteId) === String(usuario._id);
+    const otroNombre = esAnunciante
+      ? (data.compradorNombre || "Interesado")
+      : (data.anuncianteNombre || "Anunciante");
+    document.getElementById("chatTitulo").textContent = data.interlocutorEliminado ? "Usuario eliminado" : otroNombre;
+    document.querySelector(".chat-header-info small").textContent = data.propiedadTitulo || "Anuncio no disponible";
+    puedeResponderActual = data.puedeResponder !== false;
+    if (!puedeResponderActual) desactivarEnvio(data.interlocutorEliminado ? "No se puede responder a un usuario eliminado" : "No se puede responder a esta conversación");
     renderPropiedadContext(data.propiedad);
   } catch(e) {}
+}
+
+function desactivarEnvio(mensaje) {
+  const inputWrap = document.querySelector(".chat-input");
+  const input = document.getElementById("mensajeInput");
+  const btn = document.getElementById("btnEnviar");
+  puedeResponderActual = false;
+  inputWrap.classList.add("disabled");
+  input.disabled = true;
+  btn.disabled = true;
+  input.placeholder = mensaje;
 }
 
 /* ================================
@@ -334,7 +420,7 @@ async function cargarMensajes() {
     const mensajes = await res.json();
     const cont     = document.getElementById("chatMessages");
 
-    if (!mensajes.length) {
+    if (!Array.isArray(mensajes) || !mensajes.length) {
       cont.innerHTML = `<div class="chat-vacio">Sé el primero en enviar un mensaje 👋</div>`;
       return;
     }
@@ -343,9 +429,10 @@ async function cargarMensajes() {
       const esMio = String(m.userId) === String(usuario._id);
       const hora  = new Date(m.creado).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
       return `
-        <div class="msg ${esMio ? "me" : "them"}">
-          ${m.texto}
+        <div class="msg ${esMio ? "me" : "them"}" data-mensaje-id="${escapeHtml(m._id)}">
+          ${escapeHtml(m.texto)}
           <div class="msg-hora">${hora}</div>
+          ${esMio ? `<button type="button" class="msg-delete-btn" data-delete-message="${escapeHtml(m._id)}">Eliminar mensaje</button>` : ""}
         </div>
       `;
     }).join("");
@@ -371,6 +458,7 @@ async function cargarMensajes() {
    ENVIAR MENSAJE
 ================================ */
 async function enviarMensaje() {
+  if (!puedeResponderActual) return;
   const input = document.getElementById("mensajeInput");
   const texto = input.value.trim();
   if (!texto) return;
@@ -389,7 +477,33 @@ async function enviarMensaje() {
   cargarMensajes();
 }
 
+async function eliminarMensaje(mensajeId) {
+  if (!mensajeId) return;
+  if (!confirm("Se eliminará este mensaje de la conversación. Los mensajes de la otra persona se conservan.")) return;
+
+  const res = await fetch(`/chat/conversaciones/${conversacionId}/mensajes/${mensajeId}`, {
+    method: "DELETE",
+    headers: { "Authorization": "Bearer " + token }
+  });
+  if (res.ok) cargarMensajes();
+}
+
+async function eliminarConversacion() {
+  if (!confirm("Se eliminará de tu historial. La otra persona podrá seguir conservando su copia.")) return;
+
+  const res = await fetch(`/chat/conversaciones/${conversacionId}`, {
+    method: "DELETE",
+    headers: { "Authorization": "Bearer " + token }
+  });
+  if (res.ok) location.href = "/perfil#chats";
+}
+
 document.getElementById("btnEnviar").onclick = enviarMensaje;
+document.getElementById("btnEliminarConversacion").onclick = eliminarConversacion;
+document.getElementById("chatMessages").addEventListener("click", e => {
+  const btn = e.target.closest("[data-delete-message]");
+  if (btn) eliminarMensaje(btn.dataset.deleteMessage);
+});
 document.getElementById("mensajeInput").addEventListener("keydown", e => {
   if (e.key === "Enter") enviarMensaje();
 });

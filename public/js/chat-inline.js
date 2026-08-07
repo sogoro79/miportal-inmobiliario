@@ -1,5 +1,11 @@
 let currentConv = null;
 let interval = null;
+let currentCanReply = true;
+
+function authHeaders(extra = {}) {
+  const token = localStorage.getItem("token");
+  return token ? { ...extra, Authorization: "Bearer " + token } : extra;
+}
 
 export async function abrirChat(propiedadId, anuncianteId) {
   const usuario = JSON.parse(localStorage.getItem("usuario") || "{}");
@@ -11,7 +17,7 @@ export async function abrirChat(propiedadId, anuncianteId) {
 
   const res = await fetch("/chat/conversaciones", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       propiedadId,
       compradorId: usuario._id,
@@ -20,6 +26,11 @@ export async function abrirChat(propiedadId, anuncianteId) {
   });
 
   currentConv = await res.json();
+  if (!res.ok) {
+    alert(currentConv.error || "No se pudo abrir el chat");
+    return;
+  }
+  currentCanReply = currentConv.puedeResponder !== false;
   mostrarChatUI();
   cargarMensajes();
 
@@ -30,7 +41,8 @@ async function cargarMensajes() {
   if (!currentConv) return;
 
   const res = await fetch(
-    `/chat/conversaciones/${currentConv._id}/mensajes`
+    `/chat/conversaciones/${currentConv._id}/mensajes`,
+    { headers: authHeaders() }
   );
   const msgs = await res.json();
 
@@ -38,6 +50,8 @@ async function cargarMensajes() {
   cont.innerHTML = "";
 
   const usuario = JSON.parse(localStorage.getItem("usuario"));
+
+  if (!Array.isArray(msgs)) return;
 
   msgs.forEach((m) => {
     const div = document.createElement("div");
@@ -50,6 +64,7 @@ async function cargarMensajes() {
 }
 
 async function enviarMensaje() {
+  if (!currentCanReply) return;
   const input = document.getElementById("chatTexto");
   const texto = input.value.trim();
   if (!texto) return;
@@ -58,7 +73,7 @@ async function enviarMensaje() {
 
   await fetch(`/chat/conversaciones/${currentConv._id}/mensajes`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       userId: usuario._id,
       texto,

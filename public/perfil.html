@@ -1008,12 +1008,16 @@ async function cargarChats() {
 
     cont.innerHTML = chats.map(c => {
       const esAnunciante = String(c.anuncianteId) === String(usuario._id);
-      const otroNombre   = esAnunciante ? (c.compradorNombre || "Interesado") : (c.anuncianteNombre || "Anunciante");
+      const nombreInterlocutor = c.interlocutorEliminado
+        ? "Usuario eliminado"
+        : (esAnunciante ? (c.compradorNombre || "Interesado") : (c.anuncianteNombre || "Anunciante"));
+      const otroNombre = escapeHtml(nombreInterlocutor);
       const noLeidos = Number(c.noLeidos) || 0;
       const ultimoMensaje = escapeHtml(c.ultimoMensaje || "Conversación iniciada");
+      const inicial = nombreInterlocutor === "Usuario eliminado" ? "U" : nombreInterlocutor.charAt(0).toUpperCase();
       return `
         <div class="chat-item ${noLeidos > 0 ? "unread" : ""}" onclick="location.href='/chat?id=${c._id}'">
-          <div class="chat-avatar">${otroNombre.charAt(0).toUpperCase()}</div>
+          <div class="chat-avatar">${escapeHtml(inicial)}</div>
           <div class="chat-info">
             <strong>${otroNombre}</strong>
             <div class="chat-last-message">${ultimoMensaje}</div>

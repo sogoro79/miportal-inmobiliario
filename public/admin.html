@@ -3655,7 +3655,7 @@ async function eliminarUsuarioDesactivado(usuarioId) {
     return;
   }
 
-  const ok = confirm('Esta acción eliminará definitivamente un usuario desactivado y sus alertas/notificaciones propias. No se tocarán Stripe ni propiedades. ¿Continuar?');
+  const ok = confirm('Esta acción eliminará definitivamente un usuario desactivado, sus mensajes propios y sus alertas/notificaciones propias. Los mensajes de otros usuarios se conservarán como historial con Usuario eliminado. No se tocarán Stripe ni propiedades. ¿Continuar?');
   if (!ok) return;
 
   const res = await fetch(`/admin/usuarios/${usuarioId}`, {

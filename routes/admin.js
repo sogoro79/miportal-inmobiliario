@@ -4,6 +4,8 @@ import { Resend } from 'resend';
 import { v2 as cloudinary } from 'cloudinary';
 import Usuario from '../models/Usuario.js';
 import Propiedad from '../models/Propiedad.js';
+import Conversacion from '../models/Conversacion.js';
+import Mensaje from '../models/Mensaje.js';
 import EstadisticaAnuncio from '../models/EstadisticaAnuncio.js';
 import CodigoVipTrial from '../models/CodigoVipTrial.js';
 import mongoose from 'mongoose';
@@ -100,8 +102,8 @@ function modelosEliminacionPorDefecto() {
   return {
     Usuario,
     Propiedad,
-    Conversacion: mongoose.models.Conversacion,
-    Mensaje: mongoose.models.Mensaje,
+    Conversacion,
+    Mensaje,
     Alerta: mongoose.models.Alerta,
     Notificacion: mongoose.models.Notificacion
   };
@@ -117,6 +119,51 @@ function usuarioTieneCambiosPendientes(usuario = {}) {
 
 async function contarDocumento(Model, filtro, session) {
   return Number(await aplicarSesion(Model.countDocuments(filtro), session));
+}
+
+async function buscarDocumentos(Model, filtro, session) {
+  return aplicarSesion(Model.find(filtro), session);
+}
+
+async function limpiarChatsDeUsuarioEliminado({ targetUserId, models, session }) {
+  const conversaciones = await buscarDocumentos(
+    models.Conversacion,
+    { $or: [{ compradorId: targetUserId }, { anuncianteId: targetUserId }] },
+    session
+  );
+
+  let mensajesEliminados = 0;
+  let conversacionesMarcadas = 0;
+  let conversacionesEliminadas = 0;
+
+  for (const conversacion of conversaciones) {
+    const conversacionId = conversacion._id;
+    const mensajesResult = await aplicarSesion(
+      models.Mensaje.deleteMany({ conversacionId, userId: targetUserId }),
+      session
+    );
+    mensajesEliminados += resultadoBorrado(mensajesResult);
+
+    const restantes = await contarDocumento(models.Mensaje, { conversacionId }, session);
+    if (restantes > 0) {
+      await aplicarSesion(
+        models.Conversacion.updateOne(
+          { _id: conversacionId, $or: [{ compradorId: targetUserId }, { anuncianteId: targetUserId }] },
+          { $addToSet: { deletedParticipants: targetUserId, hiddenFor: targetUserId } }
+        ),
+        session
+      );
+      conversacionesMarcadas += 1;
+    } else {
+      const conversacionResult = await aplicarSesion(
+        models.Conversacion.deleteOne({ _id: conversacionId, $or: [{ compradorId: targetUserId }, { anuncianteId: targetUserId }] }),
+        session
+      );
+      conversacionesEliminadas += resultadoBorrado(conversacionResult);
+    }
+  }
+
+  return { mensajesEliminados, conversacionesMarcadas, conversacionesEliminadas };
 }
 
 async function cargarUsuarioEliminacion(UsuarioModel, targetUserId, session) {
@@ -152,8 +199,6 @@ export async function construirResumenEliminacionUsuario({
   if (tieneStripe) motivosBloqueo.push('stripe_presente');
   if (tieneCambiosPendientes) motivosBloqueo.push('cambios_pendientes');
   if (propiedades > 0) motivosBloqueo.push('propiedades_presentes');
-  if (chats > 0) motivosBloqueo.push('chats_presentes');
-  if (mensajes > 0) motivosBloqueo.push('mensajes_presentes');
 
   return {
     usuario,
@@ -216,6 +261,7 @@ export async function eliminarUsuarioDesactivadoSeguro({
 
       const alertasResult = await aplicarSesion(models.Alerta.deleteMany({ usuarioId: targetUserId }), session);
       const notificacionesResult = await aplicarSesion(models.Notificacion.deleteMany({ usuarioId: targetUserId }), session);
+      const chatsResult = await limpiarChatsDeUsuarioEliminado({ targetUserId, models, session });
       const usuarioEliminado = await aplicarSesion(models.Usuario.findOneAndDelete(filtroUsuarioEliminable(targetUserId)), session);
 
       if (!usuarioEliminado) {
@@ -229,6 +275,9 @@ export async function eliminarUsuarioDesactivadoSeguro({
         eliminados: {
           alertas: resultadoBorrado(alertasResult),
           notificaciones: resultadoBorrado(notificacionesResult),
+          mensajesPropios: chatsResult.mensajesEliminados,
+          conversacionesMarcadas: chatsResult.conversacionesMarcadas,
+          conversacionesEliminadas: chatsResult.conversacionesEliminadas,
           favoritosPropios: resumen.seguro.favoritos
         }
       };

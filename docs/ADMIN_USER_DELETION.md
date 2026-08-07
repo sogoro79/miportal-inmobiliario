@@ -37,11 +37,13 @@ No devuelve contraseña, documentos personales, tokens, emails, nombres, IDs Str
 
 ## Datos Relacionados
 
-La primera versión usa una estrategia conservadora:
+La eliminación usa una estrategia conservadora para datos compartidos:
 
 - bloquea si el usuario tiene propiedades;
-- bloquea si participa en conversaciones;
-- bloquea si tiene mensajes;
+- elimina únicamente mensajes enviados por el usuario eliminado;
+- conserva mensajes de otros participantes;
+- marca al usuario eliminado en las conversaciones compartidas mediante `deletedParticipants`;
+- elimina físicamente una conversación solo si ya no quedan mensajes;
 - elimina únicamente alertas propias;
 - elimina únicamente notificaciones propias;
 - los favoritos propios desaparecen al eliminar el documento del usuario;
@@ -50,13 +52,13 @@ La primera versión usa una estrategia conservadora:
 - no llama Stripe;
 - no envía correos.
 
-Las propiedades bloquean la eliminación porque pueden tener imágenes, estadísticas, favoritos de terceros, SEO público y relaciones de chat. Las conversaciones y mensajes bloquean la eliminación porque son relaciones compartidas entre usuarios y requieren una estrategia específica de anonimización o desvinculación.
+Las propiedades bloquean la eliminación porque pueden tener imágenes, estadísticas, favoritos de terceros, SEO público y relaciones de chat. Las conversaciones ya no bloquean por sí solas: si contienen historial de otro participante, ese historial se conserva y el usuario eliminado se muestra como `Usuario eliminado`.
 
 ## Transacción
 
 La eliminación se ejecuta dentro de una transacción MongoDB obligatoria. Si no se puede iniciar una sesión transaccional, la operación aborta antes de modificar datos.
 
-Dentro de la transacción se revalida el estado del usuario y los conteos bloqueantes. Después se eliminan las alertas y notificaciones propias, y finalmente se elimina el usuario con un filtro condicional que vuelve a exigir `activo=false`, ausencia de Stripe y ausencia de cambios pendientes. No se usa `upsert` ni reintentos.
+Dentro de la transacción se revalida el estado del usuario y los conteos bloqueantes. Después se eliminan los mensajes propios, se marcan o eliminan las conversaciones afectadas según corresponda, se eliminan las alertas y notificaciones propias, y finalmente se elimina el usuario con un filtro condicional que vuelve a exigir `activo=false`, ausencia de Stripe y ausencia de cambios pendientes. No se usa `upsert` ni reintentos.
 
 ## Procedimiento Seguro de Prueba
 
@@ -69,4 +71,4 @@ Para una cuenta de prueba como `sonygr@gmail.com`, después del despliegue:
 5. Confirmar la eliminación solo si la cuenta es la prueba esperada.
 6. Verificar que la lista de usuarios se recarga y que la cuenta ya no aparece.
 
-Si el resumen indica datos Stripe, propiedades, chats, mensajes o cambios pendientes, no debe forzarse la eliminación desde el panel.
+Si el resumen indica datos Stripe, propiedades o cambios pendientes, no debe forzarse la eliminación desde el panel. Si indica chats o mensajes, la eliminación preservará el historial de terceros y mostrará la cuenta como `Usuario eliminado`.

@@ -131,17 +131,19 @@ async function cargarChats() {
   chats.forEach(c => {
     // Determinar quién es el otro usuario
     const esAnunciante = String(c.anuncianteId) === String(usuario._id);
-    const otroNombre = esAnunciante
+    const nombreInterlocutor = c.interlocutorEliminado ? "Usuario eliminado" : (esAnunciante
       ? (c.compradorNombre || "Interesado")
-      : (c.anuncianteNombre || "Anunciante");
+      : (c.anuncianteNombre || "Anunciante"));
+    const otroNombre = escapeHtml(nombreInterlocutor);
     const noLeidos = Number(c.noLeidos) || 0;
     const ultimoMensaje = escapeHtml(c.ultimoMensaje || "Conversación iniciada");
+    const inicial = nombreInterlocutor === "Usuario eliminado" ? "U" : nombreInterlocutor.charAt(0).toUpperCase();
 
     cont.innerHTML += `
       <div class="chat-item ${noLeidos > 0 ? "unread" : ""}" onclick="location.href='chat?id=${c._id}'">
         <div style="display:flex; align-items:center; gap:10px;">
           <div style="width:40px; height:40px; border-radius:50%; background:#2563eb; color:white; display:flex; align-items:center; justify-content:center; font-weight:bold; flex-shrink:0;">
-            ${otroNombre.charAt(0).toUpperCase()}
+            ${escapeHtml(inicial)}
           </div>
           <div>
             <div style="font-weight:600;">${otroNombre}</div>

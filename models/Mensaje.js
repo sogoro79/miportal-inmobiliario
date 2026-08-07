@@ -16,6 +16,14 @@ const MensajeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    leido: {
+      type: Boolean,
+      default: false,
+    },
+    creado: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );
