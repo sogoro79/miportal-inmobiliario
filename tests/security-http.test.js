@@ -6,6 +6,7 @@ import { PassThrough, Readable, Writable } from "stream";
 import { v2 as cloudinary } from "cloudinary";
 import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
+import { getSeoZoneContext } from "../utils/seoZones.js";
 
 process.env.NODE_ENV = "production";
 process.env.JWT_SECRET = "test-secret";
@@ -103,6 +104,18 @@ function request(path, options) {
     const res = createRes(resolve);
     app.handle(req, res, reject);
   });
+}
+
+function countOccurrences(text, pattern) {
+  return (text.match(pattern) || []).length;
+}
+
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractPageHeaderIntro(html = "") {
+  return html.match(/<p class="page-header-intro"[^>]*>([\s\S]*?)<\/p>/i)?.[1]?.replace(/\s+/g, " ").trim() || "";
 }
 
 function createMultipartBody({ fields = {}, files = [] } = {}) {
@@ -252,6 +265,68 @@ test("ruta SEO pública lee HTML con fs disponible", async () => {
   assert.equal(response.status, 200);
   assert.match(response.text, /https:\/\/www\.homeclick24\.com\/comprar\/cadiz/);
   assert.doesNotMatch(response.text, /Error generando propiedad|fs is not defined/i);
+});
+
+test("landing local de alquiler entrega SEO de Chipiona en el HTML inicial", async () => {
+  const response = await request("/alquiler/chipiona");
+  const context = getSeoZoneContext({ operacionPath: "alquiler", slug: "chipiona" });
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta name="description" content="${context.description}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<link rel="canonical" href="${context.canonical}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:title" content="${context.title}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:description" content="${context.description}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:url" content="${context.canonical}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
+  assert.equal(extractPageHeaderIntro(response.text), context.intro);
+  assert.match(response.text, new RegExp(escapeRegExp(context.localContent)));
+  assert.equal(countOccurrences(response.text, /rel="canonical"/g), 1);
+  assert.doesNotMatch(response.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/alquiler">/);
+});
+
+test("landing local de compra entrega SEO de Chipiona en el HTML inicial", async () => {
+  const response = await request("/comprar/chipiona");
+  const context = getSeoZoneContext({ operacionPath: "comprar", slug: "chipiona" });
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta name="description" content="${context.description}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<link rel="canonical" href="${context.canonical}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:title" content="${context.title}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:description" content="${context.description}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
+  assert.equal(extractPageHeaderIntro(response.text), context.intro);
+  assert.match(response.text, new RegExp(escapeRegExp(context.localContent)));
+  assert.equal(countOccurrences(response.text, /rel="canonical"/g), 1);
+  assert.doesNotMatch(response.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/comprar">/);
+});
+
+test("SEO local se genera de forma genérica para otra zona configurada", async () => {
+  const response = await request("/alquiler/rota");
+  const context = getSeoZoneContext({ operacionPath: "alquiler", slug: "rota" });
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
+  assert.match(response.text, new RegExp(escapeRegExp(context.localContent)));
+});
+
+test("landings generales de compra y alquiler mantienen SEO general", async () => {
+  const alquiler = await request("/alquiler");
+  const comprar = await request("/comprar");
+
+  assert.equal(alquiler.status, 200);
+  assert.match(alquiler.text, /<title>Pisos y Casas en Alquiler en España — Alquilar Vivienda \| HomeClick24<\/title>/);
+  assert.match(alquiler.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/alquiler">/);
+  assert.match(alquiler.text, /<h1>Viviendas en alquiler<\/h1>/);
+  assert.doesNotMatch(alquiler.text, /id="seo-zone-context"/);
+
+  assert.equal(comprar.status, 200);
+  assert.match(comprar.text, /<title>Pisos y Casas en Venta en España — Comprar Vivienda \| HomeClick24<\/title>/);
+  assert.match(comprar.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/comprar">/);
+  assert.match(comprar.text, /<h1>Viviendas en venta<\/h1>/);
+  assert.doesNotMatch(comprar.text, /id="seo-zone-context"/);
 });
 
 test("detalle público de propiedad genera HTML sin fallar por fs", async () => {
@@ -444,6 +519,10 @@ test("sitemap publica propiedades con URLs limpias y sin formato legacy", async 
 
     assert.equal(response.status, 200);
     assert.match(response.text, new RegExp(`/propiedad/casa-familiar-en-rota-${id}`));
+    assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/alquiler\/chipiona/g), 1);
+    assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/comprar\/chipiona/g), 1);
+    assert.doesNotMatch(response.text, /\/alquiler-chipiona\.html/);
+    assert.doesNotMatch(response.text, /\/venta-chipiona\.html/);
     assert.doesNotMatch(response.text, /\/propiedad\?id=/);
     assert.doesNotMatch(response.text, /\/propiedad\.html\?id=/);
   } finally {

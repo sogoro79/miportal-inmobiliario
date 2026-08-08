@@ -306,18 +306,29 @@
     grid-template-columns: 1fr;
   }
 } 
+    .zona-contenido-local,
     .zonas-seo {
       max-width: 1200px;
       margin: 0 auto 34px;
       padding: 0 20px;
     }
 
+    .zona-contenido-local {
+      margin-top: 22px;
+    }
+
+    .zona-contenido-local[hidden] {
+      display: none;
+    }
+
+    .zona-contenido-local h2,
     .zonas-seo h2 {
       font-size: 1.05rem;
       margin-bottom: 8px;
       color: #1a1a1a;
     }
 
+    .zona-contenido-local p,
     .zonas-seo p {
       color: #777;
       font-size: 0.9rem;
@@ -371,7 +382,7 @@
   <div class="page-header-inner">
   <div>
     <h1>Viviendas en alquiler</h1>
-    <p style="font-size:0.88rem;color:#888;margin-top:6px;max-width:600px;">
+    <p class="page-header-intro" style="font-size:0.88rem;color:#888;margin-top:6px;max-width:600px;">
       Encuentra pisos, casas y apartamentos en alquiler en toda España. 
       Filtra por precio, habitaciones y zona y contacta con el anunciante sin intermediarios.
     </p>
@@ -379,6 +390,11 @@
   <span id="resultado-count" class="result-count"></span>
 </div>
 </div>
+
+<section class="zona-contenido-local" id="seoZonaContenido" hidden>
+  <h2 id="seoZonaContenidoTitulo"></h2>
+  <p id="seoZonaContenidoTexto"></p>
+</section>
 
 <div class="contenedor-comprar">
 

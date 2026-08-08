@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { getSeoZoneContext } from "../utils/seoZones.js";
 
 const archivosFrontend = [
   "public/chat.html",
@@ -37,4 +38,15 @@ test("cabecera resuelve notificaciones de propiedad con URL SEO limpia", () => {
   assert.match(headerJs, /getPropiedadSeoUrl\(typeof propiedad === "object" \? propiedad : \{ _id: id \}\)/);
   assert.match(headerJs, /const propiedadUrl = obtenerUrlPropiedadSeo\(n\.propiedadId\)/);
   assert.match(headerJs, /window\.location\.href = propiedadUrl/);
+});
+
+test("seo-zonas reutiliza el contexto local inyectado por servidor", () => {
+  const seoZonas = leer("public/js/seo-zonas.js");
+  const context = getSeoZoneContext({ operacionPath: "alquiler", slug: "chipiona" });
+
+  assert.match(seoZonas, /getElementById\("seo-zone-context"\)/);
+  assert.match(seoZonas, /JSON\.parse\(script\.textContent\)/);
+  assert.doesNotMatch(seoZonas, /const SEO_ZONAS\s*=\s*\{/);
+  assert.equal(context.title, "Pisos y casas en alquiler en Chipiona | HomeClick24");
+  assert.equal(context.canonical, "https://www.homeclick24.com/alquiler/chipiona");
 });

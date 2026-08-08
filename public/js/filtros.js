@@ -25,6 +25,15 @@ function initSeoZona() {
   const intro = document.querySelector(".page-header p");
   if (intro) intro.textContent = seoZoneContext.intro;
 
+  const contenidoLocal = document.getElementById("seoZonaContenido");
+  if (contenidoLocal && seoZoneContext.localContent) {
+    contenidoLocal.hidden = false;
+    const tituloContenido = document.getElementById("seoZonaContenidoTitulo");
+    const textoContenido = document.getElementById("seoZonaContenidoTexto");
+    if (tituloContenido) tituloContenido.textContent = seoZoneContext.localContentTitle;
+    if (textoContenido) textoContenido.textContent = seoZoneContext.localContent;
+  }
+
   const texto = document.getElementById("f_texto");
   if (texto) {
     texto.value = seoZoneContext.zona.filtro;

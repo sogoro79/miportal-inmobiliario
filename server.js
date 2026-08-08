@@ -15,6 +15,7 @@ import { schedulePendingPlanChanges } from "./utils/planChanges.js";
 import { scheduleManualPlanExpirations } from "./utils/manualPlanExpirations.js";
 import { scheduleProfessionalPromotionExpiration } from "./utils/professionalPromotion.js";
 import { crearRutaPropiedadSeo } from "./utils/seoSlug.js";
+import { getSeoZoneContext, getSeoZoneSlugs } from "./utils/seoZones.js";
 import { filtroNoCaducado } from "./utils/freeListingExpiration.js";
 import { envFlagEnabled } from "./utils/envFlags.js";
 import { createCorsOptions, createHelmetMiddleware, securityRateLimits } from "./utils/security.js";
@@ -105,14 +106,7 @@ const privateCleanHtmlRoutes = {
   "/set-password": "set-password.html"
 };
 
-const seoZoneSlugs = [
-  "cadiz",
-  "el-puerto-de-santa-maria",
-  "jerez-de-la-frontera",
-  "sanlucar-de-barrameda",
-  "rota",
-  "chipiona"
-];
+const seoZoneSlugs = getSeoZoneSlugs();
 
 const SITE_URL = "https://www.homeclick24.com";
 const PROPERTY_HTML_PATH = path.join(publicPath, "propiedad.html");
@@ -219,6 +213,47 @@ function inyectarCanonicalAbsoluto(html, canonicalUrl) {
     );
 }
 
+function escapeJsonForHtml(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function inyectarSeoZona(html, context) {
+  const escapedTitle = escapeHtml(context.title);
+  const escapedDescription = escapeHtml(context.description);
+  const escapedH1 = escapeHtml(context.h1);
+  const escapedIntro = escapeHtml(context.intro);
+  const escapedLocalTitle = escapeHtml(context.localContentTitle);
+  const escapedLocalContent = escapeHtml(context.localContent);
+  const contextScript = `  <script id="seo-zone-context" type="application/json">${escapeJsonForHtml(context)}</script>\n`;
+
+  return inyectarCanonicalAbsoluto(html, context.canonical)
+    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapedTitle}</title>`)
+    .replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${escapedDescription}">`)
+    .replace(/<meta name="twitter:title" content="[^"]*">/i, `<meta name="twitter:title" content="${escapedTitle}">`)
+    .replace(/<meta name="twitter:description" content="[^"]*">/i, `<meta name="twitter:description" content="${escapedDescription}">`)
+    .replace(
+      /<meta property="og:title" content="[^"]*">/i,
+      `<meta property="og:title" content="${escapedTitle}">`
+    )
+    .replace(
+      /<meta property="og:description" content="[^"]*">/i,
+      `<meta property="og:description" content="${escapedDescription}">`
+    )
+    .replace(/<h1>[\s\S]*?<\/h1>/i, `<h1>${escapedH1}</h1>`)
+    .replace(
+      /<p class="page-header-intro"([^>]*)>[\s\S]*?<\/p>/i,
+      `<p class="page-header-intro"$1>${escapedIntro}</p>`
+    )
+    .replace(
+      /<section class="zona-contenido-local" id="seoZonaContenido" hidden>[\s\S]*?<\/section>/i,
+      `<section class="zona-contenido-local" id="seoZonaContenido" aria-labelledby="seoZonaContenidoTitulo">
+  <h2 id="seoZonaContenidoTitulo">${escapedLocalTitle}</h2>
+  <p id="seoZonaContenidoTexto">${escapedLocalContent}</p>
+</section>`
+    )
+    .replace("</head>", `${contextScript}</head>`);
+}
+
 function enviarHtmlPropiedad(res, propiedad = null) {
   const html = fs.readFileSync(PROPERTY_HTML_PATH, "utf8");
   res.type("html").send(propiedad ? inyectarMetaPropiedad(html, propiedad) : html);
@@ -322,14 +357,15 @@ app.use((req, res, next) => {
 });
 
 app.get(["/comprar/:zona", "/alquiler/:zona"], (req, res, next) => {
-  if (!seoZoneSlugs.includes(req.params.zona)) return next();
-
+  const operacionPath = req.path.startsWith("/comprar/") ? "comprar" : "alquiler";
+  const context = getSeoZoneContext({ operacionPath, slug: req.params.zona, siteUrl: SITE_URL });
+  if (!context) return next();
   const htmlFile = req.path.startsWith("/comprar/")
     ? "comprar.html"
     : "alquiler.html";
 
   const html = fs.readFileSync(path.join(publicPath, htmlFile), "utf8");
-  res.type("html").send(inyectarCanonicalAbsoluto(html, `${SITE_URL}${req.path}`));
+  res.type("html").send(inyectarSeoZona(html, context));
 });
 
 app.get("/propiedad/:slug", async (req, res, next) => {

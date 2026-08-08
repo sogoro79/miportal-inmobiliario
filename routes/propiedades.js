@@ -28,6 +28,7 @@ import {
   getLimiteFotosPlan,
   planTieneLimiteFotos
 } from "../utils/planLimits.js";
+import { getSeoZoneAliases, getSeoZoneSlugs } from "../utils/seoZones.js";
 import {
   filtroPropiedadesValidasVisibles,
   getEstadoPublicacionUsuario,
@@ -86,14 +87,7 @@ const propiedadesQuerySchema = z.object({
   max: optionalNumberFromInput,
   hab: optionalNumberFromInput,
   texto: optionalCleanString(120),
-  zona: z.enum([
-    "cadiz",
-    "el-puerto-de-santa-maria",
-    "jerez-de-la-frontera",
-    "sanlucar-de-barrameda",
-    "rota",
-    "chipiona"
-  ]).optional(),
+  zona: z.enum(getSeoZoneSlugs()).optional(),
   banos: optionalNumberFromInput,
   sup_min: optionalNumberFromInput,
   sup_max: optionalNumberFromInput,
@@ -151,17 +145,8 @@ function escapeRegex(value = "") {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const zonaSeoAliases = {
-  cadiz: ["Cadiz", "Cádiz"],
-  "el-puerto-de-santa-maria": ["El Puerto de Santa Maria", "El Puerto de Santa María", "Puerto de Santa Maria", "Puerto de Santa María"],
-  "jerez-de-la-frontera": ["Jerez de la Frontera", "Jerez"],
-  "sanlucar-de-barrameda": ["Sanlucar de Barrameda", "Sanlúcar de Barrameda", "Sanlucar", "Sanlúcar"],
-  rota: ["Rota"],
-  chipiona: ["Chipiona"]
-};
-
 function regexZonaSeo(slug) {
-  const aliases = zonaSeoAliases[slug] || [];
+  const aliases = getSeoZoneAliases(slug);
   return aliases.map(escapeRegex).join("|");
 }
 
