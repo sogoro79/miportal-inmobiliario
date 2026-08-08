@@ -55,7 +55,7 @@ function actualizarSEO() {
   const zonaTexto = propiedad.direccion || "HomeClick24";
   const canonicalPath = typeof getPropiedadSeoUrl === "function"
     ? getPropiedadSeoUrl(propiedad)
-    : `/propiedad?id=${encodeURIComponent(propiedad._id)}`;
+    : `/propiedad/propiedad-${encodeURIComponent(propiedad._id)}`;
   const canonicalUrl = `https://www.homeclick24.com${canonicalPath}`;
 
   document.title = `${propiedad.titulo} en ${zonaTexto} | ${precioTexto} | HomeClick24`;

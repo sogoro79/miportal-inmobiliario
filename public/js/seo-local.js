@@ -27,7 +27,7 @@ function renderPropiedadLocal(p) {
 
   const url = typeof getPropiedadSeoUrl === "function"
     ? getPropiedadSeoUrl(p)
-    : `/propiedad?id=${encodeURIComponent(p._id)}`;
+    : `/propiedad/propiedad-${encodeURIComponent(p._id)}`;
 
   return `
     <article class="seo-local-card">

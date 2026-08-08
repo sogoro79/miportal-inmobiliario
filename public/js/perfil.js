@@ -72,7 +72,7 @@ async function cargarPropiedades() {
     const caducidad = textoCaducidadAnuncio(p.fechaExpiracion);
 
     cont.innerHTML += `
-      <div class="card" onclick="location.href='${typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(p) : `propiedad?id=${p._id}`}'">
+      <div class="card" onclick="location.href='${typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(p) : `/propiedad/propiedad-${encodeURIComponent(p._id)}`}'">
         <img src="${img}">
         <div class="info">
           <div class="precio">${p.precio} €</div>

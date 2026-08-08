@@ -1172,7 +1172,7 @@ async function publicar() {
 
     const propiedadUrl = typeof getPropiedadSeoUrl === "function"
       ? getPropiedadSeoUrl(data)
-      : `/propiedad?id=${data._id}`;
+      : `/propiedad/propiedad-${encodeURIComponent(data._id)}`;
 
     window.location.href = `${propiedadUrl}?publicado=1`;
 

@@ -152,7 +152,7 @@ function renderLista(lista) {
 
     const url = typeof getPropiedadSeoUrl === "function"
       ? getPropiedadSeoUrl(p)
-      : `/propiedad?id=${encodeURIComponent(p._id)}`;
+      : `/propiedad/propiedad-${encodeURIComponent(p._id)}`;
 
    return `
   <div class="card-propiedad" onclick="abrirPropiedad('${url}')">

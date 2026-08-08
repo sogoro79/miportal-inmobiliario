@@ -63,6 +63,19 @@ document.addEventListener("DOMContentLoaded", () => {
     userToggle.textContent = obtenerNombreUsuario(usuarioActual) || "...";
   }
 
+  function obtenerUrlPropiedadSeo(propiedad) {
+    const id = typeof propiedad === "object"
+      ? propiedad?._id || propiedad?.id
+      : propiedad;
+    if (!id) return "";
+
+    if (typeof getPropiedadSeoUrl === "function") {
+      return getPropiedadSeoUrl(typeof propiedad === "object" ? propiedad : { _id: id });
+    }
+
+    return `/propiedad/propiedad-${encodeURIComponent(id)}`;
+  }
+
   async function refrescarUsuarioCabecera() {
     if (!token) return;
 
@@ -452,23 +465,26 @@ async function cargarNotificaciones() {
     return;
   }
 
-  lista.innerHTML = notifs.map(n => `
-    <div onclick="marcarLeida('${n._id}', '${n.propiedadId?._id || ''}')"
+  lista.innerHTML = notifs.map(n => {
+    const propiedadUrl = obtenerUrlPropiedadSeo(n.propiedadId);
+    return `
+    <div onclick="marcarLeida('${n._id}', '${propiedadUrl}')"
       style="padding:12px 16px;border-bottom:1px solid #f5f5f5;cursor:pointer;
       background:${n.leida ? '#fff' : '#f0f9e8'};transition:background 0.2s;">
       <div style="font-size:0.85rem;color:#222;margin-bottom:4px;">${n.mensaje}</div>
       <div style="font-size:0.75rem;color:#aaa;">${new Date(n.createdAt).toLocaleDateString('es-ES')}</div>
     </div>
-  `).join("");
+  `;
+  }).join("");
 }
 
-window.marcarLeida = async function(id, propiedadId) {
+window.marcarLeida = async function(id, propiedadUrl) {
   const token = localStorage.getItem("token");
   await fetch(`/notificaciones/${id}/leida`, {
     method: "PUT",
     headers: token ? { "Authorization": "Bearer " + token } : {}
   });
-  if (propiedadId) window.location.href = `/propiedad?id=${propiedadId}`;
+  if (propiedadUrl) window.location.href = propiedadUrl;
   else cargarNotificaciones();
 };
 

@@ -936,7 +936,7 @@ async function cargarPropiedades() {
     const caducidad = textoCaducidadAnuncio(p.fechaExpiracion);
     return `
       <div class="card-propiedad">
-        <div class="card-img-wrap" onclick="location.href='${typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(p) : `/propiedad?id=${p._id}`}'" style="cursor:pointer;">
+        <div class="card-img-wrap" onclick="location.href='${typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(p) : `/propiedad/propiedad-${encodeURIComponent(p._id)}`}'" style="cursor:pointer;">
           <img src="${img}" alt="${p.titulo}" loading="lazy">
           <span class="tag-tipo ${tipoCls}">${tipo}</span>
         </div>

@@ -208,7 +208,7 @@ async function cargarFavoritos() {
       const sup     = p.superficie ? `📐 ${p.superficie} m²` : "";
 
       return `
-        <div class="card-propiedad" onclick="location.href='${typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(p) : `/propiedad?id=${p._id}`}'">
+        <div class="card-propiedad" onclick="location.href='${typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(p) : `/propiedad/propiedad-${encodeURIComponent(p._id)}`}'">
           <div class="card-img-wrap">
             <img src="${img}" alt="${p.titulo}" loading="lazy">
             <span class="tag-tipo ${tipoCls}">${tipo}</span>

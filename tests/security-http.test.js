@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import jwt from "jsonwebtoken";
 import { PassThrough, Readable, Writable } from "stream";
 import { v2 as cloudinary } from "cloudinary";
@@ -65,6 +66,17 @@ function createRes(resolve) {
     res.statusCode = statusCode;
     const nextHeaders = typeof reasonOrHeaders === "object" ? reasonOrHeaders : maybeHeaders;
     Object.entries(nextHeaders || {}).forEach(([name, value]) => res.setHeader(name, value));
+    return res;
+  };
+  res.sendFile = filePath => {
+    fs.readFile(filePath, (error, data) => {
+      if (error) {
+        res.statusCode = 500;
+        res.end("Error leyendo archivo");
+        return;
+      }
+      res.end(data);
+    });
     return res;
   };
   const originalEnd = res.end.bind(res);
@@ -265,6 +277,88 @@ test("detalle público de propiedad genera HTML sin fallar por fs", async () => 
     assert.doesNotMatch(response.text, /Error generando propiedad|fs is not defined/i);
   } finally {
     Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("URL legacy de propiedad existente redirige 301 a la canónica", async () => {
+  const previousFindOne = Propiedad.findOne;
+  const id = "507f1f77bcf86cd799439100";
+  Propiedad.findOne = () => ({
+    lean: () => Promise.resolve({
+      _id: id,
+      titulo: "Ático junto al mar",
+      visiblePublicamente: true
+    })
+  });
+
+  try {
+    const response = await request(`/propiedad?id=${id}`);
+
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get("location"), `/propiedad/atico-junto-al-mar-${id}`);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("fallback SEO mínimo propiedad-ID resuelve por ID y redirige a la canónica real", async () => {
+  const previousFindOne = Propiedad.findOne;
+  const id = "507f1f77bcf86cd799439103";
+  Propiedad.findOne = () => ({
+    lean: () => Promise.resolve({
+      _id: id,
+      titulo: "Chalet familiar en Costa Ballena",
+      visiblePublicamente: true
+    })
+  });
+
+  try {
+    const response = await request(`/propiedad/propiedad-${id}`);
+
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get("location"), `/propiedad/chalet-familiar-en-costa-ballena-${id}`);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("URL legacy de propiedad inexistente mantiene 404 sin redirección genérica", async () => {
+  const previousFindOne = Propiedad.findOne;
+  const id = "507f1f77bcf86cd799439101";
+  Propiedad.findOne = () => ({
+    lean: () => Promise.resolve(null)
+  });
+
+  try {
+    const response = await request(`/propiedad?id=${id}`);
+
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get("location"), null);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("sitemap publica propiedades con URLs limpias y sin formato legacy", async () => {
+  const previousFind = Propiedad.find;
+  const id = "507f1f77bcf86cd799439102";
+  Propiedad.find = () => ({
+    lean: () => Promise.resolve([{
+      _id: id,
+      titulo: "Casa familiar en Rota",
+      updatedAt: new Date("2026-01-15T00:00:00.000Z")
+    }])
+  });
+
+  try {
+    const response = await request("/sitemap.xml");
+
+    assert.equal(response.status, 200);
+    assert.match(response.text, new RegExp(`/propiedad/casa-familiar-en-rota-${id}`));
+    assert.doesNotMatch(response.text, /\/propiedad\?id=/);
+    assert.doesNotMatch(response.text, /\/propiedad\.html\?id=/);
+  } finally {
+    Propiedad.find = previousFind;
   }
 });
 

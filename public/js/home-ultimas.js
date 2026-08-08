@@ -31,7 +31,7 @@ function renderUltimaHome(p) {
   const meta = [hab, banos, superficie].filter(Boolean).join(" · ");
   const url = typeof getPropiedadSeoUrl === "function"
     ? getPropiedadSeoUrl(p)
-    : `/propiedad?id=${encodeURIComponent(p._id)}`;
+    : `/propiedad/propiedad-${encodeURIComponent(p._id)}`;
   const direccion = ultimasDireccionCorta(p);
 
   return `
