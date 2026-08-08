@@ -124,7 +124,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const topbar = `
   <div class="header-topbar">
     <div class="header-topbar-inner">
-      <div class="header-logo" onclick="location.href='/index.html'" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+      <div class="header-logo" onclick="location.href='/'" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
         <img src="/HomeClick.png" alt="" style="height:32px;width:auto;">
         <span style="font-size:1.1rem;font-weight:800;color:#fff;">Home<span style="color:#7cc242;">Click24</span></span>
       </div>
@@ -156,7 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <header class="header">
         ${topbar}
         <div class="header-container">
-          <div class="header-logo" onclick="location.href='/index.html'">
+          <div class="header-logo" onclick="location.href='/'">
             <img src="/HomeClick.png" alt="" class="logo-icon" />
             <span class="logo-text">Home<span class="logo-green">Click24</span></span>
           </div>
@@ -184,7 +184,7 @@ document.addEventListener("DOMContentLoaded", () => {
     <header class="header">
       ${topbar}
       <div class="header-container">
-        <div class="header-logo" onclick="location.href='/index.html'">
+        <div class="header-logo" onclick="location.href='/'">
           <img src="/HomeClick.png" alt="" class="logo-icon" />
           <span class="logo-text">Home<span class="logo-green">Click24</span></span>
         </div>
@@ -342,7 +342,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     localStorage.removeItem("usuario");
     localStorage.removeItem("token");
-    location.href = "/index.html";
+    location.href = "/";
   });
 
   /* ======================

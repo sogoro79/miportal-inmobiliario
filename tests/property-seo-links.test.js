@@ -29,6 +29,24 @@ const paginasConContacto = [
   "public/contacto.html"
 ];
 
+const archivosSinIndexLegacy = [
+  "public/index.html",
+  "public/chat.html",
+  "public/favoritos.html",
+  "public/perfil.html",
+  "public/login.html",
+  "public/registro.html",
+  "public/reset.html",
+  "public/recuperar.html",
+  "public/terminos.html",
+  "public/legal.html",
+  "public/sobre.html",
+  "public/js/header.js",
+  "public/js/auth.js",
+  "public/js/professional-promo.js",
+  "public/service-worker.js"
+];
+
 function leer(ruta) {
   return fs.readFileSync(new URL(`../${ruta}`, import.meta.url), "utf8");
 }
@@ -72,4 +90,12 @@ test("enlaces y canonicals de contacto usan la URL limpia", () => {
   const contacto = leer("public/contacto.html");
   assert.match(contacto, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/contacto">/);
   assert.match(contacto, /<meta property="og:url" content="https:\/\/www\.homeclick24\.com\/contacto">/);
+});
+
+test("enlaces internos activos evitan /index.html", () => {
+  for (const ruta of archivosSinIndexLegacy) {
+    const contenido = leer(ruta);
+
+    assert.doesNotMatch(contenido, /\/index\.html|location\.href='index\.html'|href="index\.html"/, ruta);
+  }
 });

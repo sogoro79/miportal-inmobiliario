@@ -46,7 +46,7 @@
     return isProfessionalPromoRequest() || localStorage.getItem(PROMO_INTENT_KEY) === "true";
   }
 
-  function professionalPromoLoginRedirectTarget(fallback = "/index.html") {
+  function professionalPromoLoginRedirectTarget(fallback = "/") {
     if (hasProfessionalPromoIntent()) return professionalPromoActivationTarget();
     const returnUrl = new URLSearchParams(window.location.search).get("returnUrl");
     return returnUrl && returnUrl.startsWith("/") ? returnUrl : fallback;

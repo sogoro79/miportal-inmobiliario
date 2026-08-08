@@ -74,7 +74,7 @@ function crearEntornoHeader({ usuario, token = "token-test", respuesta, fetchErr
   const contexto = {
     document,
     window: {
-      location: { pathname: "/index.html", search: "" },
+      location: { pathname: "/", search: "" },
       addEventListener() {}
     },
     location: { href: "" },

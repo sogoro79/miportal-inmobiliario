@@ -94,10 +94,10 @@ async function login() {
 
   mostrarMensaje("✅ Sesión iniciada. Redirigiendo...", "green");
   const destino = window.HomeClickProfessionalPromo?.professionalPromoLoginRedirectTarget
-    ? window.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/index.html")
+    ? window.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/")
     : (() => {
         const returnUrl = new URLSearchParams(window.location.search).get("returnUrl");
-        return returnUrl && returnUrl.startsWith("/") ? returnUrl : "/index.html";
+        return returnUrl && returnUrl.startsWith("/") ? returnUrl : "/";
       })();
   setTimeout(() => location.href = destino, 1000);
 }

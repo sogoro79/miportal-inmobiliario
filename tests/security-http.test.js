@@ -329,6 +329,25 @@ test("landings generales de compra y alquiler mantienen SEO general", async () =
   assert.doesNotMatch(comprar.text, /id="seo-zone-context"/);
 });
 
+test("home usa raíz canónica y /index.html redirige a /", async () => {
+  const home = await request("/");
+  const legacy = await request("/index.html");
+
+  assert.equal(home.status, 200);
+  assert.match(home.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/">/);
+  assert.equal(legacy.status, 301);
+  assert.equal(legacy.headers.get("location"), "/");
+});
+
+test("publicar sigue disponible pero queda fuera del índice", async () => {
+  const response = await request("/publicar");
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, /<meta name="robots" content="noindex, follow">/);
+  assert.match(response.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/publicar">/);
+  assert.match(response.text, /if \(!token\)[\s\S]*redirigirLoginPublicar\(\)/);
+});
+
 test("contacto usa URL limpia con canonical y redirección legacy", async () => {
   const limpia = await request("/contacto");
   const legacy = await request("/contacto.html");
@@ -536,6 +555,8 @@ test("sitemap publica propiedades con URLs limpias y sin formato legacy", async 
     assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/alquiler\/chipiona/g), 1);
     assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/comprar\/chipiona/g), 1);
     assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/contacto/g), 1);
+    assert.doesNotMatch(response.text, /\/index\.html/);
+    assert.doesNotMatch(response.text, /https:\/\/www\.homeclick24\.com\/publicar/);
     assert.doesNotMatch(response.text, /\/alquiler-chipiona\.html/);
     assert.doesNotMatch(response.text, /\/venta-chipiona\.html/);
     assert.doesNotMatch(response.text, /\/contacto\.html/);

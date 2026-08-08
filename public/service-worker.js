@@ -2,7 +2,6 @@ const CACHE_NAME = 'HomeClick24-v1';
 
 const STATIC_ASSETS = [
   '/',
-  '/index.html',
   '/comprar',
   '/alquiler',
   '/css/styles.css',
@@ -62,7 +61,7 @@ self.addEventListener('fetch', event => {
         caches.match(event.request).then(cached => {
           if (cached) return cached;
           if (event.request.destination === 'document') {
-            return caches.match('/index.html');
+            return caches.match('/');
           }
         })
       )

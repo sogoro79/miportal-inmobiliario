@@ -163,12 +163,12 @@ test("helper conserva intención promocional en registro, login y avisos", () =>
 test("login correcto desde promo redirige a profesionales y no activa la promoción", () => {
   const { context, storage } = createPromoContext({}, { search: "?promo=professional-60" });
 
-  assert.equal(context.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/index.html"), "/profesionales?promo=professional-60");
-  assert.match(authJs, /professionalPromoLoginRedirectTarget\("\/index\.html"\)/);
+  assert.equal(context.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/"), "/profesionales?promo=professional-60");
+  assert.match(authJs, /professionalPromoLoginRedirectTarget\("\/"\)/);
   assert.doesNotMatch(authJs, /activar|promocion-profesional\/activar|professionalTrialStartedAt|professionalTrialEndsAt/i);
 
   const returning = createPromoContext({ [context.HomeClickProfessionalPromo.PROMO_INTENT_KEY]: "true" });
-  assert.equal(returning.context.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/index.html"), "/profesionales?promo=professional-60");
+  assert.equal(returning.context.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/"), "/profesionales?promo=professional-60");
   assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), undefined);
 });
 

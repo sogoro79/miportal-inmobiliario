@@ -645,7 +645,7 @@
 </div>
 
 <nav class="mobile-nav">
-  <a href="/index.html"><span>🏠</span><small>Inicio</small></a>
+  <a href="/"><span>🏠</span><small>Inicio</small></a>
   <a href="/comprar"><span>🔍</span><small>Buscar</small></a>
   <a href="/favoritos"><span>❤️</span><small>Favoritos</small></a>
   <a href="/perfil#chats"><span>💬</span><small>Chats</small></a>
@@ -1117,7 +1117,7 @@ async function canjearCodigoVipTrialPerfil() {
 function cerrarSesion() {
   localStorage.removeItem("token");
   localStorage.removeItem("usuario");
-  location.href = "/index.html";
+  location.href = "/";
 }
 
 function editarPropiedad(id) { location.href = `/publicar?editar=${id}`; }

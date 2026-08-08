@@ -324,6 +324,14 @@ Object.keys(privateCleanHtmlRoutes).forEach(route => {
   });
 });
 
+app.get("/index.html", (req, res) => {
+  res.redirect(301, "/");
+});
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
 app.get(["/reset", "/reset.html"], (req, res) => {
   const query = req.url.slice(req.path.length);
   res.redirect(301, `/reset-password${query}`);
@@ -429,7 +437,6 @@ app.get("/sitemap.xml", async (req, res) => {
         { loc: `/comprar/${slug}`, priority: "0.8" },
         { loc: `/alquiler/${slug}`, priority: "0.8" }
       ]),
-      { loc: "/publicar", priority: "0.8" },
       { loc: "/planes", priority: "0.8" },
       { loc: "/profesionales", priority: "0.7" },
       { loc: "/integraciones", priority: "0.4" },
@@ -471,13 +478,6 @@ app.use("/api/planes", planesRoutes);
 app.use("/api/promocion-profesional", professionalPromotionRoutes);
 app.use("/pagos", pagosRoutes);
 app.use("/admin", adminRoutes);
-
-// =============================
-// INDEX
-// =============================
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
 
 // =============================
 // 404
