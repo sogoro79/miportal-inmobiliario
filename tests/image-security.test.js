@@ -101,7 +101,7 @@ test("las imágenes retiradas se calculan desde originales y se borran tras guar
 });
 
 test("MAX_FILES_PER_REQUEST fija un límite técnico razonable", () => {
-  assert.equal(MAX_FILES_PER_REQUEST, 30);
+  assert.equal(MAX_FILES_PER_REQUEST, 50);
 });
 
 test("MulterError se traduce a códigos y mensajes controlados", () => {
@@ -110,16 +110,16 @@ test("MulterError se traduce a códigos y mensajes controlados", () => {
     { status: 413, message: "Una o varias imágenes superan el tamaño máximo permitido de 15 MB." }
   );
   assert.deepEqual(
-    getImageUploadErrorResponse({ code: "LIMIT_FILE_COUNT" }, { isMulterError: true, maxFiles: 30 }),
-    { status: 400, message: "No puedes subir más de 30 imágenes nuevas por petición." }
+    getImageUploadErrorResponse({ code: "LIMIT_FILE_COUNT" }, { isMulterError: true, maxFiles: 50 }),
+    { status: 400, message: "No puedes subir más de 50 imágenes nuevas por petición." }
   );
   assert.deepEqual(
     getImageUploadErrorResponse({ code: "LIMIT_UNEXPECTED_FILE" }, { isMulterError: true }),
     { status: 400, message: "El campo de subida de imágenes no es válido." }
   );
   assert.deepEqual(
-    getImageUploadErrorResponse({ code: "LIMIT_UNEXPECTED_FILE", field: "imagenes" }, { isMulterError: true, maxFiles: 30 }),
-    { status: 400, message: "No puedes subir más de 30 imágenes nuevas por petición." }
+    getImageUploadErrorResponse({ code: "LIMIT_UNEXPECTED_FILE", field: "imagenes" }, { isMulterError: true, maxFiles: 50 }),
+    { status: 400, message: "No puedes subir más de 50 imágenes nuevas por petición." }
   );
   assert.deepEqual(
     getImageUploadErrorResponse({ statusCode: 400, message: "Formato de imagen no permitido." }),

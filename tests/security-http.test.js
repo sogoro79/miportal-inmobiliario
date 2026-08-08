@@ -936,7 +936,7 @@ test("MulterError LIMIT_UNEXPECTED_FILE y MIME inválido devuelven JSON controla
   }
 });
 
-test("Multer 2 limita a 30 imágenes nuevas por petición y limpia subidas parciales", async () => {
+test("Multer 2 limita a 50 imágenes nuevas por petición y limpia subidas parciales", async () => {
   const previousFindById = Usuario.findById;
   const destroyed = [];
   const restoreCloudinary = mockCloudinaryUpload({ destroyed });
@@ -955,7 +955,7 @@ test("Multer 2 limita a 30 imágenes nuevas por petición y limpia subidas parci
       tipoOperacion: "venta",
       habitaciones: "2"
     },
-    files: Array.from({ length: 31 }, (_, index) => ({
+    files: Array.from({ length: 51 }, (_, index) => ({
       filename: `foto-${index + 1}.jpg`,
       contentType: "image/jpeg",
       content: "jpg"
@@ -974,14 +974,76 @@ test("Multer 2 limita a 30 imágenes nuevas por petición y limpia subidas parci
     });
 
     assert.equal(response.status, 400);
-    assert.match(response.text, /No puedes subir más de 30 imágenes nuevas por petición/);
-    assert.equal(restoreCloudinary.getUploadCount(), 30);
-    assert.equal(destroyed.length, 30);
+    assert.match(response.text, /No puedes subir más de 50 imágenes nuevas por petición/);
+    assert.equal(restoreCloudinary.getUploadCount(), 50);
+    assert.equal(destroyed.length, 50);
     assert.equal(destroyed[0], "miportal_inmobiliario/uploaded-1");
-    assert.equal(destroyed[29], "miportal_inmobiliario/uploaded-30");
+    assert.equal(destroyed[49], "miportal_inmobiliario/uploaded-50");
     assert.doesNotMatch(response.text, /stack|CLOUDINARY|api_secret|\/Users\//i);
   } finally {
     Usuario.findById = previousFindById;
+    restoreCloudinary();
+  }
+});
+
+test("PUT con professional_trial_60d permite 50 nuevas y acumula más de 50 totales", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const destroyed = [];
+  const restoreCloudinary = mockCloudinaryUpload({ destroyed });
+  const imagenesOriginales = Array.from({ length: 50 }, (_, index) =>
+    `https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-${index + 1}.jpg`
+  );
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    imagenes: [...imagenesOriginales],
+    save: async () => propiedad
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "professional_trial_60d",
+    planActivo: true,
+    professionalPromoStatus: "active"
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa profesional",
+      direccion: "Calle Test",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2",
+      imagenesExistentes: JSON.stringify(imagenesOriginales)
+    },
+    files: Array.from({ length: 50 }, (_, index) => ({
+      filename: `foto-${index + 1}.jpg`,
+      contentType: "image/jpeg",
+      content: "jpg"
+    }))
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.98"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(restoreCloudinary.getUploadCount(), 50);
+    assert.equal(propiedad.imagenes.length, 100);
+    assert.equal(propiedad.imagenes[0], imagenesOriginales[0]);
+    assert.match(propiedad.imagenes[99], /uploaded-50\.jpg$/);
+    assert.deepEqual(destroyed, []);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
     restoreCloudinary();
   }
 });

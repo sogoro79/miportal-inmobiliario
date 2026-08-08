@@ -1,7 +1,7 @@
 const CLOUDINARY_HOST = "res.cloudinary.com";
 export const CLOUDINARY_IMAGE_FOLDER = "miportal_inmobiliario";
 // Límite técnico por petición multipart; los límites comerciales se calculan por plan.
-export const MAX_FILES_PER_REQUEST = 30;
+export const MAX_FILES_PER_REQUEST = 50;
 const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 
 export class InvalidExistingImagesError extends Error {

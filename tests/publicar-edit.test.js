@@ -21,3 +21,11 @@ test("edición guardada vuelve al perfil y publicación nueva mantiene URL SEO",
   assert.match(publicarHtml, /const propiedadUrl = typeof getPropiedadSeoUrl === "function"[\s\S]*getPropiedadSeoUrl\(data\)/);
   assert.match(publicarHtml, /window\.location\.href = `\$\{propiedadUrl\}\?publicado=1`/);
 });
+
+test("selector de imágenes limita a 50 nuevas por tanda sin cambiar el total ilimitado", () => {
+  assert.match(publicarHtml, /const MAX_IMAGENES_NUEVAS_POR_SUBIDA = 50/);
+  assert.match(publicarHtml, /Sin límite total de fotos · Máximo \$\{MAX_IMAGENES_NUEVAS_POR_SUBIDA\} imágenes por subida/);
+  assert.match(publicarHtml, /const maxNuevasPorTanda = planTieneLimiteFotos\(plan\)[\s\S]*Math\.min\(maxFotos, MAX_IMAGENES_NUEVAS_POR_SUBIDA\)[\s\S]*MAX_IMAGENES_NUEVAS_POR_SUBIDA/);
+  assert.match(publicarHtml, /imgFiles = seleccionadas\.slice\(0, maxNuevasPorTanda\)/);
+  assert.match(publicarHtml, /Puedes subir hasta \$\{MAX_IMAGENES_NUEVAS_POR_SUBIDA\} imágenes cada vez\./);
+});

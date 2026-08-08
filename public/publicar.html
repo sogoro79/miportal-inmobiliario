@@ -584,6 +584,7 @@ let catalogoPlanesPublicar = {};
 const FORMATOS_IMAGEN_PERMITIDOS = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGEN_MB = 15;
 const MAX_IMAGEN_BYTES = MAX_IMAGEN_MB * 1024 * 1024;
+const MAX_IMAGENES_NUEVAS_POR_SUBIDA = 50;
 
 function obtenerTokenPublicar() {
   const token = (localStorage.getItem("token") || "").trim();
@@ -701,7 +702,7 @@ function actualizarTextoFotos(plan) {
 
   textoFotos.textContent = planTieneLimiteFotos(plan)
     ? `JPG, PNG · Máximo ${getLimiteFotos(plan)} fotos · La primera será la portada`
-    : "JPG, PNG · Sin límite de fotos · La primera será la portada";
+    : `JPG, PNG · Sin límite total de fotos · Máximo ${MAX_IMAGENES_NUEVAS_POR_SUBIDA} imágenes por subida · La primera será la portada`;
 }
 
 function mostrarErrorPublicacion(mensaje) {
@@ -976,6 +977,9 @@ document.getElementById("imagenes").addEventListener("change", e => {
 
   const plan = usuario?.plan || "gratis";
   const maxFotos = getLimiteFotos(plan);
+  const maxNuevasPorTanda = planTieneLimiteFotos(plan)
+    ? Math.min(maxFotos, MAX_IMAGENES_NUEVAS_POR_SUBIDA)
+    : MAX_IMAGENES_NUEVAS_POR_SUBIDA;
   const seleccionadas = Array.from(e.target.files);
   const conFormatoInvalido = seleccionadas.filter(file => !FORMATOS_IMAGEN_PERMITIDOS.has(file.type));
   const demasiadoGrandes = seleccionadas.filter(file => file.size > MAX_IMAGEN_BYTES);
@@ -992,12 +996,12 @@ document.getElementById("imagenes").addEventListener("change", e => {
     return;
   }
 
-  imgFiles = planTieneLimiteFotos(plan)
-    ? seleccionadas.slice(0, maxFotos)
-    : seleccionadas;
+  imgFiles = seleccionadas.slice(0, maxNuevasPorTanda);
 
   if (planTieneLimiteFotos(plan) && seleccionadas.length > maxFotos) {
     mostrarErrorPublicacion(`Tu plan ${plan} permite un máximo de ${maxFotos} fotos. Se han seleccionado las primeras ${maxFotos}.`);
+  } else if (seleccionadas.length > MAX_IMAGENES_NUEVAS_POR_SUBIDA) {
+    mostrarErrorPublicacion(`Puedes subir hasta ${MAX_IMAGENES_NUEVAS_POR_SUBIDA} imágenes cada vez.`);
   }
   renderPreview();
 });
