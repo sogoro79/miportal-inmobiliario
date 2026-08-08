@@ -254,23 +254,16 @@ app.get("/propiedad", async (req, res) => {
 app.get("/propiedad.html", async (req, res) => {
   const id = req.query.id;
 
-  if (!id) return res.redirect(301, "/comprar");
+  if (!id) return enviar404(res);
 
   try {
-    const propiedad = await Propiedad.findById(id, {
-      _id: 1,
-      titulo: 1,
-      visiblePublicamente: 1
-    }).lean();
-
-    if (propiedad?.visiblePublicamente !== false) {
-      return res.redirect(301, crearRutaPropiedadSeo(propiedad));
-    }
+    const propiedad = await buscarPropiedadPublicaPorId(id);
+    if (propiedad) return res.redirect(301, crearRutaPropiedadSeo(propiedad));
   } catch (err) {
     console.warn("No se pudo resolver slug legacy de propiedad:", err.message);
   }
 
-  res.redirect(301, "/comprar");
+  enviar404(res);
 });
 
 Object.keys(cleanHtmlRoutes).forEach(route => {

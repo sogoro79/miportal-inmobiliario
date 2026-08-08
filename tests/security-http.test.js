@@ -301,6 +301,27 @@ test("URL legacy de propiedad existente redirige 301 a la canónica", async () =
   }
 });
 
+test("URL legacy propiedad.html existente redirige 301 a la canónica", async () => {
+  const previousFindOne = Propiedad.findOne;
+  const id = "507f1f77bcf86cd799439104";
+  Propiedad.findOne = () => ({
+    lean: () => Promise.resolve({
+      _id: id,
+      titulo: "Piso luminoso en el centro",
+      visiblePublicamente: true
+    })
+  });
+
+  try {
+    const response = await request(`/propiedad.html?id=${id}`);
+
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get("location"), `/propiedad/piso-luminoso-en-el-centro-${id}`);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
+});
+
 test("fallback SEO mínimo propiedad-ID resuelve por ID y redirige a la canónica real", async () => {
   const previousFindOne = Propiedad.findOne;
   const id = "507f1f77bcf86cd799439103";
@@ -317,6 +338,74 @@ test("fallback SEO mínimo propiedad-ID resuelve por ID y redirige a la canónic
 
     assert.equal(response.status, 301);
     assert.equal(response.headers.get("location"), `/propiedad/chalet-familiar-en-costa-ballena-${id}`);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("URL legacy propiedad.html inexistente mantiene 404 sin redirigir a comprar", async () => {
+  const previousFindOne = Propiedad.findOne;
+  const id = "507f1f77bcf86cd799439105";
+  Propiedad.findOne = () => ({
+    lean: () => Promise.resolve(null)
+  });
+
+  try {
+    const response = await request(`/propiedad.html?id=${id}`);
+
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get("location"), null);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("URL legacy propiedad.html sin id o con id inválido devuelve 404", async () => {
+  const previousFindOne = Propiedad.findOne;
+  let consultas = 0;
+  Propiedad.findOne = () => {
+    consultas += 1;
+    return {
+      lean: () => Promise.resolve(null)
+    };
+  };
+
+  try {
+    const sinId = await request("/propiedad.html");
+    const invalida = await request("/propiedad.html?id=no-es-un-objectid");
+
+    assert.equal(sinId.status, 404);
+    assert.equal(sinId.headers.get("location"), null);
+    assert.equal(invalida.status, 404);
+    assert.equal(invalida.headers.get("location"), null);
+    assert.equal(consultas, 0);
+  } finally {
+    Propiedad.findOne = previousFindOne;
+  }
+});
+
+test("URL legacy propiedad.html aplica filtros de pública y no caducada", async () => {
+  const previousFindOne = Propiedad.findOne;
+  const id = "507f1f77bcf86cd799439106";
+  let filtroRecibido = null;
+  Propiedad.findOne = filtro => {
+    filtroRecibido = filtro;
+    return {
+      lean: () => Promise.resolve(null)
+    };
+  };
+
+  try {
+    const response = await request(`/propiedad.html?id=${id}`);
+
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get("location"), null);
+    assert.deepEqual(filtroRecibido?._id, id);
+    assert.deepEqual(filtroRecibido?.visiblePublicamente, { $ne: false });
+    assert.ok(Array.isArray(filtroRecibido?.$or));
+    assert.ok(filtroRecibido.$or.some(cond => cond.fechaExpiracion?.$exists === false));
+    assert.ok(filtroRecibido.$or.some(cond => cond.fechaExpiracion === null));
+    assert.ok(filtroRecibido.$or.some(cond => cond.fechaExpiracion?.$gt instanceof Date));
   } finally {
     Propiedad.findOne = previousFindOne;
   }
