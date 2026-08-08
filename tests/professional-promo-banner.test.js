@@ -64,6 +64,14 @@ test("promoción profesional aparece tras el hero y antes de secciones secundari
   assert.ok(destacadasIndex > promoIndex);
 });
 
+test("promoción profesional compacta solo la presentación móvil sin cambiar CTA", () => {
+  assert.match(indexHtml, /@media \(max-width: 768px\) \{[\s\S]*?\.professional-promo-home \{[\s\S]*?margin-top: 18px/);
+  assert.match(indexHtml, /@media \(max-width: 768px\) \{[\s\S]*?\.professional-promo-media img \{[\s\S]*?max-height: 220px/);
+  assert.match(indexHtml, /@media \(max-width: 768px\) \{[\s\S]*?\.professional-promo-cta \{[\s\S]*?width: 100%/);
+  assert.match(indexHtml, /@media \(max-width: 480px\) \{[\s\S]*?\.professional-promo-media img \{[\s\S]*?max-height: 170px/);
+  assert.match(indexHtml, /<a class="professional-promo-cta" href="\/registro\?promo=professional-60" data-professional-promo-cta>Quiero mis 60 días gratis<\/a>/);
+});
+
 test("planes muestra versión compacta sin duplicar la imagen grande", () => {
   assert.match(planesHtml, /class="planes-promo-profesional"/);
   assert.match(planesHtml, /data-professional-promo/);
