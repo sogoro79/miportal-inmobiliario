@@ -329,6 +329,20 @@ test("landings generales de compra y alquiler mantienen SEO general", async () =
   assert.doesNotMatch(comprar.text, /id="seo-zone-context"/);
 });
 
+test("contacto usa URL limpia con canonical y redirección legacy", async () => {
+  const limpia = await request("/contacto");
+  const legacy = await request("/contacto.html");
+
+  assert.equal(limpia.status, 200);
+  assert.match(limpia.text, /<title>Contacto — HomeClick24<\/title>/);
+  assert.match(limpia.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/contacto">/);
+  assert.match(limpia.text, /<meta property="og:url" content="https:\/\/www\.homeclick24\.com\/contacto">/);
+  assert.doesNotMatch(limpia.text, /https:\/\/www\.homeclick24\.com\/contacto\.html/);
+
+  assert.equal(legacy.status, 301);
+  assert.equal(legacy.headers.get("location"), "/contacto");
+});
+
 test("detalle público de propiedad genera HTML sin fallar por fs", async () => {
   const previousFindOne = Propiedad.findOne;
   const id = "507f1f77bcf86cd799439099";
@@ -521,8 +535,10 @@ test("sitemap publica propiedades con URLs limpias y sin formato legacy", async 
     assert.match(response.text, new RegExp(`/propiedad/casa-familiar-en-rota-${id}`));
     assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/alquiler\/chipiona/g), 1);
     assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/comprar\/chipiona/g), 1);
+    assert.equal(countOccurrences(response.text, /https:\/\/www\.homeclick24\.com\/contacto/g), 1);
     assert.doesNotMatch(response.text, /\/alquiler-chipiona\.html/);
     assert.doesNotMatch(response.text, /\/venta-chipiona\.html/);
+    assert.doesNotMatch(response.text, /\/contacto\.html/);
     assert.doesNotMatch(response.text, /\/propiedad\?id=/);
     assert.doesNotMatch(response.text, /\/propiedad\.html\?id=/);
   } finally {

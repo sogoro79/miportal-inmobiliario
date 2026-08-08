@@ -94,7 +94,8 @@ const cleanHtmlRoutes = {
   "/login": "login.html",
   "/registro": "registro.html",
   "/recuperar": "recuperar.html",
-  "/terminos": "terminos.html"
+  "/terminos": "terminos.html",
+  "/contacto": "contacto.html"
 };
 
 const privateCleanHtmlRoutes = {
@@ -432,6 +433,7 @@ app.get("/sitemap.xml", async (req, res) => {
       { loc: "/planes", priority: "0.8" },
       { loc: "/profesionales", priority: "0.7" },
       { loc: "/integraciones", priority: "0.4" },
+      { loc: "/contacto", priority: "0.4" },
       { loc: "/terminos", priority: "0.3" },
       ...propiedades.map(p => ({
         loc: crearRutaPropiedadSeo(p),

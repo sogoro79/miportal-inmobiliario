@@ -18,6 +18,17 @@ const archivosFrontend = [
   "public/js/seo-local.js"
 ];
 
+const paginasConContacto = [
+  "public/index.html",
+  "public/alquiler.html",
+  "public/comprar.html",
+  "public/publicar.html",
+  "public/planes.html",
+  "public/terminos.html",
+  "public/inmobiliarias-cadiz.html",
+  "public/contacto.html"
+];
+
 function leer(ruta) {
   return fs.readFileSync(new URL(`../${ruta}`, import.meta.url), "utf8");
 }
@@ -49,4 +60,16 @@ test("seo-zonas reutiliza el contexto local inyectado por servidor", () => {
   assert.doesNotMatch(seoZonas, /const SEO_ZONAS\s*=\s*\{/);
   assert.equal(context.title, "Pisos y casas en alquiler en Chipiona | HomeClick24");
   assert.equal(context.canonical, "https://www.homeclick24.com/alquiler/chipiona");
+});
+
+test("enlaces y canonicals de contacto usan la URL limpia", () => {
+  for (const ruta of paginasConContacto) {
+    const contenido = leer(ruta);
+
+    assert.doesNotMatch(contenido, /\/contacto\.html/, ruta);
+  }
+
+  const contacto = leer("public/contacto.html");
+  assert.match(contacto, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/contacto">/);
+  assert.match(contacto, /<meta property="og:url" content="https:\/\/www\.homeclick24\.com\/contacto">/);
 });
