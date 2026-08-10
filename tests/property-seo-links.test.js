@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
 import { getSeoZoneContext } from "../utils/seoZones.js";
 
 const archivosFrontend = [
@@ -51,6 +52,83 @@ function leer(ruta) {
   return fs.readFileSync(new URL(`../${ruta}`, import.meta.url), "utf8");
 }
 
+function crearElementoMock({ id = "", className = "", value = "" } = {}) {
+  return {
+    id,
+    className,
+    value,
+    checked: false,
+    readOnly: false,
+    hidden: false,
+    selectedIndex: 0,
+    textContent: "",
+    innerHTML: "",
+    attributes: {},
+    children: [],
+    style: {},
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+    replaceChildren(...children) {
+      this.children = children;
+    }
+  };
+}
+
+function crearDocumentoListadoMock() {
+  const elementos = new Map();
+  const add = element => {
+    if (element.id) elementos.set(element.id, element);
+    return element;
+  };
+
+  add(crearElementoMock({ id: "lista", className: "lista-propiedades" }));
+  add(crearElementoMock({ id: "resultado-count" }));
+  add(crearElementoMock({ id: "f_texto" }));
+  add(crearElementoMock({ id: "f_min" }));
+  add(crearElementoMock({ id: "f_max" }));
+  add(crearElementoMock({ id: "f_hab" }));
+  add(crearElementoMock({ id: "f_sort" }));
+  add(crearElementoMock({ id: "f_banos" }));
+  add(crearElementoMock({ id: "f_sup_min" }));
+  add(crearElementoMock({ id: "f_sup_max" }));
+  add(crearElementoMock({ id: "f_tipo_inmueble" }));
+  add(crearElementoMock({ id: "f_estado" }));
+  add(crearElementoMock({ id: "f_garaje" }));
+  add(crearElementoMock({ id: "f_piscina" }));
+  add(crearElementoMock({ id: "f_terraza" }));
+
+  const pageHeaderH1 = crearElementoMock();
+  const pageHeaderIntro = crearElementoMock();
+
+  return {
+    title: "",
+    head: crearElementoMock(),
+    getElementById(id) {
+      return elementos.get(id) || null;
+    },
+    createElement() {
+      return crearElementoMock();
+    },
+    querySelector(selector) {
+      if (selector === ".page-header h1") return pageHeaderH1;
+      if (selector === ".page-header p") return pageHeaderIntro;
+      if (selector === "link[rel='canonical']") return null;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector !== ".card-propiedad") return [];
+      const html = elementos.get("lista")?.innerHTML || "";
+      return Array.from(html.matchAll(/class="[^"]*\bcard-propiedad\b[^"]*"/g), () => crearElementoMock());
+    },
+    addEventListener() {}
+  };
+}
+
 test("generadores frontend de propiedades evitan enlaces legacy con query string", () => {
   for (const ruta of archivosFrontend) {
     const contenido = leer(ruta);
@@ -78,6 +156,67 @@ test("seo-zonas reutiliza el contexto local inyectado por servidor", () => {
   assert.doesNotMatch(seoZonas, /const SEO_ZONAS\s*=\s*\{/);
   assert.equal(context.title, "Pisos y casas en alquiler en Chipiona | HomeClick24");
   assert.equal(context.canonical, "https://www.homeclick24.com/alquiler/chipiona");
+});
+
+test("scripts de listados cargan juntos sin colisión global y renderizan propiedades", async () => {
+  const listeners = new Map();
+  const fetchCalls = [];
+  const document = crearDocumentoListadoMock();
+  const window = {
+    location: { pathname: "/comprar", search: "", href: "https://www.homeclick24.com/comprar" },
+    addEventListener(type, callback) {
+      listeners.set(type, [...(listeners.get(type) || []), callback]);
+    }
+  };
+  document.addEventListener = window.addEventListener;
+  window.document = document;
+
+  const context = vm.createContext({
+    window,
+    document,
+    location: window.location,
+    URLSearchParams,
+    console: { error() {} },
+    fetch: async url => {
+      fetchCalls.push(url);
+      return {
+        ok: true,
+        async json() {
+          return [{
+            _id: "507f1f77bcf86cd799439011",
+            titulo: "Piso luminoso en venta",
+            direccion: "Chipiona, Cádiz",
+            precio: 180000,
+            tipoOperacion: "venta",
+            habitaciones: 2,
+            banos: 1,
+            superficie: 80,
+            imagenes: []
+          }];
+        }
+      };
+    }
+  });
+  context.globalThis = context;
+  context.window.window = context.window;
+  context.window.URLSearchParams = URLSearchParams;
+
+  assert.doesNotThrow(() => {
+    vm.runInContext(leer("public/js/seo-slug.js"), context, { filename: "seo-slug.js" });
+    vm.runInContext(leer("public/js/seo-zonas.js"), context, { filename: "seo-zonas.js" });
+    vm.runInContext(leer("public/js/filtros.js"), context, { filename: "filtros.js" });
+  });
+
+  assert.equal(typeof context.window.cargarPropiedades, "function");
+
+  for (const callback of listeners.get("DOMContentLoaded") || []) {
+    await callback();
+  }
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(fetchCalls, ["/propiedades?tipo=venta"]);
+  assert.equal(document.querySelectorAll(".card-propiedad").length, 1);
+  assert.match(document.getElementById("lista").innerHTML, /Piso luminoso en venta/);
 });
 
 test("enlaces y canonicals de contacto usan la URL limpia", () => {

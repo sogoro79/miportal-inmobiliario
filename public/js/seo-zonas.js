@@ -109,10 +109,10 @@ function renderSeoZoneLinks(containerId, operacionPath) {
   }));
 }
 
-const seoZoneContext = readSeoZoneContext();
-window.SEO_ZONAS = seoZoneContext?.zoneLinks || [];
-window.SEO_ZONA_LINKS = seoZoneContext?.zoneLinks || [];
-window.SEO_ZONE_CONTEXT = seoZoneContext;
+const initialSeoZoneContext = readSeoZoneContext();
+window.SEO_ZONAS = initialSeoZoneContext?.zoneLinks || [];
+window.SEO_ZONA_LINKS = initialSeoZoneContext?.zoneLinks || [];
+window.SEO_ZONE_CONTEXT = initialSeoZoneContext;
 window.getSeoZoneContext = getSeoZoneContext;
 window.addBaseStructuredData = addBaseStructuredData;
 window.addZoneBreadcrumbSchema = addZoneBreadcrumbSchema;
