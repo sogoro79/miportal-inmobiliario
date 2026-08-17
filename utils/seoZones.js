@@ -31,7 +31,15 @@ export const SEO_ZONES = Object.freeze({
     filtro: "Sanlúcar de Barrameda",
     aliases: Object.freeze(["Sanlucar de Barrameda", "Sanlúcar de Barrameda", "Sanlucar", "Sanlúcar"]),
     introVenta: "Descubre propiedades en venta en Sanlúcar de Barrameda, una ciudad costera ideal para vivienda habitual o segunda residencia.",
-    introAlquiler: "Busca alquileres en Sanlúcar de Barrameda y encuentra opciones para vivir cerca del centro, la playa o zonas tranquilas."
+    introAlquiler: "Busca alquileres en Sanlúcar de Barrameda y encuentra opciones para vivir cerca del centro, la playa o zonas tranquilas.",
+    seoOverrides: Object.freeze({
+      alquiler: Object.freeze({
+        title: "Casas y pisos en alquiler en Sanlúcar de Barrameda | HomeClick24",
+        description: "Consulta casas, pisos y viviendas en alquiler en Sanlúcar de Barrameda. Filtra por precio, habitaciones y características y contacta en HomeClick24.",
+        h1: "Casas y pisos en alquiler en Sanlúcar de Barrameda",
+        intro: "Explora viviendas en alquiler en Sanlúcar de Barrameda, compara casas y pisos disponibles y usa los filtros por precio, habitaciones y características antes de contactar."
+      })
+    })
   }),
   rota: Object.freeze({
     nombre: "Rota",
@@ -78,6 +86,7 @@ export function getSeoZoneContext({ operacionPath, slug, siteUrl = DEFAULT_SITE_
   const description = esVenta
     ? `Encuentra viviendas en venta en ${zona.nombreSeo}. Pisos, casas y propiedades publicadas en HomeClick24.`
     : `Encuentra viviendas en alquiler en ${zona.nombreSeo}. Pisos, casas y propiedades disponibles en HomeClick24.`;
+  const overrides = zona.seoOverrides?.[accion] || {};
 
   return {
     slug,
@@ -91,10 +100,10 @@ export function getSeoZoneContext({ operacionPath, slug, siteUrl = DEFAULT_SITE_
     accion,
     accionTitulo,
     canonical,
-    title: `Pisos y casas ${accionTitulo} en ${zona.nombreSeo} | HomeClick24`,
-    description,
-    intro: esVenta ? zona.introVenta : zona.introAlquiler,
-    h1: `Pisos y casas ${accionTitulo} en ${zona.nombreSeo}`,
+    title: overrides.title || `Pisos y casas ${accionTitulo} en ${zona.nombreSeo} | HomeClick24`,
+    description: overrides.description || description,
+    intro: overrides.intro || (esVenta ? zona.introVenta : zona.introAlquiler),
+    h1: overrides.h1 || `Pisos y casas ${accionTitulo} en ${zona.nombreSeo}`,
     localContentTitle: `${esVenta ? "Comprar vivienda" : "Alquiler"} en ${zona.nombreSeo}`,
     localContent: esVenta
       ? `Compara viviendas en venta en ${zona.nombreSeo} con anuncios filtrados por ubicación, precio y características antes de contactar directamente con el anunciante.`

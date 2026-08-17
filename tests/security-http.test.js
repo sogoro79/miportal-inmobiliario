@@ -285,6 +285,31 @@ test("landing local de alquiler entrega SEO de Chipiona en el HTML inicial", asy
   assert.doesNotMatch(response.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/alquiler">/);
 });
 
+test("landing local de alquiler de Sanlúcar entrega override SEO en el HTML inicial", async () => {
+  const response = await request("/alquiler/sanlucar-de-barrameda");
+  const context = getSeoZoneContext({ operacionPath: "alquiler", slug: "sanlucar-de-barrameda" });
+
+  assert.equal(response.status, 200);
+  assert.equal(context.title, "Casas y pisos en alquiler en Sanlúcar de Barrameda | HomeClick24");
+  assert.equal(context.description, "Consulta casas, pisos y viviendas en alquiler en Sanlúcar de Barrameda. Filtra por precio, habitaciones y características y contacta en HomeClick24.");
+  assert.equal(context.canonical, "https://www.homeclick24.com/alquiler/sanlucar-de-barrameda");
+  assert.equal(context.h1, "Casas y pisos en alquiler en Sanlúcar de Barrameda");
+  assert.equal(context.intro, "Explora viviendas en alquiler en Sanlúcar de Barrameda, compara casas y pisos disponibles y usa los filtros por precio, habitaciones y características antes de contactar.");
+  assert.match(response.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta name="description" content="${context.description}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<link rel="canonical" href="${context.canonical}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
+  assert.equal(extractPageHeaderIntro(response.text), context.intro);
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:title" content="${context.title}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:description" content="${context.description}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta property="og:url" content="${context.canonical}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta name="twitter:title" content="${context.title}">`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<meta name="twitter:description" content="${context.description}">`)));
+  assert.match(response.text, /<script id="seo-zone-context" type="application\/json">/);
+  assert.equal(countOccurrences(response.text, /rel="canonical"/g), 1);
+  assert.doesNotMatch(response.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/alquiler">/);
+});
+
 test("landing local de compra entrega SEO de Chipiona en el HTML inicial", async () => {
   const response = await request("/comprar/chipiona");
   const context = getSeoZoneContext({ operacionPath: "comprar", slug: "chipiona" });
@@ -310,6 +335,18 @@ test("SEO local se genera de forma genérica para otra zona configurada", async 
   assert.match(response.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
   assert.match(response.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
   assert.match(response.text, new RegExp(escapeRegExp(context.localContent)));
+});
+
+test("override SEO de Sanlúcar alquiler no afecta Sanlúcar compra", async () => {
+  const response = await request("/comprar/sanlucar-de-barrameda");
+  const context = getSeoZoneContext({ operacionPath: "comprar", slug: "sanlucar-de-barrameda" });
+
+  assert.equal(response.status, 200);
+  assert.equal(context.title, "Pisos y casas en venta en Sanlúcar de Barrameda | HomeClick24");
+  assert.equal(context.h1, "Pisos y casas en venta en Sanlúcar de Barrameda");
+  assert.match(response.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
+  assert.match(response.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
+  assert.doesNotMatch(response.text, /Casas y pisos en alquiler en Sanlúcar de Barrameda/);
 });
 
 test("landings generales de compra y alquiler mantienen SEO general", async () => {
