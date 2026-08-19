@@ -167,7 +167,9 @@ function renderLista(lista) {
   <div class="card-propiedad" onclick="abrirPropiedad('${url}')">
     <div class="card-img-wrap">
       <img src="${img}" alt="${p.titulo}" loading="lazy">
-      <span class="tag-tipo ${tipoCls}">${tipo}</span>
+      <div class="card-badges" aria-label="Etiquetas del inmueble">
+        <span class="tag-tipo ${tipoCls}">${tipo}</span>
+      </div>
       <button class="btn-fav" onclick="toggleFavorito(event, '${p._id}', this)">🤍</button>
     </div>
     <div class="card-body">

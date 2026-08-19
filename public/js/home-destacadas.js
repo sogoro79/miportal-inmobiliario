@@ -35,7 +35,10 @@ function renderDestacadaHome(p) {
       <a href="${url}" class="home-feature-link" aria-label="${homeEscape(p.titulo)}">
         <div class="home-feature-img-wrap">
           <img src="${homeEscape(imagen)}" alt="${homeEscape(p.titulo)}" loading="lazy">
-          <span class="home-feature-op ${tipoCls}">${tipo}</span>
+          <div class="home-feature-badges" aria-label="Etiquetas del inmueble">
+            <span class="home-feature-badge home-feature-op ${tipoCls}">${tipo}</span>
+            <span class="home-feature-badge home-feature-highlight">Destacada</span>
+          </div>
         </div>
         <div class="home-feature-body">
           <div class="home-feature-price">${precio}</div>

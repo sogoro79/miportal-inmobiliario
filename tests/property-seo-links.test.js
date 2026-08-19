@@ -250,3 +250,19 @@ test("portada usa viviendas destacadas sin concepto de ultimas oportunidades", (
   assert.match(homeDestacadas, /Ver inmueble/);
   assert.match(homeDestacadas, /getPropiedadSeoUrl\(p\)/);
 });
+
+test("tarjetas muestran badges visuales de operación y destacada solo en home", () => {
+  const styles = leer("public/css/styles.css");
+  const index = leer("public/index.html");
+  const filtros = leer("public/js/filtros.js");
+  const homeDestacadas = leer("public/js/home-destacadas.js");
+
+  assert.match(homeDestacadas, /home-feature-badges/);
+  assert.match(homeDestacadas, /home-feature-highlight">Destacada/);
+  assert.match(homeDestacadas, /\$\{tipo\}/);
+  assert.match(filtros, /card-badges/);
+  assert.match(filtros, /const tipo = p\.tipoOperacion === "venta" \? "Venta" : "Alquiler"/);
+  assert.doesNotMatch(filtros, /Destacada/);
+  assert.match(styles, /\.card-badges/);
+  assert.match(index, /\.home-feature-highlight/);
+});
