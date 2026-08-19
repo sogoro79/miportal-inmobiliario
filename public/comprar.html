@@ -317,6 +317,25 @@
       color: #5a6a7a;
     }
 
+    @media (max-width: 768px) {
+      .footer-inner {
+        grid-template-columns: 1fr 1fr;
+        gap: 28px;
+      }
+
+      .footer-bottom {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .footer-inner {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .zona-contenido-local,
     .zonas-seo {
       max-width: 1200px;
