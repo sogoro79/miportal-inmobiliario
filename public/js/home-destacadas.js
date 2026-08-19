@@ -12,6 +12,10 @@ function homeDireccionCorta(direccion = "") {
   return partes.slice(0, 2).join(", ") || direccion;
 }
 
+function homeUbicacionCorta(propiedad = {}) {
+  return propiedad.ciudad || propiedad.localidad || homeDireccionCorta(propiedad.direccion || "");
+}
+
 function renderDestacadaHome(p) {
   const imagen = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=700";
   const precio = Number(p.precio || 0).toLocaleString("es-ES") + " €";
@@ -24,6 +28,7 @@ function renderDestacadaHome(p) {
   const url = typeof getPropiedadSeoUrl === "function"
     ? getPropiedadSeoUrl(p)
     : `/propiedad/propiedad-${encodeURIComponent(p._id)}`;
+  const ubicacion = homeUbicacionCorta(p);
 
   return `
     <article class="home-feature-card">
@@ -35,9 +40,9 @@ function renderDestacadaHome(p) {
         <div class="home-feature-body">
           <div class="home-feature-price">${precio}</div>
           <h3>${homeEscape(p.titulo)}</h3>
-          <p class="home-feature-address">${homeEscape(homeDireccionCorta(p.direccion || ""))}</p>
+          ${ubicacion ? `<p class="home-feature-address">${homeEscape(ubicacion)}</p>` : ""}
           ${meta ? `<p class="home-feature-meta">${homeEscape(meta)}</p>` : ""}
-          <span class="home-feature-cta">Ver anuncio</span>
+          <span class="home-feature-cta">Ver inmueble</span>
         </div>
       </a>
     </article>
@@ -45,6 +50,7 @@ function renderDestacadaHome(p) {
 }
 
 async function cargarViviendasDestacadasHome() {
+  const section = document.getElementById("homeDestacadasSection");
   const grid = document.getElementById("homeDestacadasGrid");
   if (!grid) return;
 
@@ -53,15 +59,15 @@ async function cargarViviendasDestacadasHome() {
     if (!res.ok) throw new Error("No se pudieron cargar las viviendas destacadas");
     const propiedades = await res.json();
 
-    if (!propiedades.length) {
-      grid.innerHTML = `<div class="home-feature-empty">Pronto verás aquí viviendas destacadas.</div>`;
+    if (propiedades.length < 3) {
+      if (section) section.hidden = true;
       return;
     }
 
-    grid.innerHTML = propiedades.slice(0, 8).map(renderDestacadaHome).join("");
+    grid.innerHTML = propiedades.slice(0, 6).map(renderDestacadaHome).join("");
   } catch (err) {
     console.error("Viviendas destacadas:", err);
-    grid.innerHTML = `<div class="home-feature-empty">Pronto verás aquí viviendas destacadas.</div>`;
+    if (section) section.hidden = true;
   }
 }
 

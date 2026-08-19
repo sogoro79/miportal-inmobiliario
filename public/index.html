@@ -440,6 +440,10 @@
       padding: 0 20px;
     }
 
+    .home-feature-section[hidden] {
+      display: none;
+    }
+
     .home-feature-header {
       display: flex;
       justify-content: space-between;
@@ -471,7 +475,7 @@
 
     .home-feature-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 18px;
       min-width: 0;
     }
@@ -571,6 +575,69 @@
       color: #5a6b4a;
       font-weight: 700;
       text-align: center;
+    }
+
+    .seller-cta-home {
+      max-width: 1200px;
+      margin: 34px auto 58px;
+      padding: 0 20px;
+    }
+
+    .seller-cta-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      padding: 26px 28px;
+      border: 1px solid #dfe9d7;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f8fbf5 0%, #ffffff 56%, #eef7e7 100%);
+      box-shadow: 0 10px 26px rgba(26, 35, 50, 0.08);
+    }
+
+    .seller-cta-inner h2 {
+      margin: 0 0 6px;
+      color: #1a1a1a;
+      font-size: clamp(1.35rem, 2.4vw, 1.95rem);
+      line-height: 1.2;
+    }
+
+    .seller-cta-inner p {
+      margin: 0;
+      color: #52606d;
+      line-height: 1.55;
+    }
+
+    .seller-cta-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      flex-shrink: 0;
+    }
+
+    .seller-cta-actions a {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      padding: 11px 16px;
+      text-decoration: none;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .seller-cta-primary {
+      background: #7cc242;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(124, 194, 66, 0.24);
+    }
+
+    .seller-cta-secondary {
+      color: #1f2937;
+      background: #fff;
+      border: 1px solid #d3dec8;
     }
 
     /* ==============================
@@ -795,6 +862,25 @@
 
       .home-feature-grid {
         grid-template-columns: 1fr;
+      }
+
+      .seller-cta-home {
+        margin: 26px auto 44px;
+        padding: 0 14px;
+      }
+
+      .seller-cta-inner {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 20px 18px;
+      }
+
+      .seller-cta-actions {
+        justify-content: stretch;
+      }
+
+      .seller-cta-actions a {
+        flex: 1 1 150px;
       }
 
       .professional-promo-home {
@@ -1056,11 +1142,11 @@
 <!-- ================================
      VIVIENDAS DESTACADAS
 ================================ -->
-<section class="home-feature-section" aria-labelledby="homeDestacadasTitulo">
+<section class="home-feature-section" id="homeDestacadasSection" aria-labelledby="homeDestacadasTitulo">
   <div class="home-feature-header">
     <div>
-      <h2 id="homeDestacadasTitulo">Viviendas destacadas</h2>
-      <p>Una selección automática de anuncios publicados en HomeClick24, actualizada con viviendas reales disponibles.</p>
+      <h2 id="homeDestacadasTitulo">Viviendas destacadas en HomeClick24</h2>
+      <p>Una selección de inmuebles reales disponibles, con rotación diaria para mantener la portada viva.</p>
     </div>
     <a class="home-feature-all" href="/comprar">Ver más viviendas →</a>
   </div>
@@ -1069,19 +1155,16 @@
   </div>
 </section>
 
-<!-- ================================
-     ÚLTIMOS ANUNCIOS PUBLICADOS
-================================ -->
-<section class="home-feature-section" aria-labelledby="homeUltimasTitulo">
-  <div class="home-feature-header">
+<section class="seller-cta-home" aria-labelledby="sellerCtaHomeTitle">
+  <div class="seller-cta-inner">
     <div>
-      <h2 id="homeUltimasTitulo">Últimos anuncios publicados</h2>
-      <p>Nuevas viviendas añadidas recientemente a HomeClick24.</p>
+      <h2 id="sellerCtaHomeTitle">¿Quieres vender o alquilar tu vivienda?</h2>
+      <p>Publica tu anuncio en HomeClick24 y empieza gratis.</p>
     </div>
-    <a class="home-feature-all" href="/comprar">Ver todos los anuncios →</a>
-  </div>
-  <div class="home-feature-grid" id="homeUltimasGrid">
-    <div class="home-feature-empty">Cargando últimos anuncios...</div>
+    <div class="seller-cta-actions">
+      <a class="seller-cta-primary" href="/publicar">Publicar anuncio</a>
+      <a class="seller-cta-secondary" href="/planes">Ver planes</a>
+    </div>
   </div>
 </section>
 
@@ -1365,7 +1448,6 @@ input.addEventListener("keypress", (e) => {
 <script src="/js/seo-slug.js" defer></script>
 <script src="/js/professional-promo.js"></script>
 <script src="/js/home-destacadas.js" defer></script>
-<script src="/js/home-ultimas.js" defer></script>
 <script src="/js/cookies.js"></script>
 
 </body>

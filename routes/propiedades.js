@@ -30,6 +30,10 @@ import {
 } from "../utils/planLimits.js";
 import { getSeoZoneAliases, getSeoZoneSlugs } from "../utils/seoZones.js";
 import {
+  filtroEstadoDisponibleMongo,
+  propiedadDisponiblePublicamente
+} from "../utils/propertyAvailability.js";
+import {
   filtroPropiedadesValidasVisibles,
   getEstadoPublicacionUsuario,
   getPlanParaFotos,
@@ -218,6 +222,43 @@ function filtroPropiedadesPublicas(now = new Date()) {
   };
 }
 
+function filtroPropiedadesDisponiblesPublicas(now = new Date()) {
+  return {
+    ...filtroPropiedadesPublicas(now),
+    ...filtroEstadoDisponibleMongo()
+  };
+}
+
+function hashDiaActual(now = new Date()) {
+  return Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 86400000);
+}
+
+function hashDeterminista(texto = "", seed = 0) {
+  let hash = seed || 2166136261;
+  for (let i = 0; i < texto.length; i += 1) {
+    hash ^= texto.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function ordenarConRotacionDiaria(propiedades = [], now = new Date()) {
+  const seed = hashDiaActual(now);
+  const ordenarGrupo = items => [...items].sort((a, b) => {
+    const scoreA = hashDeterminista(String(a._id), seed);
+    const scoreB = hashDeterminista(String(b._id), seed);
+    if (scoreA !== scoreB) return scoreA - scoreB;
+
+    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return createdB - createdA;
+  });
+
+  const conImagen = propiedades.filter(propiedad => propiedad.imagenes?.length);
+  const sinImagen = propiedades.filter(propiedad => !propiedad.imagenes?.length);
+  return [...ordenarGrupo(conImagen), ...ordenarGrupo(sinImagen)];
+}
+
 // ==================================================
 // CLOUDINARY CONFIG
 // ==================================================
@@ -375,16 +416,50 @@ router.get("/", validateQuery(propiedadesQuerySchema), async (req, res) => {
 // ==================================================
 router.get("/destacadas", async (req, res) => {
   try {
-    const propiedades = await Propiedad.find(filtroPropiedadesPublicas())
+    const projection = {
+      titulo: 1,
+      precio: 1,
+      tipoOperacion: 1,
+      tipoInmueble: 1,
+      direccion: 1,
+      ciudad: 1,
+      localidad: 1,
+      habitaciones: 1,
+      banos: 1,
+      superficie: 1,
+      imagenes: 1,
+      usuarioId: 1,
+      estadoComercial: 1,
+      visiblePublicamente: 1,
+      activo: 1,
+      eliminada: 1,
+      oculto: 1,
+      oculta: 1,
+      ocultoManual: 1,
+      ocultaManual: 1,
+      ocultoPorAdmin: 1,
+      ocultaPorAdmin: 1,
+      fechaExpiracion: 1,
+      destacado: 1,
+      esDestacada: 1,
+      destacada: 1,
+      updatedAt: 1,
+      createdAt: 1
+    };
+    const candidatas = await Propiedad.find(filtroPropiedadesDisponiblesPublicas(), projection)
       .sort({
         destacado: -1,
         esDestacada: -1,
         destacada: -1,
+        imagenes: -1,
         updatedAt: -1,
         createdAt: -1
       })
-      .limit(8)
+      .limit(24)
       .lean();
+    const propiedades = ordenarConRotacionDiaria(
+      candidatas.filter(propiedad => propiedadDisponiblePublicamente(propiedad))
+    ).slice(0, 6);
 
     res.json(await limitarFotosPublicasPorPlan(propiedades));
   } catch (err) {

@@ -238,3 +238,15 @@ test("enlaces internos activos evitan /index.html", () => {
     assert.doesNotMatch(contenido, /\/index\.html|location\.href='index\.html'|href="index\.html"/, ruta);
   }
 });
+
+test("portada usa viviendas destacadas sin concepto de ultimas oportunidades", () => {
+  const index = leer("public/index.html");
+  const homeDestacadas = leer("public/js/home-destacadas.js");
+  const conceptoEvitado = new RegExp(`Últimas ${"oportunidades"}|Ultimas ${"oportunidades"}`, "i");
+
+  assert.match(index, /Viviendas destacadas en HomeClick24/);
+  assert.doesNotMatch(index, conceptoEvitado);
+  assert.doesNotMatch(homeDestacadas, conceptoEvitado);
+  assert.match(homeDestacadas, /Ver inmueble/);
+  assert.match(homeDestacadas, /getPropiedadSeoUrl\(p\)/);
+});

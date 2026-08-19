@@ -5,45 +5,14 @@ import {
   getLimiteAnunciosPlan,
   getLimiteFotosPlan
 } from "./planLimits.js";
-
-function normalizarEstadoComercial(valor = "") {
-  return String(valor || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function tieneOcultacionManualSeparada(propiedad = {}) {
-  return Boolean(
-    propiedad.activo === false ||
-    propiedad.eliminada === true ||
-    propiedad.oculto === true ||
-    propiedad.oculta === true ||
-    propiedad.ocultoManual === true ||
-    propiedad.ocultaManual === true ||
-    propiedad.ocultoPorAdmin === true ||
-    propiedad.ocultaPorAdmin === true
-  );
-}
-
-function tieneEstadoNoDisponible(propiedad = {}) {
-  const estado = normalizarEstadoComercial(propiedad.estadoComercial || "Disponible");
-  const estadosNoDisponibles = new Set([
-    "vendido",
-    "alquilado",
-    "reservado",
-    "no disponible"
-  ]);
-
-  return estadosNoDisponibles.has(estado);
-}
+import {
+  propiedadDisponiblePublicamente,
+  tieneEstadoNoDisponible,
+  tieneOcultacionManualSeparada
+} from "./propertyAvailability.js";
 
 function propiedadValidaParaLimites(propiedad = {}, { incluirOcultas = false } = {}) {
-  if (!propiedad || tieneOcultacionManualSeparada(propiedad)) return false;
-  if (!incluirOcultas && propiedad.visiblePublicamente === false) return false;
-
-  return !tieneEstadoNoDisponible(propiedad);
+  return propiedadDisponiblePublicamente(propiedad, { incluirOcultas });
 }
 
 function propiedadVigenteEnGratis(propiedad = {}, now = new Date()) {
