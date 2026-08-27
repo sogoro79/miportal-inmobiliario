@@ -22,7 +22,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 ====================== */
 const crearConversacionSchema = z.object({
   propiedadId: objectId,
-  anuncianteId: objectId,
+  anuncianteId: objectId.optional(),
   compradorId: objectId.optional()
 }).strict();
 
@@ -132,7 +132,7 @@ function inicioDia(fecha = new Date()) {
 ====================== */
 router.post("/conversaciones", requireAuth, validateBody(crearConversacionSchema), async (req, res) => {
   try {
-    const { propiedadId, anuncianteId } = req.body;
+    const { propiedadId } = req.body;
     const compradorId = req.user.id;
 
     if (req.body.compradorId && String(req.body.compradorId) !== compradorId) {
@@ -141,9 +141,15 @@ router.post("/conversaciones", requireAuth, validateBody(crearConversacionSchema
 
     const propiedad = await Propiedad.findById(propiedadId);
     if (!propiedad) return res.status(404).json({ error: "Propiedad no encontrada" });
-    if (String(propiedad.usuarioId) !== String(anuncianteId)) {
-      return res.status(403).json({ error: "Anunciante no autorizado" });
+    if (!propiedad.usuarioId) {
+      return res.status(403).json({ error: "Esta propiedad no tiene anunciante asignado" });
     }
+
+    const anuncianteId = propiedad.usuarioId;
+    if (String(anuncianteId) === compradorId) {
+      return res.status(403).json({ error: "Este anuncio es tuyo." });
+    }
+
     const anunciante = await Usuario.findById(anuncianteId);
     if (!anunciante || anunciante.activo === false) {
       return res.status(403).json({ error: "La cuenta no está disponible" });

@@ -63,6 +63,23 @@ test("chat bloquea respuestas hacia participantes eliminados o conversaciones oc
   assert.match(chatSource, /La cuenta no está disponible/);
 });
 
+test("chat no permite crear conversaciones del anunciante consigo mismo", () => {
+  assert.match(chatSource, /String\(anuncianteId\) === compradorId/);
+  assert.match(chatSource, /Este anuncio es tuyo\./);
+});
+
+test("crear conversación deriva comprador y anunciante desde backend", () => {
+  const createBlock = chatSource.match(/router\.post\("\/conversaciones"[\s\S]*?^\}\);/m)?.[0] || "";
+
+  assert.match(createBlock, /const compradorId = req\.user\.id/);
+  assert.match(createBlock, /const propiedad = await Propiedad\.findById\(propiedadId\)/);
+  assert.match(createBlock, /if \(!propiedad\) return res\.status\(404\)/);
+  assert.match(createBlock, /const anuncianteId = propiedad\.usuarioId/);
+  assert.match(createBlock, /Usuario\.findById\(anuncianteId\)/);
+  assert.match(createBlock, /Conversacion\.findOne\(\{ propiedadId, anuncianteId, compradorId \}\)/);
+  assert.doesNotMatch(createBlock, /const \{ propiedadId, anuncianteId \} = req\.body/);
+});
+
 test("propiedad eliminada e interlocutor eliminado se exponen con etiquetas genéricas", () => {
   assert.match(chatSource, /Anuncio no disponible/);
   assert.match(chatSource, /Usuario eliminado/);

@@ -358,9 +358,60 @@ body {
   margin: 18px 0;
 }
 
-/* ===========================
-   BOTÓN CONTACTAR
-=========================== */
+.propiedad-contacto-card {
+  margin-top: 22px;
+  padding: 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f7fbf2 0%, #ffffff 100%);
+  border: 1px solid #dfeecf;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+  min-width: 0;
+}
+
+.propiedad-contacto-kicker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #eef9e8;
+  color: #3f7d20;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.propiedad-contacto-card h2 {
+  margin: 0 0 7px;
+  color: #222;
+  font-size: 1.18rem;
+  line-height: 1.25;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.propiedad-contacto-card p {
+  margin: 0;
+  color: #5f6b5a;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.propiedad-contacto-card .chat-open-btn {
+  margin-top: 16px;
+}
+
+.propiedad-contacto-nota {
+  margin-top: 12px !important;
+  color: #6f7b69 !important;
+  font-size: 0.8rem !important;
+}
+
 .chat-open-btn {
   background: #7cc242;
   color: white;
@@ -385,33 +436,6 @@ body {
 
 .chat-open-btn:active {
   transform: translateY(0);
-}
-
-/* ===========================
-   BOTÓN WHATSAPP
-=========================== */
-.btn-whatsapp {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 13px;
-  background: #25d366;
-  color: #fff;
-  border-radius: 12px;
-  text-decoration: none;
-  font-weight: 700;
-  font-size: 0.95rem;
-  margin-top: 10px;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(37, 211, 102, 0.3);
-}
-
-.btn-whatsapp:hover {
-  background: #1ebe5d;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.4);
 }
 
 /* ===========================

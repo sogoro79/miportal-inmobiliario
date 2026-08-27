@@ -138,6 +138,23 @@ test("generadores frontend de propiedades evitan enlaces legacy con query string
   }
 });
 
+test("ficha de propiedad usa contacto privado por chat sin WhatsApp público", () => {
+  const propiedadJs = leer("public/js/propiedad.js");
+  const propiedadCss = leer("public/css/propiedad.css");
+
+  assert.match(propiedadJs, /¿Te interesa esta vivienda\?/);
+  assert.match(propiedadJs, /Habla directamente con el anunciante desde HomeClick24\./);
+  assert.match(propiedadJs, /Enviar mensaje al anunciante/);
+  assert.match(propiedadJs, /\/chat\/conversaciones/);
+  assert.match(propiedadJs, /propiedadId: propiedad\._id/);
+  assert.match(propiedadJs, /anuncianteId: propiedad\.usuarioId/);
+  assert.match(propiedadJs, /returnUrl=\$\{encodeURIComponent\(returnUrl\)\}/);
+  assert.match(propiedadJs, /Este anuncio es tuyo\./);
+  assert.doesNotMatch(propiedadJs, /btn-whatsapp/);
+  assert.doesNotMatch(propiedadJs, /generarEnlaceWhatsapp/);
+  assert.doesNotMatch(propiedadCss, /btn-whatsapp/);
+});
+
 test("cabecera resuelve notificaciones de propiedad con URL SEO limpia", () => {
   const headerJs = leer("public/js/header.js");
 

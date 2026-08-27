@@ -302,16 +302,15 @@ function renderPropiedad() {
             ${propiedad.accesoTrastero ? `<div class="caract-item">🚪 <span>Acceso: ${propiedad.accesoTrastero}</span></div>` : ""}
           </div>
 
-          <hr>
-
-          <button class="chat-open-btn" onclick="contactar()">
-            💬 Contactar con el anunciante
-          </button>
-
-          <a class="btn-whatsapp" href="${generarEnlaceWhatsapp()}" target="_blank" rel="noopener">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="20" height="20" alt="WhatsApp">
-            Compartir en WhatsApp
-          </a>
+          <section class="propiedad-contacto-card" aria-labelledby="propiedad-contacto-titulo">
+            <div class="propiedad-contacto-kicker">Contacto privado</div>
+            <h2 id="propiedad-contacto-titulo">¿Te interesa esta vivienda?</h2>
+            <p>Habla directamente con el anunciante desde HomeClick24.</p>
+            <button class="chat-open-btn" onclick="contactar()" type="button">
+              💬 Enviar mensaje al anunciante
+            </button>
+            <p class="propiedad-contacto-nota">El contacto se gestiona dentro del chat privado.</p>
+          </section>
 
           <div class="propiedad-aviso">
             <p>🔒 Tus datos están protegidos</p>
@@ -495,13 +494,19 @@ async function contactar() {
   const token   = localStorage.getItem("token");
 
   if (!usuario || !usuario._id || !token) {
-    alert("Debes iniciar sesión para contactar");
-    window.location.href = "/login";
+    alert("Debes iniciar sesión para enviar un mensaje");
+    const returnUrl = `${window.location.pathname}${window.location.search}`;
+    window.location.href = `/login?returnUrl=${encodeURIComponent(returnUrl)}`;
     return;
   }
 
   if (!propiedad.usuarioId) {
     alert("Esta propiedad no tiene anunciante asignado");
+    return;
+  }
+
+  if (String(propiedad.usuarioId) === String(usuario._id)) {
+    alert("Este anuncio es tuyo.");
     return;
   }
 
@@ -519,18 +524,8 @@ async function contactar() {
   });
 
   const data = await res.json();
-  if (!res.ok || !data._id) { alert("No se pudo abrir el chat"); return; }
+  if (!res.ok || !data._id) { alert(data.error || "No se pudo abrir el chat"); return; }
   window.location.href = `/chat?id=${data._id}`;
-}
-
-/* ================================
-   WHATSAPP
-================================ */
-function generarEnlaceWhatsapp() {
-  const texto = encodeURIComponent(
-    `🏠 *${propiedad.titulo}*\n📍 ${propiedad.direccion}\n💶 ${propiedad.precio?.toLocaleString("es-ES")} €\n\n${window.location.href}`
-  );
-  return `https://wa.me/?text=${texto}`;
 }
 
 function formatearTipo(tipo) {
