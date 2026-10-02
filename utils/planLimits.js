@@ -81,6 +81,26 @@ export const PLAN_CATALOG = deepFreeze({
     orden: 40,
     destacado: false
   },
+  lanzamiento_2026: {
+    id: "lanzamiento_2026",
+    nombre: "Plan Lanzamiento",
+    categoria: "promocional",
+    precio: "0€",
+    precioDetalle: "",
+    anuncios: 10,
+    fotos: 20,
+    duracionAnunciosDias: null,
+    dependeDeStripe: false,
+    ilimitadoAnuncios: false,
+    ilimitadoFotos: false,
+    esTrial: false,
+    planDestinoAlExpirar: "gratis",
+    visiblePublicamente: true,
+    orden: 45,
+    destacado: true,
+    descripcion: "Gratis hasta el 31 de enero de 2027",
+    expiracionFija: "2027-01-31T22:59:59.000Z"
+  },
   pro_agentes: {
     id: "pro_agentes",
     nombre: "Pro",

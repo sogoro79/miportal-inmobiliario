@@ -93,7 +93,9 @@ async function login() {
   localStorage.setItem("usuario", JSON.stringify(data.usuario));
 
   mostrarMensaje("✅ Sesión iniciada. Redirigiendo...", "green");
-  const destino = window.HomeClickProfessionalPromo?.professionalPromoLoginRedirectTarget
+  const destino = window.HomeClickLaunchPlan?.launchPlanLoginRedirectTarget
+    ? window.HomeClickLaunchPlan.launchPlanLoginRedirectTarget("/")
+    : window.HomeClickProfessionalPromo?.professionalPromoLoginRedirectTarget
     ? window.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/")
     : (() => {
         const returnUrl = new URLSearchParams(window.location.search).get("returnUrl");

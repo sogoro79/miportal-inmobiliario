@@ -31,6 +31,13 @@ test("estado de publicación deriva límites desde catálogo central", () => {
   const basico = getEstadoPublicacionUsuario({ plan: "basico", planActivo: true }, 2);
   assert.equal(basico.limiteAnuncios, 3);
   assert.equal(basico.puedePublicarAhora, true);
+
+  const lanzamiento9 = getEstadoPublicacionUsuario({ plan: "lanzamiento_2026", planActivo: true }, 9);
+  const lanzamiento10 = getEstadoPublicacionUsuario({ plan: "lanzamiento_2026", planActivo: true }, 10);
+  assert.equal(lanzamiento9.limiteAnuncios, 10);
+  assert.equal(lanzamiento9.puedePublicarAhora, true);
+  assert.equal(lanzamiento10.puedePublicarAhora, false);
+  assert.equal(lanzamiento10.motivo, "limite_anuncios");
 });
 
 test("planes inactivos y vip_trial no aceptado no pueden publicar", () => {
@@ -103,11 +110,12 @@ test("planes autenticado no envía Gratis a registro y sí a publicar", () => {
 });
 
 test("planes mantiene visitantes y pagos en flujos existentes sin perder sesión", () => {
+  const gratisBlock = planesHtml.match(/if \(plan === "gratis"\) \{[\s\S]*?\n    \}/)?.[0] || "";
   assert.match(planesHtml, /localStorage\.setItem\("planPendiente", plan\)/);
   assert.match(planesHtml, /\/login\?returnUrl=\/planes/);
   assert.match(planesHtml, /const endpoint = usuarioConSuscripcion\(usuario\) \? "\/pagos\/cambiar-plan" : "\/pagos\/crear-sesion"/);
   assert.match(planesHtml, /Authorization': 'Bearer ' \+ token/);
-  assert.doesNotMatch(planesHtml, /localStorage\.removeItem\("token"\)[\s\S]*plan === "gratis"/);
+  assert.doesNotMatch(gratisBlock, /localStorage\.removeItem\("token"\)/);
 });
 
 test("publicar sigue protegido para visitantes y marca selección solo tras sesión válida", () => {

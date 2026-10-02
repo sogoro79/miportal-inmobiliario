@@ -26,6 +26,7 @@ const EXPECTED_LIMITS = {
   basico: { anuncios: 3, fotos: 10, duracionAnunciosDias: null, categoria: "particular", stripe: true, trial: false },
   destacado: { anuncios: 4, fotos: 15, duracionAnunciosDias: null, categoria: "particular", stripe: true, trial: false },
   starter: { anuncios: 15, fotos: 20, duracionAnunciosDias: null, categoria: "profesional", stripe: true, trial: false },
+  lanzamiento_2026: { anuncios: 10, fotos: 20, duracionAnunciosDias: null, categoria: "promocional", stripe: false, trial: false },
   pro_agentes: { anuncios: 40, fotos: 30, duracionAnunciosDias: null, categoria: "profesional", stripe: true, trial: false },
   agencia_basica: { anuncios: 50, fotos: 40, duracionAnunciosDias: null, categoria: "profesional", stripe: true, trial: false },
   agencia_pro: { anuncios: Infinity, fotos: 50, duracionAnunciosDias: null, categoria: "profesional", stripe: false, trial: false },
@@ -33,7 +34,7 @@ const EXPECTED_LIMITS = {
   professional_trial_60d: { anuncios: Infinity, fotos: Infinity, duracionAnunciosDias: null, categoria: "interno", stripe: false, trial: true },
   vip: { anuncios: Infinity, fotos: Infinity, duracionAnunciosDias: null, categoria: "interno", stripe: false, trial: false }
 };
-const COMMERCIAL_PLAN_IDS = ["gratis", "basico", "destacado", "starter", "pro_agentes", "agencia_basica"];
+const COMMERCIAL_PLAN_IDS = ["gratis", "basico", "destacado", "lanzamiento_2026", "starter", "pro_agentes", "agencia_basica"];
 
 function createReq(path) {
   const req = new Readable({
@@ -133,6 +134,7 @@ test("planes ilimitados y downgrade de vip_trial se expresan de forma estable", 
   assert.equal(planTieneLimiteFotos("professional_trial_60d"), false);
   assert.equal(getPlanConfig("vip_trial").planDestinoAlExpirar, "gratis");
   assert.equal(getPlanConfig("professional_trial_60d").planDestinoAlExpirar, "gratis");
+  assert.equal(getPlanConfig("lanzamiento_2026").planDestinoAlExpirar, "gratis");
 });
 
 test("catálogo público no serializa infinitos ni expone secretos", () => {
@@ -140,6 +142,7 @@ test("catálogo público no serializa infinitos ni expone secretos", () => {
   const json = JSON.stringify(catalogo);
   const vipTrial = catalogo.find(plan => plan.id === "vip_trial");
   const professionalTrial = catalogo.find(plan => plan.id === "professional_trial_60d");
+  const lanzamiento = catalogo.find(plan => plan.id === "lanzamiento_2026");
 
   assert.ok(vipTrial);
   assert.equal(vipTrial.anuncios, null);
@@ -151,6 +154,11 @@ test("catálogo público no serializa infinitos ni expone secretos", () => {
   assert.equal(professionalTrial.dependeDeStripe, false);
   assert.equal(professionalTrial.anuncios, null);
   assert.equal(professionalTrial.fotos, null);
+  assert.ok(lanzamiento);
+  assert.equal(lanzamiento.visiblePublicamente, true);
+  assert.equal(lanzamiento.dependeDeStripe, false);
+  assert.equal(lanzamiento.anuncios, 10);
+  assert.equal(lanzamiento.fotos, 20);
   assert.doesNotMatch(json, /STRIPE_|PRICE|sk_test|whsec|secret|coupon/i);
 });
 
@@ -201,6 +209,7 @@ test("planes.html usa fallback comercial completo ante catálogo fallido o vací
   assert.match(planesHtml, /id: "gratis"[\s\S]*anuncios: 2[\s\S]*fotos: 7[\s\S]*duracionAnunciosDias: 15/);
   assert.match(planesHtml, /id: "basico"[\s\S]*anuncios: 3[\s\S]*fotos: 10/);
   assert.match(planesHtml, /id: "destacado"[\s\S]*anuncios: 4[\s\S]*fotos: 15/);
+  assert.match(planesHtml, /id: "lanzamiento_2026"[\s\S]*nombre: "Plan Lanzamiento"[\s\S]*anuncios: 10[\s\S]*fotos: 20/);
   assert.match(planesHtml, /id: "starter"[\s\S]*anuncios: 15[\s\S]*fotos: 20/);
   assert.match(planesHtml, /id: "pro_agentes"[\s\S]*anuncios: 40[\s\S]*fotos: 30/);
   assert.match(planesHtml, /id: "agencia_basica"[\s\S]*anuncios: 50[\s\S]*fotos: 40/);
@@ -209,7 +218,7 @@ test("planes.html usa fallback comercial completo ante catálogo fallido o vací
 test("planes.html no renderiza planes internos como contratables y usa DOM seguro", () => {
   const planesHtml = fs.readFileSync(new URL("../public/planes.html", import.meta.url), "utf8");
 
-  assert.match(planesHtml, /const PLAN_IDS_COMERCIALES = \["gratis", "basico", "destacado", "starter", "pro_agentes", "agencia_basica"\]/);
+  assert.match(planesHtml, /const PLAN_IDS_COMERCIALES = \["gratis", "basico", "destacado", "lanzamiento_2026", "starter", "pro_agentes", "agencia_basica"\]/);
   assert.match(planesHtml, /PLAN_IDS_COMERCIALES\.includes\(plan\.id\)/);
   assert.match(planesHtml, /document\.createElement/);
   assert.match(planesHtml, /\.textContent =/);
@@ -228,6 +237,7 @@ test("publicar.html separa fallo de catálogo de fallo de sesión y mantiene fal
   assert.match(publicarHtml, /catalogoPlanesPublicar\.gratis \|\| FALLBACK_PLANES_PUBLICAR\.gratis/);
   assert.match(publicarHtml, /vip_trial: \{ fotos: null, ilimitadoFotos: true \}/);
   assert.match(publicarHtml, /professional_trial_60d: \{ fotos: null, ilimitadoFotos: true \}/);
+  assert.match(publicarHtml, /lanzamiento_2026: \{ fotos: 20, ilimitadoFotos: false \}/);
   assert.match(publicarHtml, /vip: \{ fotos: null, ilimitadoFotos: true \}/);
   assert.match(publicarHtml, /const plan = usuario\?\.plan \|\| "gratis"/);
 });
@@ -238,6 +248,7 @@ test("perfil.html fallback representa vip, vip_trial y plan desconocido correcta
   assert.match(perfilHtml, /FALLBACK_PLANES_PERFIL/);
   assert.match(perfilHtml, /id: "vip_trial"[\s\S]*nombre: "Prueba VIP"[\s\S]*ilimitadoAnuncios: true[\s\S]*ilimitadoFotos: true/);
   assert.match(perfilHtml, /id: "professional_trial_60d"[\s\S]*nombre: "Promoción Profesional 60 días"[\s\S]*ilimitadoAnuncios: true[\s\S]*ilimitadoFotos: true/);
+  assert.match(perfilHtml, /id: "lanzamiento_2026"[\s\S]*nombre: "Plan Lanzamiento"[\s\S]*anuncios: 10[\s\S]*fotos: 20/);
   assert.match(perfilHtml, /id: "vip"[\s\S]*nombre: "VIP"[\s\S]*ilimitadoAnuncios: true[\s\S]*ilimitadoFotos: true/);
   assert.match(perfilHtml, /id: "agencia_pro"[\s\S]*fotos: 50[\s\S]*ilimitadoAnuncios: true/);
   assert.match(perfilHtml, /PLANES_CATALOGO\[usuario\.plan\] \|\| PLANES_CATALOGO\.gratis/);
@@ -261,7 +272,9 @@ test("admin mantiene lista explícita de planes asignables", () => {
   const adminHtml = fs.readFileSync(new URL("../public/admin.html", import.meta.url), "utf8");
 
   assert.match(adminRoutes, /const ADMIN_ASSIGNABLE_PLAN_IDS = \[/);
-  assert.match(adminRoutes, /'gratis', 'basico', 'destacado', 'starter'/);
+  assert.match(adminRoutes, /'gratis', 'basico', 'destacado'/);
+  assert.match(adminRoutes, /'starter'/);
+  assert.match(adminRoutes, /'lanzamiento_2026'/);
   assert.match(adminRoutes, /'pro_agentes', 'agencia_basica', 'agencia_pro'/);
   assert.match(adminRoutes, /'vip', 'vip_trial'/);
   assert.match(adminRoutes, /const PLANES_VALIDOS = ADMIN_ASSIGNABLE_PLAN_IDS/);
@@ -270,6 +283,8 @@ test("admin mantiene lista explícita de planes asignables", () => {
   assert.doesNotMatch(assignableBlock, /professional_trial/);
   assert.match(adminHtml, /const promoProfesionalActiva = u\.plan === 'professional_trial_60d' && u\.professionalPromoStatus === 'active'/);
   assert.match(adminHtml, /Promo profesional activa/);
+  assert.match(adminHtml, /Plan Lanzamiento/);
+  assert.match(adminHtml, /renderInfoPlanLanzamiento/);
   assert.match(adminHtml, /\$\{estaActivo && !promoProfesionalActiva \? '' : 'disabled'\}/);
   assert.match(adminHtml, /La promoción profesional activa no se modifica desde este selector/);
 });

@@ -21,6 +21,7 @@ import { getCloudinaryPublicIdFromUrl } from '../utils/imageSecurity.js';
 import { securityRateLimits } from '../utils/security.js';
 import { validateBody, z } from '../utils/validation.js';
 import { getProfessionalPromotionAdminStats } from '../utils/professionalPromotion.js';
+import { LAUNCH_PLAN_ID, getLaunchPlanEndsAt } from '../utils/launchPlan.js';
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -38,7 +39,7 @@ const adminLoginSchema = z.object({
 
 const ADMIN_ASSIGNABLE_PLAN_IDS = [
   'gratis', 'basico', 'destacado', 'starter',
-  'pro_agentes', 'agencia_basica', 'agencia_pro',
+  'lanzamiento_2026', 'pro_agentes', 'agencia_basica', 'agencia_pro',
   'vip', 'vip_trial'
 ];
 const PLANES_VALIDOS = ADMIN_ASSIGNABLE_PLAN_IDS;
@@ -569,7 +570,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
       gratis: 0, basico: 9.90, destacado: 19.90,
       starter: 29.90, pro_agentes: 59.90,
       agencia_basica: 79.90, agencia_pro: 149.90,
-      vip: 0, vip_trial: 0, professional_trial_60d: 0
+      vip: 0, vip_trial: 0, professional_trial_60d: 0, lanzamiento_2026: 0
     };
 
     const usuariosConPagoReal = await Usuario.find(filtroSuscripcionRealActiva, { plan: 1 }).lean();
@@ -692,7 +693,7 @@ router.get('/estadisticas', requireAdmin, async (req, res) => {
 router.get('/usuarios', requireAdmin, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, {
-      nombre: 1, email: 1, plan: 1, planActivo: 1, createdAt: 1, verificado: 1,
+      nombre: 1, email: 1, plan: 1, planActivo: 1, planFechaFin: 1, createdAt: 1, verificado: 1,
       activo: 1, desactivadoAt: 1,
       stripeSubscriptionId: 1, subscriptionStatus: 1, cancelAtPeriodEnd: 1, subscriptionCancelAt: 1,
       trialAccepted: 1, trialStartDate: 1, trialEndDate: 1, trialReminderSent: 1,
@@ -1398,6 +1399,28 @@ router.put('/usuarios/:id/plan', requireAdmin, async (req, res) => {
       });
     } else if (plan === 'vip_trial') {
       Object.assign(update, crearDatosVipTrial());
+    } else if (plan === LAUNCH_PLAN_ID) {
+      Object.assign(update, {
+        planActivo: true,
+        planFechaFin: getLaunchPlanEndsAt(),
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        subscriptionStatus: null,
+        pendingPlan: null,
+        pendingPriceId: null,
+        pendingPlanChangeAt: null,
+        pendingPlanLabel: null,
+        trialAccepted: false,
+        trialStartDate: null,
+        trialEndDate: null,
+        trialReminderSent: false,
+        trialReminders: {
+          sevenDays: false,
+          threeDays: false,
+          lastDay: false,
+          expired: false
+        }
+      });
     } else {
       Object.assign(update, {
         trialAccepted: false,

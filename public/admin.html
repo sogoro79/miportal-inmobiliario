@@ -2628,7 +2628,8 @@ async function cargarStats() {
     starter: 'Starter', pro_agentes: 'Pro Agentes',
     agencia_basica: 'Agencia Básica', agencia_pro: 'Agencia Pro',
     vip: 'VIP', vip_trial: 'Prueba VIP',
-    professional_trial_60d: 'Promo profesional'
+    professional_trial_60d: 'Promo profesional',
+    lanzamiento_2026: 'Plan Lanzamiento'
   };
 
   document.getElementById('planesGrid').innerHTML = data.planes.map(p => `
@@ -2742,6 +2743,17 @@ function renderInfoPromocionProfesional(u = {}) {
   `;
 }
 
+function renderInfoPlanLanzamiento(u = {}) {
+  if (u.plan !== 'lanzamiento_2026') return '';
+  const fin = u.planFechaFin ? formatearFecha(u.planFechaFin) : '31 ene 2027';
+  return `
+    <div class="trial-info">
+      <strong>Plan Lanzamiento</strong>
+      <span>Hasta ${escapeHtml(fin)}</span>
+    </div>
+  `;
+}
+
 function renderMenuAccionesUsuario(u, estaActivo) {
   const tieneSuscripcionActiva = usuarioTieneSuscripcionActiva(u);
   const esAdministrador = u.role === 'admin';
@@ -2776,7 +2788,7 @@ function renderMenuAccionesUsuario(u, estaActivo) {
 }
 
 function renderUsuarios(usuarios) {
-  const PLANES = ['gratis', 'basico', 'destacado', 'starter', 'pro_agentes', 'agencia_basica', 'vip', 'vip_trial'];
+  const PLANES = ['gratis', 'basico', 'destacado', 'starter', 'lanzamiento_2026', 'pro_agentes', 'agencia_basica', 'vip', 'vip_trial'];
 
   document.getElementById('tablaUsuarios').innerHTML = usuarios.map(u => {
     const fecha = u.createdAt ? new Date(u.createdAt).toLocaleDateString('es-ES') : '—';
@@ -2795,8 +2807,10 @@ function renderUsuarios(usuarios) {
             ${estaActivo ? (u.plan || 'gratis') : 'desactivado'}
           </span>
           ${u.plan === 'professional_trial_60d' ? '<span class="badge-plan badge-promo-profesional">Promo profesional</span>' : ''}
+          ${u.plan === 'lanzamiento_2026' ? '<span class="badge-plan badge-promo-profesional">Plan Lanzamiento</span>' : ''}
           ${renderInfoVipTrial(u)}
           ${renderInfoPromocionProfesional(u)}
+          ${renderInfoPlanLanzamiento(u)}
         </td>
         <td data-label="Verificado">
           <span class="${u.verificado ? 'badge-verificado' : 'badge-noverificado'}"></span>

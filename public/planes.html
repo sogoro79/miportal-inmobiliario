@@ -104,18 +104,22 @@
     </div>
   </section>
 
-  <section class="planes-promo-profesional" data-professional-promo aria-labelledby="planesPromoProfesionalTitle">
+  <section class="planes-promo-profesional" data-launch-plan aria-labelledby="planesPromoProfesionalTitle">
     <div>
-      <h2 id="planesPromoProfesionalTitle">Promoción Profesional 60 días</h2>
-      <p><strong>60 días gratis</strong> para profesionales e inmobiliarias que se registren hasta el 31 de octubre.</p>
-      <p class="promo-note">Sin tarjeta. Sin permanencia. Activación sujeta a verificación profesional.</p>
+      <h2 id="planesPromoProfesionalTitle">Plan Lanzamiento</h2>
+      <p><strong>Gratis hasta el 31 de enero de 2027</strong> para particulares e inmobiliarias de toda España.</p>
+      <p class="promo-note">Sin permanencia. Sin renovación automática. Después pasarás al plan gratuito.</p>
     </div>
-    <a href="/registro?promo=professional-60" data-professional-promo-cta>Quiero mis 60 días gratis</a>
+    <a href="/registro?plan=lanzamiento_2026" data-launch-plan-cta>Activar gratis</a>
   </section>
 
   <!-- PARTICULARES -->
   <p class="planes-section-label">Particulares</p>
   <div class="planes-grid" id="planesParticulares"></div>
+
+  <!-- LANZAMIENTO -->
+  <p class="planes-section-label">Campaña nacional</p>
+  <div class="planes-grid" id="planesLanzamiento"></div>
 
   <!-- AGENTES -->
   <p class="planes-section-label">Agentes independientes</p>
@@ -129,9 +133,12 @@
 
 <script src="/js/publish-flow.js"></script>
 <script src="/js/professional-promo.js"></script>
+<script src="/js/launch-plan.js"></script>
 <script>
-const PLAN_IDS_COMERCIALES = ["gratis", "basico", "destacado", "starter", "pro_agentes", "agencia_basica"];
+const PLAN_LANZAMIENTO_ID = "lanzamiento_2026";
+const PLAN_IDS_COMERCIALES = ["gratis", "basico", "destacado", "lanzamiento_2026", "starter", "pro_agentes", "agencia_basica"];
 const PLAN_IDS_PARTICULARES = ["gratis", "basico", "destacado"];
+const PLAN_IDS_LANZAMIENTO = ["lanzamiento_2026"];
 const PLAN_IDS_AGENTES = ["starter", "pro_agentes"];
 const PLAN_IDS_AGENCIAS = ["agencia_basica"];
 const FALLBACK_PLANES_COMERCIALES = [
@@ -154,6 +161,12 @@ const FALLBACK_PLANES_COMERCIALES = [
     id: "starter", nombre: "Starter", categoria: "profesional", precio: "29,90€", precioDetalle: "/mes",
     anuncios: 15, fotos: 20, duracionAnunciosDias: null, dependeDeStripe: true,
     ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: false
+  },
+  {
+    id: "lanzamiento_2026", nombre: "Plan Lanzamiento", categoria: "promocional", precio: "0€", precioDetalle: "",
+    anuncios: 10, fotos: 20, duracionAnunciosDias: null, dependeDeStripe: false,
+    ilimitadoAnuncios: false, ilimitadoFotos: false, visiblePublicamente: true, destacado: true,
+    descripcion: "Gratis hasta el 31 de enero de 2027"
   },
   {
     id: "pro_agentes", nombre: "Pro", categoria: "profesional", precio: "59,90€", precioDetalle: "/mes",
@@ -189,6 +202,10 @@ function prestacionesPlan(plan) {
 
   if (plan.duracionAnunciosDias) {
     items.push(`${plan.duracionAnunciosDias} días de duración`);
+  } else if (plan.id === PLAN_LANZAMIENTO_ID) {
+    items.push("Gratis hasta el 31 de enero de 2027");
+    items.push("Sin permanencia");
+    items.push("Sin renovación automática");
   } else if (plan.dependeDeStripe) {
     items.push("Activo mientras pagues");
   }
@@ -243,7 +260,9 @@ function renderPlanCard(plan) {
   button.type = "button";
   button.className = `plan-btn ${plan.id === "gratis" || !plan.destacado ? "plan-btn-outline" : "plan-btn-green"}`;
   button.dataset.plan = plan.id;
-  button.textContent = plan.id === "gratis" ? "Empezar gratis" : "Suscribirse";
+  button.textContent = plan.id === PLAN_LANZAMIENTO_ID
+    ? "Activar gratis"
+    : (plan.id === "gratis" ? "Empezar gratis" : "Suscribirse");
   button.addEventListener("click", () => suscribirse(plan.id));
   card.appendChild(button);
 
@@ -263,6 +282,7 @@ function renderPlanes(planes) {
   };
 
   pintar("planesParticulares", PLAN_IDS_PARTICULARES);
+  pintar("planesLanzamiento", PLAN_IDS_LANZAMIENTO);
   pintar("planesAgentes", PLAN_IDS_AGENTES);
   pintar("planesAgencias", PLAN_IDS_AGENCIAS);
 }
@@ -303,7 +323,9 @@ function actualizarBotonesPlanes(usuario, estadoPublicacion = null) {
     const puedePublicar = estadoPublicacion?.puedePublicarAhora === true;
 
     if (!usuario?._id) {
-      btn.textContent = plan === "gratis" ? "Empezar gratis" : "Suscribirse";
+      btn.textContent = plan === PLAN_LANZAMIENTO_ID
+        ? "Activar gratis"
+        : (plan === "gratis" ? "Empezar gratis" : "Suscribirse");
       return;
     }
 
@@ -323,7 +345,9 @@ function actualizarBotonesPlanes(usuario, estadoPublicacion = null) {
       return;
     }
 
-    btn.textContent = usuarioConSuscripcion(usuario) ? "Mejorar plan" : "Suscribirse";
+    btn.textContent = plan === PLAN_LANZAMIENTO_ID
+      ? "Activar gratis"
+      : (usuarioConSuscripcion(usuario) ? "Mejorar plan" : "Suscribirse");
   });
 }
 
@@ -347,6 +371,11 @@ async function suscribirse(plan) {
 
   if (!token) {
     localStorage.setItem("planPendiente", plan);
+    if (plan === PLAN_LANZAMIENTO_ID) {
+      window.HomeClickLaunchPlan?.rememberLaunchPlanIntent();
+      window.location.href = window.HomeClickLaunchPlan?.launchPlanRegisterTarget?.() || "/registro?plan=lanzamiento_2026";
+      return;
+    }
     irLoginPlanes("Inicia sesión para suscribirte");
     return;
   }
@@ -355,6 +384,43 @@ async function suscribirse(plan) {
     const usuario = await cargarUsuarioActual(token);
     usuarioPlanesActual = usuario;
     estadoPublicacionPlanes = await cargarEstadoPublicacionPlanes(token);
+
+    if (plan === PLAN_LANZAMIENTO_ID) {
+      const ok = confirm("Gratis hasta el 31 de enero de 2027. Después pasarás al plan gratuito. No hay renovación automática ni cargos.");
+      if (!ok) return;
+
+      const response = await fetch("/api/plan-lanzamiento/activar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        }
+      });
+      const data = await response.json();
+
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("usuario");
+        localStorage.setItem("planPendiente", plan);
+        window.HomeClickLaunchPlan?.rememberLaunchPlanIntent();
+        window.location.href = window.HomeClickLaunchPlan?.launchPlanLoginTarget?.() || "/login?plan=lanzamiento_2026";
+        return;
+      }
+
+      if (!response.ok) {
+        alert(data.error || "No se pudo activar el Plan Lanzamiento.");
+        actualizarBotonesPlanes(usuario, estadoPublicacionPlanes);
+        return;
+      }
+
+      if (data.usuario) {
+        localStorage.setItem("usuario", JSON.stringify(data.usuario));
+        window.HomeClickPublishFlow?.marcarSeleccionYPublicar(data.usuario);
+        return;
+      }
+      window.location.href = "/publicar";
+      return;
+    }
 
     if (plan === "gratis") {
       if (estadoPublicacionPlanes?.puedePublicarAhora) {
