@@ -1,5 +1,4 @@
 import Usuario from "../models/Usuario.js";
-import { aplicarLimitesPlanTrasTrial } from "./trialPlanLimits.js";
 
 export const LAUNCH_PLAN_ID = "lanzamiento_2026";
 export const LAUNCH_PLAN_NAME = "Plan Lanzamiento";
@@ -20,8 +19,16 @@ export function getLaunchPlanEndsAt() {
   return new Date(LAUNCH_PLAN_END_ISO);
 }
 
-export function isLaunchPlanCampaignActive(now = new Date()) {
+export function isAtOrBeforeLaunchPlanEnd(now = new Date()) {
   return new Date(now).getTime() <= getLaunchPlanEndsAt().getTime();
+}
+
+export function isAfterLaunchPlanEnd(now = new Date()) {
+  return new Date(now).getTime() > getLaunchPlanEndsAt().getTime();
+}
+
+export function isLaunchPlanCampaignActive(now = new Date()) {
+  return isAtOrBeforeLaunchPlanEnd(now);
 }
 
 export function usuarioTienePlanLanzamientoActivo(usuario = {}, now = new Date()) {
@@ -29,7 +36,8 @@ export function usuarioTienePlanLanzamientoActivo(usuario = {}, now = new Date()
     usuario.plan === LAUNCH_PLAN_ID &&
     usuario.planActivo === true &&
     usuario.planFechaFin &&
-    new Date(usuario.planFechaFin).getTime() > new Date(now).getTime()
+    new Date(usuario.planFechaFin).getTime() >= new Date(now).getTime() &&
+    isAtOrBeforeLaunchPlanEnd(now)
   );
 }
 
@@ -104,13 +112,16 @@ export async function activateLaunchPlan({
 
 export async function expireLaunchPlans(now = new Date(), {
   UsuarioModel = Usuario,
-  applyLimits = aplicarLimitesPlanTrasTrial,
   logger = console
 } = {}) {
+  if (!isAfterLaunchPlanEnd(now)) {
+    return { revisados: 0, expirados: 0, omitidos: 0 };
+  }
+
   const usuarios = await UsuarioModel.find({
     plan: LAUNCH_PLAN_ID,
     planActivo: true,
-    planFechaFin: { $exists: true, $ne: null, $lte: now }
+    planFechaFin: { $exists: true, $ne: null, $lt: now }
   });
 
   let expirados = 0;
@@ -126,7 +137,6 @@ export async function expireLaunchPlans(now = new Date(), {
     usuario.planActivo = false;
     usuario.planFechaFin = null;
     await usuario.save();
-    await applyLimits(usuario._id, { planDestino: "gratis", now });
     expirados += 1;
   }
 

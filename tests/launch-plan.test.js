@@ -9,6 +9,7 @@ import {
   LAUNCH_PLAN_END_ISO,
   LAUNCH_PLAN_ID,
   LaunchPlanError,
+  usuarioTienePlanLanzamientoActivo,
   scheduleLaunchPlanExpiration,
   resetLaunchPlanSchedulerForTests
 } from "../utils/launchPlan.js";
@@ -104,12 +105,17 @@ test("activación rechaza campaña expirada, planes no elegibles y usuario inexi
   );
 });
 
-test("expiración baja a gratis sin borrar datos y aplica límites gratis una sola vez", async () => {
+test("expiración baja a gratis sin tocar propiedades ni fotos existentes", async () => {
   const expired = mockUser({
     _id: "expired",
     plan: LAUNCH_PLAN_ID,
     planActivo: true,
-    planFechaFin: new Date("2027-01-31T22:59:59.000Z")
+    planFechaFin: new Date("2027-01-31T22:59:59.000Z"),
+    propiedades: [
+      { _id: "prop-1", visiblePublicamente: true, imagenes: ["foto-1", "foto-2"] },
+      { _id: "prop-2", visiblePublicamente: true, imagenes: ["foto-3"] },
+      { _id: "prop-3", visiblePublicamente: true, imagenes: ["foto-4"] }
+    ]
   });
   const untouched = mockUser({
     _id: "untouched",
@@ -122,14 +128,13 @@ test("expiración baja a gratis sin borrar datos y aplica límites gratis una so
     async find(query) {
       assert.equal(query.plan, LAUNCH_PLAN_ID);
       assert.equal(query.planActivo, true);
-      assert.deepEqual(query.planFechaFin.$lte, new Date("2027-02-01T00:00:00.000Z"));
+      assert.deepEqual(query.planFechaFin.$lt, new Date("2027-02-01T00:00:00.000Z"));
       return [expired, untouched];
     }
   };
 
   const result = await expireLaunchPlans(new Date("2027-02-01T00:00:00.000Z"), {
     UsuarioModel,
-    applyLimits: async (userId, options) => applied.push({ userId, options }),
     logger: { info() {}, error() {} }
   });
 
@@ -138,8 +143,81 @@ test("expiración baja a gratis sin borrar datos y aplica límites gratis una so
   assert.equal(expired.planActivo, false);
   assert.equal(expired.planFechaFin, null);
   assert.equal(expired.saveCalls, 1);
-  assert.deepEqual(applied, [{ userId: "expired", options: { planDestino: "gratis", now: new Date("2027-02-01T00:00:00.000Z") } }]);
+  assert.deepEqual(expired.propiedades.map(propiedad => propiedad.visiblePublicamente), [true, true, true]);
+  assert.deepEqual(expired.propiedades.flatMap(propiedad => propiedad.imagenes), ["foto-1", "foto-2", "foto-3", "foto-4"]);
+  assert.deepEqual(applied, []);
   assert.equal(untouched.saveCalls, 0);
+});
+
+test("expiración de Plan Lanzamiento es idempotente y no ejecuta recortes en segunda pasada", async () => {
+  const expired = mockUser({
+    _id: "expired",
+    plan: LAUNCH_PLAN_ID,
+    planActivo: true,
+    planFechaFin: new Date("2027-01-31T22:59:59.000Z")
+  });
+  let firstQuery = true;
+  const UsuarioModel = {
+    async find() {
+      if (firstQuery) {
+        firstQuery = false;
+        return [expired];
+      }
+      return [];
+    }
+  };
+
+  const options = { UsuarioModel, logger: { info() {}, error() {} } };
+  const first = await expireLaunchPlans(new Date("2027-02-01T00:00:00.000Z"), options);
+  const second = await expireLaunchPlans(new Date("2027-02-01T00:00:00.000Z"), options);
+
+  assert.deepEqual(first, { revisados: 1, expirados: 1, omitidos: 0 });
+  assert.deepEqual(second, { revisados: 0, expirados: 0, omitidos: 0 });
+  assert.equal(expired.plan, "gratis");
+  assert.equal(expired.saveCalls, 1);
+});
+
+test("Plan Lanzamiento sigue activo hasta el último segundo y expira justo después", async () => {
+  const user = mockUser({
+    plan: LAUNCH_PLAN_ID,
+    planActivo: true,
+    planFechaFin: new Date("2027-01-31T22:59:59.000Z")
+  });
+  const UsuarioModel = {
+    async find() {
+      throw new Error("no debe consultar antes del final inclusivo");
+    }
+  };
+
+  assert.equal(usuarioTienePlanLanzamientoActivo(user, new Date("2027-01-31T22:59:59.000Z")), true);
+  assert.equal(getLaunchPlanPublicStatus(user, new Date("2027-01-31T22:59:59.000Z")).active, true);
+  assert.deepEqual(
+    await expireLaunchPlans(new Date("2027-01-31T22:59:59.000Z"), {
+      UsuarioModel,
+      logger: { info() {}, error() {} }
+    }),
+    { revisados: 0, expirados: 0, omitidos: 0 }
+  );
+
+  const afterEnd = mockUser({
+    plan: LAUNCH_PLAN_ID,
+    planActivo: true,
+    planFechaFin: new Date("2027-01-31T22:59:59.000Z")
+  });
+  const afterEndModel = {
+    async find(query) {
+      assert.deepEqual(query.planFechaFin.$lt, new Date("2027-01-31T22:59:59.001Z"));
+      return [afterEnd];
+    }
+  };
+
+  assert.equal(usuarioTienePlanLanzamientoActivo(afterEnd, new Date("2027-01-31T22:59:59.001Z")), false);
+  const result = await expireLaunchPlans(new Date("2027-01-31T22:59:59.001Z"), {
+    UsuarioModel: afterEndModel,
+    logger: { info() {}, error() {} }
+  });
+  assert.deepEqual(result, { revisados: 1, expirados: 1, omitidos: 0 });
+  assert.equal(afterEnd.plan, "gratis");
 });
 
 test("scheduler de expiración arranca una pasada inmediata y queda reutilizable", async () => {

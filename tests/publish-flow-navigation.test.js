@@ -40,6 +40,19 @@ test("estado de publicación deriva límites desde catálogo central", () => {
   assert.equal(lanzamiento10.motivo, "limite_anuncios");
 });
 
+test("usuario expirado a gratis conserva anuncios existentes pero no puede publicar si supera cupo", () => {
+  const expiradoConTresAnuncios = getEstadoPublicacionUsuario({
+    plan: "gratis",
+    planActivo: false
+  }, 3);
+
+  assert.equal(expiradoConTresAnuncios.plan, "gratis");
+  assert.equal(expiradoConTresAnuncios.limiteAnuncios, 2);
+  assert.equal(expiradoConTresAnuncios.cupoDisponible, 0);
+  assert.equal(expiradoConTresAnuncios.puedePublicarAhora, false);
+  assert.equal(expiradoConTresAnuncios.motivo, "limite_anuncios");
+});
+
 test("planes inactivos y vip_trial no aceptado no pueden publicar", () => {
   assert.equal(usuarioTienePlanActivoParaPublicar({ plan: "gratis" }), true);
   assert.equal(usuarioTienePlanActivoParaPublicar({ plan: "basico", planActivo: false }), false);
