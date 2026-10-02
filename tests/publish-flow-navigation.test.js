@@ -78,6 +78,13 @@ test("endpoint de estado de publicación reutiliza requireAuth, catálogo centra
   assert.match(usuariosRoutes, /getEstadoPublicacionUsuario\(usuario, anunciosActuales\)/);
 });
 
+test("Mis anuncios del propietario no excluye anuncios ocultados por límites", () => {
+  const miasBlock = propiedadesRoutes.match(/router\.get\("\/mias", requireAuth,[\s\S]*?^\}\);/m)?.[0] || "";
+
+  assert.match(miasBlock, /Propiedad\.find\(\{ usuarioId: req\.user\.id \}\)/);
+  assert.doesNotMatch(miasBlock, /visiblePublicamente/);
+});
+
 test("backend de publicar conserva comprobación segura de límites", () => {
   assert.match(propiedadesRoutes, /usuarioTienePlanActivoParaPublicar\(usuario\)/);
   assert.match(propiedadesRoutes, /getEstadoPublicacionUsuario\(usuario, totalAnuncios\)/);

@@ -40,6 +40,7 @@ const UsuarioSchema = new mongoose.Schema({
   launchPromoLastPaymentAt:      { type: Date },
   launchPromoAppliedAt:          { type: Date },
   launchPromoAppliedSubscriptionId: { type: String },
+  launchPlanReminderSent: { type: Boolean, default: false },
 
   // Promoción Profesional 60 días
   professionalPromoCampaign: { type: String },
