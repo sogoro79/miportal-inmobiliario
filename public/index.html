@@ -360,19 +360,31 @@
         radial-gradient(circle at 12% 0%, rgba(124, 194, 66, 0.16), transparent 34%),
         linear-gradient(135deg, #ffffff 0%, #f8fcf3 52%, #f1f8ea 100%);
       box-shadow: 0 18px 44px rgba(26, 35, 50, 0.12), 0 10px 26px rgba(124, 194, 66, 0.12);
+      animation: launchPromoCardEnter 650ms ease-out both;
     }
 
     .professional-promo-card::before {
       content: "";
       position: absolute;
-      inset: -1px auto -1px -38%;
-      width: 34%;
-      background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.12) 28%, rgba(255,255,255,0.58) 50%, rgba(255,255,255,0.12) 72%, transparent 100%);
-      opacity: 0.75;
+      inset: -1px auto -1px -42%;
+      width: 38%;
+      background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.14) 28%, rgba(255,255,255,0.68) 50%, rgba(255,255,255,0.14) 72%, transparent 100%);
+      opacity: 0.82;
       transform: skewX(-18deg) translateX(-120%);
-      animation: launchPromoShimmer 7.5s ease-in-out infinite;
+      animation: launchPromoShimmer 6.6s ease-in-out infinite;
       pointer-events: none;
       z-index: 1;
+    }
+
+    @keyframes launchPromoCardEnter {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .professional-promo-card::after {
@@ -385,10 +397,10 @@
     }
 
     @keyframes launchPromoShimmer {
-      0%, 74% {
+      0%, 70% {
         transform: skewX(-18deg) translateX(-120%);
       }
-      88%, 100% {
+      91%, 100% {
         transform: skewX(-18deg) translateX(520%);
       }
     }
@@ -446,6 +458,20 @@
       font-weight: 900;
       line-height: 1.35;
       padding: 6px 11px;
+      animation: launchPromoSubtitleGlow 5.8s ease-in-out infinite;
+    }
+
+    @keyframes launchPromoSubtitleGlow {
+      0%, 100% {
+        border-color: rgba(124, 194, 66, 0.30);
+        background: rgba(237, 248, 225, 0.92);
+        box-shadow: none;
+      }
+      50% {
+        border-color: rgba(124, 194, 66, 0.48);
+        background: rgba(230, 246, 217, 0.98);
+        box-shadow: 0 0 0 4px rgba(124, 194, 66, 0.08);
+      }
     }
 
     .launch-promo-benefits {
@@ -465,7 +491,25 @@
       font-size: 0.88rem;
       font-weight: 800;
       padding: 7px 10px;
+      animation: launchPromoBenefitEnter 520ms ease-out both;
       transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .launch-promo-benefits li:nth-child(1) { animation-delay: 110ms; }
+    .launch-promo-benefits li:nth-child(2) { animation-delay: 180ms; }
+    .launch-promo-benefits li:nth-child(3) { animation-delay: 250ms; }
+    .launch-promo-benefits li:nth-child(4) { animation-delay: 320ms; }
+    .launch-promo-benefits li:nth-child(5) { animation-delay: 390ms; }
+
+    @keyframes launchPromoBenefitEnter {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .launch-promo-benefits li:hover {
@@ -494,7 +538,7 @@
       text-decoration: none;
       font-weight: 900;
       box-shadow: 0 8px 20px rgba(124, 194, 66, 0.28);
-      animation: launchPromoCtaPulse 3.8s ease-in-out infinite;
+      animation: launchPromoCtaPulse 3.6s ease-in-out infinite;
       transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
       white-space: nowrap;
     }
@@ -512,8 +556,8 @@
         box-shadow: 0 8px 20px rgba(124, 194, 66, 0.28);
       }
       50% {
-        transform: scale(1.02);
-        box-shadow: 0 12px 28px rgba(124, 194, 66, 0.34);
+        transform: scale(1.025);
+        box-shadow: 0 14px 32px rgba(124, 194, 66, 0.38);
       }
     }
 
@@ -1004,7 +1048,7 @@
 
       .professional-promo-card::before {
         width: 42%;
-        opacity: 0.55;
+        opacity: 0.62;
       }
 
       .professional-promo-content {
@@ -1101,7 +1145,10 @@
 
     @media (prefers-reduced-motion: reduce) {
       .professional-promo-card::before,
-      .professional-promo-cta {
+      .professional-promo-card,
+      .professional-promo-cta,
+      .launch-promo-subtitle,
+      .launch-promo-benefits li {
         animation: none;
       }
 
