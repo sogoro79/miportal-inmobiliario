@@ -433,7 +433,41 @@
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 20px;
       align-items: center;
-      padding: 22px 24px 24px;
+      padding: 54px 24px 24px;
+    }
+
+    .launch-promo-active-badge {
+      position: absolute;
+      top: 16px;
+      right: 18px;
+      z-index: 3;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #5daa2d 0%, #78bf3e 100%);
+      color: #fff;
+      box-shadow: 0 10px 24px rgba(74, 151, 40, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+      font-size: 0.82rem;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      line-height: 1;
+      padding: 9px 12px;
+      white-space: nowrap;
+      animation: launchPromoBadgePulse 3.6s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    @keyframes launchPromoBadgePulse {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 10px 24px rgba(74, 151, 40, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+      }
+      50% {
+        transform: scale(1.04);
+        box-shadow: 0 14px 30px rgba(74, 151, 40, 0.42), 0 0 0 5px rgba(124, 194, 66, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+      }
     }
 
     .professional-promo-content h2 {
@@ -1066,7 +1100,16 @@
       .professional-promo-content {
         grid-template-columns: 1fr;
         gap: 12px;
-        padding: 14px 14px 16px;
+        padding: 52px 14px 16px;
+      }
+
+      .launch-promo-active-badge {
+        top: 12px;
+        right: 12px;
+        max-width: calc(100% - 24px);
+        padding: 8px 10px;
+        font-size: 0.76rem;
+        animation-name: launchPromoBadgePulseMobile;
       }
 
       .professional-promo-media img {
@@ -1151,6 +1194,17 @@
         }
       }
 
+      @keyframes launchPromoBadgePulseMobile {
+        0%, 100% {
+          transform: scale(1);
+          box-shadow: 0 8px 20px rgba(74, 151, 40, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+        }
+        50% {
+          transform: scale(1.025);
+          box-shadow: 0 11px 24px rgba(74, 151, 40, 0.34), 0 0 0 4px rgba(124, 194, 66, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+        }
+      }
+
       .lista {
         grid-template-columns: 1fr;
       }
@@ -1195,6 +1249,7 @@
     @media (prefers-reduced-motion: reduce) {
       .professional-promo-card::before,
       .professional-promo-card,
+      .launch-promo-active-badge,
       .professional-promo-cta,
       .launch-promo-subtitle,
       .launch-promo-benefits li {
@@ -1357,6 +1412,7 @@
 
 <section class="professional-promo-home" data-launch-plan aria-labelledby="professionalPromoHomeTitle">
   <div class="professional-promo-card">
+    <span class="launch-promo-active-badge" aria-label="Promoción activa">🎁 PROMOCIÓN ACTIVA</span>
     <div class="professional-promo-content">
       <div>
         <h2 id="professionalPromoHomeTitle">Plan Lanzamiento</h2>
