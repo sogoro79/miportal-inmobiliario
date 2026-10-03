@@ -593,7 +593,9 @@ test("rutas, frontend y admin de promoción no contienen Stripe Cloudinary SMS n
   assert.match(route, /securityRateLimits\.professionalPromotionActivation/);
   assert.doesNotMatch(route + flow, /Stripe|cloudinary|twilio|sms|sendSms|Cloudinary/i);
   assert.doesNotMatch(util, /new Stripe|stripe\.|cloudinary|twilio|sendSms|enviarSms/i);
-  assert.match(page, /Activa tu Promoción Profesional 60 días/);
+  assert.doesNotMatch(page, /Promoción Profesional 60 días|60 días gratis|professional-promotion-flow/);
+  assert.match(page, /Publica tus inmuebles gratis hasta el 31 de enero de 2027 con el Plan Lanzamiento de HomeClick24\./);
+  assert.match(page, /data-launch-plan-cta/);
   assert.match(flow, /Activar mis 60 días gratis|STATUS_URL|ACTIVATE_URL/);
   assert.match(admin, /Promoción Profesional 60 días/);
   assert.match(admin, /No se muestran documentos, teléfonos, hashes ni IP/);
@@ -606,9 +608,8 @@ test("estado activo de promoción profesional cambia la presentación y conserva
   const activeCopyBlock = flow.match(/function renderActiveCopy[\s\S]*?\n  \}/)?.[0] || "";
   const inactiveCopyBlock = flow.match(/function renderInactiveCopy[\s\S]*?\n  \}/)?.[0] || "";
 
-  assert.match(page, /data-promo-title>Activa tu Promoción Profesional 60 días/);
-  assert.match(page, /data-promo-requirements>La activación requiere email verificado, móvil, NIF\/DNI\/NIE profesional y aceptación expresa de condiciones\./);
-  assert.match(page, /data-promo-state="active"[\s\S]*Publicar inmueble/);
+  assert.doesNotMatch(page, /data-promo-title|data-promo-requirements|data-promo-state/);
+  assert.match(page, /Plan Lanzamiento/);
   assert.match(activeCopyBlock, /Tu Promoción Profesional 60 días está activa/);
   assert.match(activeCopyBlock, /Disfruta de prestaciones profesionales sin límites hasta el/);
   assert.match(activeCopyBlock, /requirements\.hidden = true/);

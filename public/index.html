@@ -398,6 +398,31 @@
       font-weight: 800;
     }
 
+    .launch-promo-subtitle {
+      color: #2f5f21 !important;
+      font-size: 1.08rem;
+      font-weight: 900;
+    }
+
+    .launch-promo-benefits {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .launch-promo-benefits li {
+      border: 1px solid #dcebd2;
+      border-radius: 999px;
+      background: #f5faef;
+      color: #355124;
+      font-size: 0.88rem;
+      font-weight: 800;
+      padding: 7px 10px;
+    }
+
     .professional-promo-note {
       margin-top: 8px !important;
       color: #7a8694 !important;
@@ -933,6 +958,16 @@
         line-height: 1.45;
       }
 
+      .launch-promo-benefits {
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .launch-promo-benefits li {
+        font-size: 0.82rem;
+        padding: 6px 9px;
+      }
+
       .professional-promo-support,
       .professional-promo-note {
         margin-top: 5px !important;
@@ -1139,12 +1174,19 @@
   <div class="professional-promo-card">
     <div class="professional-promo-content">
       <div>
-        <h2 id="professionalPromoHomeTitle">Publica gratis hasta el 31 de enero de 2027</h2>
+        <h2 id="professionalPromoHomeTitle">Plan Lanzamiento</h2>
+        <p class="launch-promo-subtitle">Publica gratis hasta el 31 de enero de 2027</p>
         <p>Únete al Plan Lanzamiento de HomeClick24 y anuncia tu vivienda de forma sencilla y sin coste.</p>
         <p class="professional-promo-support">Para particulares e inmobiliarias de toda España.</p>
-        <p class="professional-promo-note">Gratis hasta el 31 de enero de 2027. Después pasarás al plan gratuito. No hay renovación automática ni cargos.</p>
+        <ul class="launch-promo-benefits" aria-label="Beneficios del Plan Lanzamiento">
+          <li>0 €</li>
+          <li>Hasta 10 anuncios</li>
+          <li>Hasta 20 fotos por anuncio</li>
+          <li>Sin permanencia</li>
+          <li>Sin renovación automática</li>
+        </ul>
       </div>
-      <a class="professional-promo-cta" href="/registro?plan=lanzamiento_2026" data-launch-plan-cta>Publicar gratis</a>
+      <a class="professional-promo-cta" href="/registro?plan=lanzamiento_2026" data-launch-plan-cta>Activar gratis</a>
     </div>
   </div>
 </section>

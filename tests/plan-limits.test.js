@@ -187,7 +187,8 @@ test("frontend consume el catálogo público, conserva fallbacks y no mantiene l
   assert.match(planesHtml, /\/api\/planes\/catalogo/);
   assert.match(perfilHtml, /\/api\/planes\/catalogo/);
   assert.match(publicarHtml, /\/api\/planes\/catalogo/);
-  assert.doesNotMatch(planesHtml, /20 fotos por anuncio|30 fotos por anuncio|40 fotos por anuncio/);
+  assert.match(planesHtml, /Hasta 20 fotos por anuncio/);
+  assert.doesNotMatch(planesHtml, /30 fotos por anuncio|40 fotos por anuncio/);
   assert.doesNotMatch(perfilHtml, /PLANES_INFO/);
   assert.doesNotMatch(publicarHtml, /LIMITE_FOTOS/);
   assert.match(planesHtml, /FALLBACK_PLANES_COMERCIALES/);

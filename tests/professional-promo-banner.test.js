@@ -81,8 +81,8 @@ test("Plan Lanzamiento usa CTA HTML real en home sin activar automáticamente", 
   assert.match(indexHtml, /Publica gratis hasta el 31 de enero de 2027/);
   assert.match(indexHtml, /Únete al Plan Lanzamiento de HomeClick24 y anuncia tu vivienda de forma sencilla y sin coste\./);
   assert.match(indexHtml, /Para particulares e inmobiliarias de toda España\./);
-  assert.match(indexHtml, /Gratis hasta el 31 de enero de 2027\. Después pasarás al plan gratuito\. No hay renovación automática ni cargos\./);
-  assert.match(indexHtml, /<a class="professional-promo-cta" href="\/registro\?plan=lanzamiento_2026" data-launch-plan-cta>Publicar gratis<\/a>/);
+  assert.match(indexHtml, /<li>0 €<\/li>[\s\S]*<li>Hasta 10 anuncios<\/li>[\s\S]*<li>Hasta 20 fotos por anuncio<\/li>[\s\S]*<li>Sin permanencia<\/li>[\s\S]*<li>Sin renovación automática<\/li>/);
+  assert.match(indexHtml, /<a class="professional-promo-cta" href="\/registro\?plan=lanzamiento_2026" data-launch-plan-cta>Activar gratis<\/a>/);
   assert.doesNotMatch(indexHtml, /31 de octubre|Promocion_60_dias_banner\.jpg|professional-60/);
 });
 
@@ -99,7 +99,7 @@ test("promoción profesional aparece tras el hero y antes de secciones secundari
 test("Plan Lanzamiento compacta solo la presentación móvil sin cambiar CTA", () => {
   assert.match(indexHtml, /@media \(max-width: 768px\) \{[\s\S]*?\.professional-promo-home \{[\s\S]*?margin-top: 18px/);
   assert.match(indexHtml, /@media \(max-width: 768px\) \{[\s\S]*?\.professional-promo-cta \{[\s\S]*?width: 100%/);
-  assert.match(indexHtml, /<a class="professional-promo-cta" href="\/registro\?plan=lanzamiento_2026" data-launch-plan-cta>Publicar gratis<\/a>/);
+  assert.match(indexHtml, /<a class="professional-promo-cta" href="\/registro\?plan=lanzamiento_2026" data-launch-plan-cta>Activar gratis<\/a>/);
 });
 
 test("planes muestra versión compacta del Plan Lanzamiento sin duplicar imágenes", () => {
