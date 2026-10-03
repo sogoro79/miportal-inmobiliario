@@ -220,33 +220,32 @@ test("CTA de Plan Lanzamiento conserva intención y distingue visitante/autentic
   assert.doesNotMatch(launchPlanJs, /api\/plan-lanzamiento\/activar|stripe|cloudinary/i);
 });
 
-test("CTA visitante va a registro y CTA autenticado nunca va a registro ni login", () => {
+test("helper profesional retirado redirige altas nuevas al Plan Lanzamiento", () => {
   const visitor = createPromoContext();
-  assert.equal(visitor.context.HomeClickProfessionalPromo.professionalPromoTarget(), "/registro?promo=professional-60");
+  assert.equal(visitor.context.HomeClickProfessionalPromo.professionalPromoTarget(), "/registro?plan=lanzamiento_2026");
 
   const authenticated = createPromoContext({ token: "jwt-test" });
   const target = authenticated.context.HomeClickProfessionalPromo.professionalPromoTarget();
-  assert.equal(target, "/profesionales?promo=professional-60");
+  assert.equal(target, "/planes?activar=lanzamiento_2026");
   assert.doesNotMatch(target, /registro|login/);
 });
 
-test("registro promocional muestra opción de iniciar sesión conservando promo", () => {
-  assert.match(registroHtml, /Estás accediendo a la Promoción Profesional 60 días\./);
+test("registro Plan Lanzamiento muestra opción de iniciar sesión sin aviso profesional antiguo", () => {
   assert.match(registroHtml, /Estás accediendo al Plan Lanzamiento gratis hasta el 31 de enero de 2027\./);
-  assert.match(registroHtml, /data-professional-promo-notice/);
+  assert.doesNotMatch(registroHtml, /Estás accediendo a la Promoción Profesional 60 días|data-professional-promo-notice/);
   assert.match(registroHtml, /data-launch-plan-notice/);
-  assert.match(registroHtml, /<a href="\/login" data-professional-promo-login data-launch-plan-login>Iniciar sesión<\/a>/);
-  assert.match(registroHtml, /<script src="\/js\/professional-promo\.js"><\/script>/);
+  assert.match(registroHtml, /<a href="\/login" data-launch-plan-login>Iniciar sesión<\/a>/);
   assert.match(registroHtml, /<script src="\/js\/launch-plan\.js"><\/script>/);
+  assert.doesNotMatch(registroHtml, /<script src="\/js\/professional-promo\.js"><\/script>/);
 });
 
-test("login promocional muestra opción de crear cuenta conservando promo", () => {
-  assert.match(loginHtml, /Estás accediendo a la Promoción Profesional 60 días\./);
+test("login Plan Lanzamiento muestra opción de crear cuenta sin aviso profesional antiguo", () => {
   assert.match(loginHtml, /Estás accediendo al Plan Lanzamiento gratis hasta el 31 de enero de 2027\./);
-  assert.match(loginHtml, /data-professional-promo-notice/);
+  assert.doesNotMatch(loginHtml, /Estás accediendo a la Promoción Profesional 60 días|data-professional-promo-notice/);
   assert.match(loginHtml, /data-launch-plan-notice/);
-  assert.match(loginHtml, /<a href="\/registro" data-professional-promo-register data-launch-plan-register>Crear cuenta gratis<\/a>/);
-  assert.match(loginHtml, /<script src="\/js\/professional-promo\.js"><\/script>[\s\S]*<script src="\/js\/launch-plan\.js"><\/script>[\s\S]*<script src="\/js\/auth\.js"><\/script>/);
+  assert.match(loginHtml, /<a href="\/registro" data-launch-plan-register>Crear cuenta gratis<\/a>/);
+  assert.match(loginHtml, /<script src="\/js\/launch-plan\.js"><\/script>[\s\S]*<script src="\/js\/auth\.js"><\/script>/);
+  assert.doesNotMatch(loginHtml, /<script src="\/js\/professional-promo\.js"><\/script>/);
 });
 
 test("flujo lanzamiento no muestra aviso antiguo aunque exista intención profesional previa", () => {
@@ -268,7 +267,7 @@ test("flujo lanzamiento no muestra aviso antiguo aunque exista intención profes
   assert.equal(context.HomeClickLaunchPlan.hasLaunchPlanIntent(), true);
 });
 
-test("flujo profesional histórico no muestra Plan Lanzamiento por intención previa", () => {
+test("professional-60 queda retirado y se normaliza al Plan Lanzamiento vigente", () => {
   const { context, storage } = createCombinedPromotionContext(
     { hc24_launch_plan_intent: "true" },
     { search: "?promo=professional-60" }
@@ -278,13 +277,13 @@ test("flujo profesional histórico no muestra Plan Lanzamiento por intención pr
   context.HomeClickProfessionalPromo.setupProfessionalPromo(root);
   context.HomeClickLaunchPlan.setupLaunchPlan(root);
 
-  assert.equal(professionalNotice.hidden, false);
-  assert.equal(launchNotice.hidden, true);
-  assert.equal(registerLink.href, "/registro?promo=professional-60");
-  assert.equal(storage.get(context.HomeClickLaunchPlan.INTENT_KEY), undefined);
-  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), "true");
-  assert.equal(context.HomeClickProfessionalPromo.hasProfessionalPromoIntent(), true);
-  assert.equal(context.HomeClickLaunchPlan.hasLaunchPlanIntent(), false);
+  assert.equal(professionalNotice.hidden, true);
+  assert.equal(launchNotice.hidden, false);
+  assert.equal(registerLink.href, "/registro?plan=lanzamiento_2026");
+  assert.equal(storage.get(context.HomeClickLaunchPlan.INTENT_KEY), "true");
+  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), undefined);
+  assert.equal(context.HomeClickProfessionalPromo.hasProfessionalPromoIntent(), false);
+  assert.equal(context.HomeClickLaunchPlan.hasLaunchPlanIntent(), true);
 });
 
 test("registro o login sin parámetros no muestran promociones especiales", () => {
@@ -306,7 +305,7 @@ test("home mantiene acceso visible a profesionales sin reactivar la campaña ant
   assert.match(indexHtml, /href="\/profesionales">Profesionales<\/a>/);
 });
 
-test("helper conserva intención promocional en registro, login y avisos", () => {
+test("helper antiguo professional-60 no muestra avisos ni conserva intención antigua", () => {
   const { context, storage } = createPromoContext({}, { search: "?promo=professional-60" });
   const notice = { hidden: true };
   const registerLink = { href: "" };
@@ -323,37 +322,38 @@ test("helper conserva intención promocional en registro, login y avisos", () =>
   };
 
   context.HomeClickProfessionalPromo.setupProfessionalPromo(root);
-  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), "true");
-  assert.equal(notice.hidden, false);
-  assert.equal(registerLink.href, "/registro?promo=professional-60");
-  assert.equal(loginLink.href, "/login?promo=professional-60");
+  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), undefined);
+  assert.equal(notice.hidden, true);
+  assert.equal(registerLink.href, "/registro?plan=lanzamiento_2026");
+  assert.equal(loginLink.href, "/login?plan=lanzamiento_2026");
 });
 
-test("login correcto desde promo redirige a profesionales y no activa la promoción", () => {
-  const { context, storage } = createPromoContext({}, { search: "?promo=professional-60" });
+test("login correcto desde professional-60 redirige al Plan Lanzamiento y no activa nada", () => {
+  const { context, storage } = createCombinedPromotionContext({}, { search: "?promo=professional-60" });
 
-  assert.equal(context.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/"), "/profesionales?promo=professional-60");
-  assert.match(authJs, /professionalPromoLoginRedirectTarget\("\/"\)/);
+  assert.equal(context.HomeClickLaunchPlan.launchPlanLoginRedirectTarget("/"), "/planes?activar=lanzamiento_2026");
+  assert.match(authJs, /launchPlanLoginRedirectTarget\("\/"\)/);
   assert.doesNotMatch(authJs, /activar|promocion-profesional\/activar|professionalTrialStartedAt|professionalTrialEndsAt/i);
 
-  const returning = createPromoContext({ [context.HomeClickProfessionalPromo.PROMO_INTENT_KEY]: "true" });
-  assert.equal(returning.context.HomeClickProfessionalPromo.professionalPromoLoginRedirectTarget("/"), "/profesionales?promo=professional-60");
+  const returning = createCombinedPromotionContext({ [context.HomeClickLaunchPlan.INTENT_KEY]: "true" });
+  assert.equal(returning.context.HomeClickLaunchPlan.launchPlanLoginRedirectTarget("/"), "/planes?activar=lanzamiento_2026");
   assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), undefined);
 });
 
 test("verificación de email conserva la intención para el login posterior sin activar nada", () => {
-  assert.match(setPasswordHtml, /<script src="\/js\/professional-promo\.js"><\/script>/);
   assert.match(setPasswordHtml, /<script src="\/js\/launch-plan\.js"><\/script>/);
   assert.match(setPasswordHtml, /window\.HomeClickLaunchPlan\?\.hasLaunchPlanIntent\?\.\(\)[\s\S]*\/login\?plan=lanzamiento_2026/);
-  assert.match(setPasswordHtml, /window\.HomeClickProfessionalPromo\?\.hasProfessionalPromoIntent\?\.\(\)[\s\S]*\/login\?promo=professional-60/);
+  assert.doesNotMatch(setPasswordHtml, /professional-promo\.js|HomeClickProfessionalPromo|promo=professional-60/);
   assert.doesNotMatch(setPasswordHtml, /promocion-profesional\/activar|professionalTrialStartedAt|professionalTrialEndsAt|Stripe|Cloudinary/i);
   assert.doesNotMatch(setPasswordHtml, /api\/plan-lanzamiento\/activar/i);
 });
 
-test("CTA recuerda origen de promoción sin activar todavía la campaña", () => {
+test("CTA histórico profesional conserva intención como Plan Lanzamiento sin activar nada", () => {
   const { context, storage } = createPromoContext();
 
-  context.HomeClickProfessionalPromo.rememberProfessionalPromoIntent();
-  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), "true");
+  context.HomeClickProfessionalPromo.handleProfessionalPromoClick({ preventDefault() {} });
+  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), undefined);
+  assert.equal(storage.get("hc24_launch_plan_intent"), "true");
+  assert.equal(context.location.href, "/registro?plan=lanzamiento_2026");
   assert.doesNotMatch(promoJs, /professionalTrialUsed|professionalTrialStartedAt|professionalTrialEndsAt|NIF|DNI|NIE|stripe/i);
 });

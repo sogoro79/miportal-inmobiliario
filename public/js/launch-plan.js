@@ -16,7 +16,9 @@
 
   function isLaunchPlanRequest() {
     const params = new URLSearchParams(window.location.search);
-    return params.get("plan") === PLAN_ID || params.get("activar") === PLAN_ID;
+    return params.get("plan") === PLAN_ID
+      || params.get("activar") === PLAN_ID
+      || isProfessionalPromoRequest();
   }
 
   function isProfessionalPromoRequest() {
@@ -36,7 +38,6 @@
   }
 
   function hasLaunchPlanIntent() {
-    if (isProfessionalPromoRequest()) return false;
     return isLaunchPlanRequest() || localStorage.getItem(INTENT_KEY) === "true";
   }
 
@@ -72,9 +73,7 @@
     const active = isLaunchPlanAvailable(now);
     const launchRequest = isLaunchPlanRequest();
 
-    if (isProfessionalPromoRequest()) {
-      clearLaunchPlanIntent();
-    } else if (launchRequest) {
+    if (launchRequest) {
       rememberLaunchPlanIntent();
       clearProfessionalPromoIntent();
     }
