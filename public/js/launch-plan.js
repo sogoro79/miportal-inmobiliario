@@ -2,6 +2,8 @@
   const PLAN_ID = "lanzamiento_2026";
   const INTENT_KEY = "hc24_launch_plan_intent";
   const END_ISO = "2027-01-31T22:59:59.000Z";
+  const PROFESSIONAL_PROMO_KEY = "professional-60";
+  const PROFESSIONAL_PROMO_INTENT_KEY = "hc24_promo_profesional_60_intent";
 
   function hasToken() {
     const token = (localStorage.getItem("token") || "").trim();
@@ -17,11 +19,24 @@
     return params.get("plan") === PLAN_ID || params.get("activar") === PLAN_ID;
   }
 
+  function isProfessionalPromoRequest() {
+    return new URLSearchParams(window.location.search).get("promo") === PROFESSIONAL_PROMO_KEY;
+  }
+
   function rememberLaunchPlanIntent() {
     localStorage.setItem(INTENT_KEY, "true");
   }
 
+  function clearLaunchPlanIntent() {
+    localStorage.removeItem(INTENT_KEY);
+  }
+
+  function clearProfessionalPromoIntent() {
+    localStorage.removeItem(PROFESSIONAL_PROMO_INTENT_KEY);
+  }
+
   function hasLaunchPlanIntent() {
+    if (isProfessionalPromoRequest()) return false;
     return isLaunchPlanRequest() || localStorage.getItem(INTENT_KEY) === "true";
   }
 
@@ -55,7 +70,14 @@
 
   function setupLaunchPlan(root = document, now = new Date()) {
     const active = isLaunchPlanAvailable(now);
-    if (isLaunchPlanRequest()) rememberLaunchPlanIntent();
+    const launchRequest = isLaunchPlanRequest();
+
+    if (isProfessionalPromoRequest()) {
+      clearLaunchPlanIntent();
+    } else if (launchRequest) {
+      rememberLaunchPlanIntent();
+      clearProfessionalPromoIntent();
+    }
 
     root.querySelectorAll("[data-launch-plan]").forEach(section => {
       section.hidden = !active;
@@ -68,15 +90,15 @@
     });
 
     root.querySelectorAll("[data-launch-plan-register]").forEach(link => {
-      link.href = launchPlanRegisterTarget();
+      if (launchRequest) link.href = launchPlanRegisterTarget();
     });
 
     root.querySelectorAll("[data-launch-plan-login]").forEach(link => {
-      link.href = launchPlanLoginTarget();
+      if (launchRequest) link.href = launchPlanLoginTarget();
     });
 
     root.querySelectorAll("[data-launch-plan-notice]").forEach(notice => {
-      notice.hidden = !hasLaunchPlanIntent();
+      notice.hidden = !launchRequest;
     });
   }
 
@@ -86,7 +108,9 @@
     END_ISO,
     isLaunchPlanAvailable,
     isLaunchPlanRequest,
+    isProfessionalPromoRequest,
     rememberLaunchPlanIntent,
+    clearLaunchPlanIntent,
     hasLaunchPlanIntent,
     launchPlanRegisterTarget,
     launchPlanLoginTarget,

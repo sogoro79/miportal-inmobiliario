@@ -32,6 +32,9 @@ function createPromoContext(initialStorage = {}, { search = "" } = {}) {
       },
       setItem(key, value) {
         storage.set(key, String(value));
+      },
+      removeItem(key) {
+        storage.delete(key);
       }
     },
     Date,
@@ -64,6 +67,9 @@ function createLaunchContext(initialStorage = {}, { search = "" } = {}) {
       },
       setItem(key, value) {
         storage.set(key, String(value));
+      },
+      removeItem(key) {
+        storage.delete(key);
       }
     },
     Date,
@@ -74,6 +80,65 @@ function createLaunchContext(initialStorage = {}, { search = "" } = {}) {
   context.window = context;
   vm.runInNewContext(launchPlanJs, context);
   return { context, storage, listeners };
+}
+
+function createCombinedPromotionContext(initialStorage = {}, { search = "" } = {}) {
+  const storage = new Map(Object.entries(initialStorage));
+  const listeners = {};
+  const document = {
+    addEventListener(type, fn) {
+      listeners[type] = fn;
+    },
+    querySelectorAll() {
+      return [];
+    }
+  };
+  const context = {
+    window: {},
+    document,
+    localStorage: {
+      getItem(key) {
+        return storage.has(key) ? storage.get(key) : null;
+      },
+      setItem(key, value) {
+        storage.set(key, String(value));
+      },
+      removeItem(key) {
+        storage.delete(key);
+      }
+    },
+    Date,
+    URL,
+    URLSearchParams,
+    location: { search, href: "" }
+  };
+  context.window = context;
+  vm.runInNewContext(promoJs, context);
+  vm.runInNewContext(launchPlanJs, context);
+  return { context, storage, listeners };
+}
+
+function createAuthFlowRoot() {
+  const professionalNotice = { hidden: null };
+  const launchNotice = { hidden: null };
+  const registerLink = { href: "/registro" };
+  const loginLink = { href: "/login" };
+  const root = {
+    querySelectorAll(selector) {
+      if (selector === "[data-professional-promo]") return [];
+      if (selector === "[data-professional-promo-cta]") return [];
+      if (selector === "[data-professional-promo-register]") return [registerLink];
+      if (selector === "[data-professional-promo-login]") return [loginLink];
+      if (selector === "[data-professional-promo-notice]") return [professionalNotice];
+      if (selector === "[data-launch-plan]") return [];
+      if (selector === "[data-launch-plan-cta]") return [];
+      if (selector === "[data-launch-plan-register]") return [registerLink];
+      if (selector === "[data-launch-plan-login]") return [loginLink];
+      if (selector === "[data-launch-plan-notice]") return [launchNotice];
+      return [];
+    }
+  };
+  return { root, professionalNotice, launchNotice, registerLink, loginLink };
 }
 
 test("Plan Lanzamiento usa CTA HTML real en home sin activar automáticamente", () => {
@@ -182,6 +247,63 @@ test("login promocional muestra opción de crear cuenta conservando promo", () =
   assert.match(loginHtml, /data-launch-plan-notice/);
   assert.match(loginHtml, /<a href="\/registro" data-professional-promo-register data-launch-plan-register>Crear cuenta gratis<\/a>/);
   assert.match(loginHtml, /<script src="\/js\/professional-promo\.js"><\/script>[\s\S]*<script src="\/js\/launch-plan\.js"><\/script>[\s\S]*<script src="\/js\/auth\.js"><\/script>/);
+});
+
+test("flujo lanzamiento no muestra aviso antiguo aunque exista intención profesional previa", () => {
+  const { context, storage } = createCombinedPromotionContext(
+    { hc24_promo_profesional_60_intent: "true" },
+    { search: "?plan=lanzamiento_2026" }
+  );
+  const { root, professionalNotice, launchNotice, loginLink } = createAuthFlowRoot();
+
+  context.HomeClickProfessionalPromo.setupProfessionalPromo(root);
+  context.HomeClickLaunchPlan.setupLaunchPlan(root);
+
+  assert.equal(professionalNotice.hidden, true);
+  assert.equal(launchNotice.hidden, false);
+  assert.equal(loginLink.href, "/login?plan=lanzamiento_2026");
+  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), undefined);
+  assert.equal(storage.get(context.HomeClickLaunchPlan.INTENT_KEY), "true");
+  assert.equal(context.HomeClickProfessionalPromo.hasProfessionalPromoIntent(), false);
+  assert.equal(context.HomeClickLaunchPlan.hasLaunchPlanIntent(), true);
+});
+
+test("flujo profesional histórico no muestra Plan Lanzamiento por intención previa", () => {
+  const { context, storage } = createCombinedPromotionContext(
+    { hc24_launch_plan_intent: "true" },
+    { search: "?promo=professional-60" }
+  );
+  const { root, professionalNotice, launchNotice, registerLink } = createAuthFlowRoot();
+
+  context.HomeClickProfessionalPromo.setupProfessionalPromo(root);
+  context.HomeClickLaunchPlan.setupLaunchPlan(root);
+
+  assert.equal(professionalNotice.hidden, false);
+  assert.equal(launchNotice.hidden, true);
+  assert.equal(registerLink.href, "/registro?promo=professional-60");
+  assert.equal(storage.get(context.HomeClickLaunchPlan.INTENT_KEY), undefined);
+  assert.equal(storage.get(context.HomeClickProfessionalPromo.PROMO_INTENT_KEY), "true");
+  assert.equal(context.HomeClickProfessionalPromo.hasProfessionalPromoIntent(), true);
+  assert.equal(context.HomeClickLaunchPlan.hasLaunchPlanIntent(), false);
+});
+
+test("registro o login sin parámetros no muestran promociones especiales", () => {
+  const { context } = createCombinedPromotionContext();
+  const { root, professionalNotice, launchNotice, registerLink, loginLink } = createAuthFlowRoot();
+
+  context.HomeClickProfessionalPromo.setupProfessionalPromo(root);
+  context.HomeClickLaunchPlan.setupLaunchPlan(root);
+
+  assert.equal(professionalNotice.hidden, true);
+  assert.equal(launchNotice.hidden, true);
+  assert.equal(registerLink.href, "/registro");
+  assert.equal(loginLink.href, "/login");
+});
+
+test("home mantiene acceso visible a profesionales sin reactivar la campaña antigua", () => {
+  assert.match(indexHtml, /class="profesionales-home-link"/);
+  assert.match(indexHtml, /href="\/profesionales">Ver soluciones para profesionales/);
+  assert.match(indexHtml, /href="\/profesionales">Profesionales<\/a>/);
 });
 
 test("helper conserva intención promocional en registro, login y avisos", () => {
