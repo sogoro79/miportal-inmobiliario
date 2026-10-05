@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 512 512">
   <title>HomeClick24</title>
+  <desc>Logotipo de HomeClick24 con casa blanca, cursor negro y fondo verde.</desc>
   <rect width="512" height="512" fill="#FFFFFF"/>
   <rect width="512" height="512" rx="68" fill="#7AC943"/>
   <rect x="340" y="116" width="40" height="92" rx="6" fill="#FFFFFF"/>
