@@ -61,9 +61,11 @@ function renderButton(cta) {
   return `
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0;">
       <tr>
-        <td bgcolor="${BRAND.color}" style="border-radius:10px;">
-          <a href="${href}" style="display:inline-block;padding:14px 24px;font-family:Arial,sans-serif;font-size:15px;line-height:20px;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;">
-            ${label}
+        <td align="center" bgcolor="${BRAND.color}" style="background-color:${BRAND.color};border-radius:10px;mso-padding-alt:14px 24px;">
+          <a href="${href}" target="_blank" style="display:inline-block;padding:14px 24px;font-family:Arial,sans-serif;font-size:15px;line-height:20px;color:#ffffff !important;text-decoration:none;font-weight:700;border-radius:10px;background-color:${BRAND.color};-webkit-text-size-adjust:none;mso-line-height-rule:exactly;">
+            <font color="#ffffff" style="color:#ffffff;">
+              <span style="color:#ffffff !important;text-decoration:none;">${label}</span>
+            </font>
           </a>
         </td>
       </tr>
@@ -84,25 +86,23 @@ function renderBrandHeader() {
   const logoUrl = isValidHttpsUrl(BRAND.logoUrl) ? BRAND.logoUrl : "";
   const logo = logoUrl
     ? `
-      <tr>
-        <td style="padding:0 0 10px;">
-          <img src="${escapeEmailHtml(logoUrl)}" alt="${BRAND.name}" width="180" style="display:block;max-width:180px;width:180px;height:auto;border:0;outline:none;text-decoration:none;">
-        </td>
-      </tr>
+      <td width="52" valign="middle" style="width:52px;padding:0 10px 0 0;">
+        <img src="${escapeEmailHtml(logoUrl)}" alt="" width="44" height="44" style="display:block;width:44px;height:44px;max-width:44px;border:0;outline:none;text-decoration:none;">
+      </td>
     `
     : "";
 
   return `
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
-      ${logo}
       <tr>
-        <td style="font-family:Arial,sans-serif;font-size:24px;line-height:28px;font-weight:800;color:#1f2937;">
-          ${BRAND.name}
-        </td>
-      </tr>
-      <tr>
-        <td style="padding-top:3px;font-family:Arial,sans-serif;font-size:12px;line-height:18px;color:#6b7280;">
-          ${BRAND.tagline}
+        ${logo}
+        <td valign="middle" style="font-family:Arial,sans-serif;">
+          <div style="font-family:Arial,sans-serif;font-size:24px;line-height:28px;font-weight:800;color:#1f2937;">
+            ${BRAND.name}
+          </div>
+          <div style="padding-top:3px;font-family:Arial,sans-serif;font-size:12px;line-height:18px;color:#6b7280;">
+            ${BRAND.tagline}
+          </div>
         </td>
       </tr>
     </table>
