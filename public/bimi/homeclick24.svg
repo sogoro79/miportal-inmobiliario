@@ -12,5 +12,5 @@
   <rect x="324" y="252" width="31" height="31" rx="4" fill="#7AC943"/>
   <rect x="284" y="292" width="31" height="31" rx="4" fill="#7AC943"/>
   <rect x="324" y="292" width="31" height="31" rx="4" fill="#7AC943"/>
-  <path d="M342 336L420 380L383 390L405 441L374 456L353 406L325 429L342 336Z" fill="#111111" stroke="#FFFFFF" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M346 343L414 382L382 391L401 436L374 449L355 405L331 425L346 343Z" fill="#111111" stroke="#FFFFFF" stroke-width="8" stroke-linejoin="round"/>
 </svg>
