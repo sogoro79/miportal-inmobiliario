@@ -58,13 +58,15 @@ function renderButton(cta) {
   if (!cta?.url || !cta?.label) return "";
   const href = escapeEmailHtml(cta.url);
   const label = escapeEmailHtml(cta.label);
+  const buttonTextColor = "#2f6f1f";
+  const buttonBorderColor = "#5a9e2f";
   return `
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0;">
       <tr>
-        <td align="center" bgcolor="${BRAND.color}" style="background-color:${BRAND.color};border-radius:10px;mso-padding-alt:14px 24px;">
-          <a href="${href}" target="_blank" style="display:inline-block;padding:14px 24px;font-family:Arial,sans-serif;font-size:15px;line-height:20px;color:#ffffff !important;text-decoration:none;font-weight:700;border-radius:10px;background-color:${BRAND.color};-webkit-text-size-adjust:none;mso-line-height-rule:exactly;">
-            <font color="#ffffff" style="color:#ffffff;">
-              <span style="color:#ffffff !important;text-decoration:none;">${label}</span>
+        <td align="center" bgcolor="#ffffff" style="background-color:#ffffff;border:2px solid ${buttonBorderColor};border-radius:10px;mso-padding-alt:14px 24px;">
+          <a href="${href}" target="_blank" style="display:inline-block;padding:14px 24px;font-family:Arial,sans-serif;font-size:15px;line-height:20px;color:${buttonTextColor} !important;text-decoration:none;font-weight:700;border-radius:10px;background-color:#ffffff;-webkit-text-size-adjust:none;mso-line-height-rule:exactly;">
+            <font color="${buttonTextColor}" style="color:${buttonTextColor};">
+              <span style="color:${buttonTextColor} !important;text-decoration:none;">${label}</span>
             </font>
           </a>
         </td>
