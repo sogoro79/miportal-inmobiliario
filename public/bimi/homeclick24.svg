@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 512 512">
+  <title>HomeClick24</title>
+  <rect width="512" height="512" fill="#FFFFFF"/>
+  <rect width="512" height="512" rx="68" fill="#7AC943"/>
+  <rect x="340" y="116" width="40" height="92" rx="6" fill="#FFFFFF"/>
+  <path d="M136 400L136 252L256 148L376 252L376 400Z" fill="#FFFFFF"/>
+  <path d="M85 230L256 92L427 230" fill="none" stroke="#FFFFFF" stroke-width="31" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="184" y="292" width="66" height="108" rx="6" fill="#7AC943"/>
+  <rect x="204" y="314" width="28" height="86" rx="5" fill="#FFFFFF"/>
+  <rect x="284" y="252" width="31" height="31" rx="4" fill="#7AC943"/>
+  <rect x="324" y="252" width="31" height="31" rx="4" fill="#7AC943"/>
+  <rect x="284" y="292" width="31" height="31" rx="4" fill="#7AC943"/>
+  <rect x="324" y="292" width="31" height="31" rx="4" fill="#7AC943"/>
+  <path d="M342 336L420 380L383 390L405 441L374 456L353 406L325 429L342 336Z" fill="#111111" stroke="#FFFFFF" stroke-width="9" stroke-linejoin="round"/>
+</svg>
