@@ -7,7 +7,7 @@ import EstadisticaAnuncio from "../models/EstadisticaAnuncio.js";
 import Alerta from "../models/Alerta.js";
 import Notificacion from "../models/Notificacion.js";
 import Usuario from "../models/Usuario.js";
-import { enviarCorreo } from "../utils/email.js";
+import { enviarCorreo, escapeEmailHtml } from "../utils/email.js";
 import { requireAuth } from "../middleware/auth.js";
 import { securityRateLimits } from "../utils/security.js";
 import {
@@ -796,15 +796,15 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
     `
       <h1>Tu anuncio ya está publicado 🏡</h1>
 
-      <p>Hola ${usuario.nombre || ""},</p>
+      <p>Hola ${escapeEmailHtml(usuario.nombre || "")},</p>
 
       <p>
-        Tu propiedad <strong>${propiedad.titulo}</strong>
+        Tu propiedad <strong>${escapeEmailHtml(propiedad.titulo)}</strong>
         ya está activa en HomeClick24.
       </p>
 
       <p>
-        Dirección: ${propiedad.direccion}
+        Dirección: ${escapeEmailHtml(propiedad.direccion)}
       </p>
 
       <p>

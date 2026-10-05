@@ -1,6 +1,5 @@
 import express from 'express';
 import Stripe from 'stripe';
-import { Resend } from 'resend';
 import { v2 as cloudinary } from 'cloudinary';
 import Usuario from '../models/Usuario.js';
 import Propiedad from '../models/Propiedad.js';
@@ -22,10 +21,10 @@ import { securityRateLimits } from '../utils/security.js';
 import { validateBody, z } from '../utils/validation.js';
 import { getProfessionalPromotionAdminStats } from '../utils/professionalPromotion.js';
 import { LAUNCH_PLAN_ID, getLaunchPlanEndsAt } from '../utils/launchPlan.js';
+import { enviarCorreoAutomatico, escapeEmailHtml } from '../utils/email.js';
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const resend = new Resend(process.env.RESEND_API_KEY);
 const adminLoginLimiter = createRateLimit({
   windowMs: 15 * 60 * 1000,
   max: 6,
@@ -513,23 +512,20 @@ function metricasTemporales(registros) {
 async function enviarInvitacionVipTrial(usuario) {
   const enlace = `${process.env.APP_URL}/vip-trial.html`;
 
-  await resend.emails.send({
-    from: 'HomeClick24 <contacto@homeclick24.com>',
-    to: usuario.email,
-    subject: 'Has sido invitado a una prueba gratuita VIP de 30 días',
-    html: `
-      <div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:auto;padding:32px;background:#fff;">
-        <h2 style="color:#7cc242;margin:0 0 18px;">HomeClick24</h2>
-        <p>Hola <strong>${usuario.nombre || ""}</strong>,</p>
-        <p>Tu <strong>prueba gratuita VIP de 30 días</strong> ya está activa en HomeClick24.</p>
-        <p>Puedes revisar las condiciones de la prueba desde tu cuenta.</p>
-        <a href="${enlace}" style="display:inline-block;margin:22px 0;padding:14px 24px;background:#7cc242;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;">
-          Ver prueba VIP
-        </a>
-        <p style="color:#777;font-size:0.9rem;">Por seguridad, inicia sesión con este mismo email para revisar tu prueba.</p>
-      </div>
-    `
+  const ok = await enviarCorreoAutomatico(usuario.email, 'Has sido invitado a una prueba gratuita VIP de 30 días', `
+    <p>Hola <strong>${escapeEmailHtml(usuario.nombre || "")}</strong>,</p>
+    <p>Tu <strong>prueba gratuita VIP de 30 días</strong> ya está activa en HomeClick24.</p>
+    <p>Puedes revisar las condiciones de la prueba desde tu cuenta.</p>
+    <p style="color:#6b7280;font-size:13px;line-height:20px;">Por seguridad, inicia sesión con este mismo email para revisar tu prueba.</p>
+  `, {
+    title: "Prueba VIP gratuita",
+    cta: {
+      label: "Ver prueba VIP",
+      url: enlace
+    }
   });
+
+  if (!ok) throw new Error('No se pudo enviar la invitación VIP Trial');
 }
 
 // Login admin

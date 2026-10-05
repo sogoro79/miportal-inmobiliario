@@ -2,18 +2,15 @@ import "dotenv/config";
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { Resend } from "resend";
 import Usuario from "../models/Usuario.js";
 import { cleanString, objectId, optionalCleanString, validateBody, z } from "../utils/validation.js";
 import { canjearCodigoVipTrial, mensajeErrorCodigoVipTrial } from "../utils/vipTrialCodes.js";
 import { authenticateUserCredentials, createUserJwt, usuarioSeguro } from "../utils/authentication.js";
 import { createRateLimit } from "../utils/rateLimit.js";
 import { securityRateLimits } from "../utils/security.js";
+import { enviarCorreoContacto, escapeEmailHtml, textToEmailHtml } from "../utils/email.js";
 
 const router = express.Router();
-
-// Configuración de Nodemailer con Gmail
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 const emailSchema = z
   .string()
@@ -145,22 +142,18 @@ router.post("/register", securityRateLimits.register, validateBody(registerSchem
 
     const enlace = `${process.env.APP_URL}/set-password?token=${token}`;
 
-    await resend.emails.send({
-      from: 'HomeClick24 <contacto@homeclick24.com>',
-      to: email,
-      subject: "Activa tu cuenta - HomeClick24",
-      html: `
-        <div style="font-family:Inter,sans-serif;max-width:480px;margin:auto;padding:32px;background:#fff;border-radius:16px;">
-          <h2 style="color:#7cc242">HomeClick24</h2>
-          <p>Hola <strong>${nombre}</strong>,</p>
-          <p>Para activar tu cuenta, crea tu contraseña:</p>
-          <a href="${enlace}" style="display:inline-block;margin:20px 0;padding:14px 28px;background:#7cc242;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">
-            Crear contraseña
-          </a>
-          <p style="color:#888;font-size:0.85rem">Este enlace caduca en 24h.</p>
-        </div>
-      `
+    const emailEnviado = await enviarCorreoContacto(email, "Activa tu cuenta - HomeClick24", `
+      <p>Hola <strong>${escapeEmailHtml(nombre)}</strong>,</p>
+      <p>Para activar tu cuenta, crea tu contraseña.</p>
+      <p style="color:#6b7280;font-size:13px;line-height:20px;">Este enlace caduca en 24 horas.</p>
+    `, {
+      title: "Activa tu cuenta",
+      cta: {
+        label: "Crear contraseña",
+        url: enlace
+      }
     });
+    if (!emailEnviado) throw new Error("No se pudo enviar el email de activación");
 
     res.json({ ok: true, message: "Si los datos son válidos, recibirás un email para continuar" });
 
@@ -275,22 +268,18 @@ router.post("/recuperar", securityRateLimits.passwordRecovery, validateBody(recu
 
     const enlace = `${process.env.APP_URL}/reset-password?token=${token}`;
 
-    await resend.emails.send({
-      from: 'HomeClick24 <contacto@homeclick24.com>',
-      to: email,
-      subject: "Recupera tu contraseña - HomeClick24",
-      html: `
-        <div style="font-family:Inter,sans-serif;max-width:480px;margin:auto;padding:32px;background:#fff;border-radius:16px;">
-          <h2 style="color:#7cc242">HomeClick24</h2>
-          <p>Hola <strong>${usuario.nombre}</strong>,</p>
-          <p>Recibimos una solicitud para restablecer tu contraseña.</p>
-          <a href="${enlace}" style="display:inline-block;margin:20px 0;padding:14px 28px;background:#7cc242;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">
-            Restablecer contraseña
-          </a>
-          <p style="color:#888;font-size:0.85rem">Este enlace caduca en 1 hora. Si no solicitaste esto, ignora este email.</p>
-        </div>
-      `
+    const emailEnviado = await enviarCorreoContacto(email, "Recupera tu contraseña - HomeClick24", `
+      <p>Hola <strong>${escapeEmailHtml(usuario.nombre)}</strong>,</p>
+      <p>Recibimos una solicitud para restablecer tu contraseña.</p>
+      <p style="color:#6b7280;font-size:13px;line-height:20px;">Este enlace caduca en 1 hora. Si no solicitaste esto, ignora este email.</p>
+    `, {
+      title: "Recupera tu contraseña",
+      cta: {
+        label: "Restablecer contraseña",
+        url: enlace
+      }
     });
+    if (!emailEnviado) throw new Error("No se pudo enviar el email de recuperación");
 
     res.json({ ok: true });
 
@@ -334,25 +323,20 @@ router.post("/contacto", securityRateLimits.contact, validateBody(contactoSchema
       return res.status(400).json({ error: "Faltan datos" });
     }
 
-    await resend.emails.send({
-      from: 'HomeClick24 <contacto@homeclick24.com>',
-      to: 'contacto@homeclick24.com',
-      subject: `📩 Nuevo mensaje de contacto: ${asunto}`,
-      html: `
-        <div style="font-family:Inter,sans-serif;max-width:480px;margin:auto;padding:32px;background:#fff;border-radius:16px;">
-          <h2 style="color:#7cc242">HomeClick24 · Contacto</h2>
-          <p><strong>Nombre:</strong> ${nombre}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Asunto:</strong> ${asunto}</p>
-          <p><strong>Mensaje:</strong></p>
-          <div style="background:#f9f9f9;padding:16px;border-radius:10px;margin-top:8px;">
-            ${mensaje}
-          </div>
-          <p style="color:#888;font-size:0.85rem;margin-top:24px;">Responde directamente a ${email}</p>
-        </div>
-      `,
+    const emailEnviado = await enviarCorreoContacto('contacto@homeclick24.com', `📩 Nuevo mensaje de contacto: ${asunto}`, `
+      <p><strong>Nombre:</strong> ${escapeEmailHtml(nombre)}</p>
+      <p><strong>Email:</strong> ${escapeEmailHtml(email)}</p>
+      <p><strong>Asunto:</strong> ${escapeEmailHtml(asunto)}</p>
+      <p><strong>Mensaje:</strong></p>
+      <div style="background:#f9fafb;padding:14px 16px;border-radius:10px;border:1px solid #e5e7eb;">
+        ${textToEmailHtml(mensaje)}
+      </div>
+      <p style="color:#6b7280;font-size:13px;line-height:20px;margin-top:20px;">Responde directamente a ${escapeEmailHtml(email)}.</p>
+    `, {
+      title: "Nuevo mensaje de contacto",
       replyTo: email
     });
+    if (!emailEnviado) throw new Error("No se pudo enviar el mensaje de contacto");
 
     res.json({ ok: true });
   } catch (err) {

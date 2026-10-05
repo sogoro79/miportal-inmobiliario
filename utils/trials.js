@@ -1,5 +1,5 @@
 import Usuario from "../models/Usuario.js";
-import { enviarCorreo } from "./email.js";
+import { enviarCorreo, escapeEmailHtml } from "./email.js";
 import { aplicarCaducidadAnunciosGratis } from "./freeListingExpiration.js";
 import {
   aplicarLimitesPlanTrasTrial,
@@ -56,7 +56,7 @@ function getReminderStage(usuario, now) {
 }
 
 function getTrialEmail(usuario, stage) {
-  const nombre = usuario.nombre || "Hola";
+  const nombre = escapeEmailHtml(usuario.nombre || "Hola");
   const fechaFin = usuario.trialEndDate
     ? usuario.trialEndDate.toLocaleDateString("es-ES")
     : "";

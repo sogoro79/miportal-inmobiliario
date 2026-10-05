@@ -1,6 +1,5 @@
 import express from "express";
 import mongoose from "mongoose";
-import { Resend } from "resend";
 import Propiedad from "../models/Propiedad.js";
 import EstadisticaAnuncio from "../models/EstadisticaAnuncio.js";
 import Usuario from "../models/Usuario.js";
@@ -9,13 +8,9 @@ import Mensaje from "../models/Mensaje.js";
 import { requireAuth } from "../middleware/auth.js";
 import { cleanString, isObjectId, objectId, validateBody, z } from "../utils/validation.js";
 import { securityRateLimits } from "../utils/security.js";
+import { enviarCorreoAutomatico, escapeEmailHtml, textToEmailHtml } from "../utils/email.js";
 
 const router = express.Router();
-
-/* ======================
-   NODEMAILER
-====================== */
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 /* ======================
    SCHEMAS
@@ -235,33 +230,22 @@ router.post("/conversaciones/:id/mensajes", requireAuth, securityRateLimits.chat
         const propiedad  = await Propiedad.findById(conv.propiedadId);
 
         if (anunciante?.email) {
-          await resend.emails.send({
-            from: 'HomeClick24 <contacto@homeclick24.com>',
-            to: anunciante.email,
-            subject: "💬 Tienes un nuevo mensaje en HomeClick24",
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
-                <div style="background: #7cc242; padding: 20px; text-align: center;">
-                  <h2 style="color: white; margin: 0;">HomeClick24</h2>
-                </div>
-                <div style="padding: 24px;">
-                  <p style="font-size: 16px;">Hola <strong>${anunciante.nombre || "anunciante"}</strong>,</p>
-                  <p>Has recibido un nuevo mensaje sobre tu propiedad:</p>
-                  <div style="background: #f3f4f6; border-radius: 6px; padding: 12px; margin: 16px 0;">
-                    <p style="margin: 0; font-weight: bold;">🏠 ${propiedad?.titulo || "Tu propiedad"}</p>
-                  </div>
-                  <div style="background: #f0fae5; border-left: 4px solid #7cc242; padding: 12px; border-radius: 4px; margin: 16px 0;">
-                    <p style="margin: 0; color: #4a7c24;"><strong>${comprador?.nombre || "Un usuario"}:</strong></p>
-                    <p style="margin: 8px 0 0;">"${texto}"</p>
-                  </div>
-                  <a href="https://www.homeclick24.com/chat"
-                     style="display: inline-block; background: #7cc242; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 8px;">
-                   Ver mensaje
-                  </a>
-                  <p style="font-size: 12px; color: #9ca3af; margin-top: 24px;">HomeClick24 · No respondas a este email</p>
-                </div>
-              </div>
-            `
+          await enviarCorreoAutomatico(anunciante.email, "💬 Tienes un nuevo mensaje en HomeClick24", `
+            <p>Hola <strong>${escapeEmailHtml(anunciante.nombre || "anunciante")}</strong>,</p>
+            <p>Has recibido un nuevo mensaje sobre tu propiedad:</p>
+            <div style="background:#f3f4f6;border-radius:10px;padding:14px 16px;margin:16px 0;">
+              <p style="margin:0;font-weight:700;color:#1f2937;">${escapeEmailHtml(propiedad?.titulo || "Tu propiedad")}</p>
+            </div>
+            <div style="background:#f0fae5;border-left:4px solid #7cc242;padding:14px 16px;border-radius:8px;margin:16px 0;">
+              <p style="margin:0;color:#4a7c24;"><strong>${escapeEmailHtml(comprador?.nombre || "Un usuario")}:</strong></p>
+              <p style="margin:8px 0 0;">"${textToEmailHtml(texto)}"</p>
+            </div>
+          `, {
+            title: "Nuevo mensaje recibido",
+            cta: {
+              label: "Ver mensaje",
+              url: "https://www.homeclick24.com/chat"
+            }
           });
         }
       }

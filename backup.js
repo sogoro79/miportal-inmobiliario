@@ -9,11 +9,11 @@ import { createGzip } from 'zlib';
 import { createWriteStream, unlinkSync, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
+import { getEmailSender } from './utils/email.js';
 
 // ---- CONFIGURACIÓN ----
 const MONGODB_URI = process.env.MONGODB_URI;
 const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASS = process.env.GMAIL_PASS;
 
 // ---- EXPORTAR COLECCIONES ----
 export async function exportarColecciones() {
@@ -86,7 +86,7 @@ export async function enviarPorEmail(
   
   try {
     await transporter.sendMail({
-      from: 'backup@homeclick24.com',
+      from: getEmailSender('backup', env),
       to: env.GMAIL_USER,
       subject: `🗄️ Backup HomeClick24 - ${fecha}`,
       text: `Backup automático de la base de datos de HomeClick24 del ${fecha}.\n\nColecciones incluidas en el adjunto.`,

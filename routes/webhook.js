@@ -203,21 +203,19 @@ router.post('/', async (req, res) => {
         usuarioActualizado.email,
         `✅ Tu plan ${NOMBRES_PLANES[plan]} está activo — HomeClick24`,
         `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px;">
-            <img src="https://www.homeclick24.com/HomeClick-full.png" alt="HomeClick24" style="height:60px;margin-bottom:24px;">
-            <h1 style="color:#1a1a1a;font-size:1.4rem;">¡Suscripción activada! 🎉</h1>
-            <p style="color:#555;line-height:1.6;">Tu plan <strong>${NOMBRES_PLANES[plan]}</strong> está activo.</p>
-            <div style="background:#f0f9e8;border-radius:10px;padding:16px 20px;margin:20px 0;">
-              <p style="margin:0;color:#5a9e2f;font-weight:600;">📅 Válido hasta: ${fechaFin.toLocaleDateString('es-ES')}</p>
-            </div>
-            <p style="color:#555;line-height:1.6;">Ya puedes publicar tus anuncios en HomeClick24.</p>
-            <a href="https://www.homeclick24.com/publicar"
-              style="display:inline-block;background:#7cc242;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px;">
-              Publicar anuncio
-            </a>
-            <p style="color:#aaa;font-size:0.85rem;margin-top:32px;">HomeClick24 · Tu portal inmobiliario de confianza</p>
+          <p>Tu plan <strong>${NOMBRES_PLANES[plan]}</strong> está activo.</p>
+          <div style="background:#f0f9e8;border-radius:10px;padding:16px 20px;margin:20px 0;">
+            <p style="margin:0;color:#5a9e2f;font-weight:600;">📅 Válido hasta: ${fechaFin.toLocaleDateString('es-ES')}</p>
           </div>
-        `
+          <p>Ya puedes publicar tus anuncios en HomeClick24.</p>
+        `,
+        {
+          title: "Suscripción activada",
+          cta: {
+            label: "Publicar anuncio",
+            url: "https://www.homeclick24.com/publicar"
+          }
+        }
       );
     }
   }
@@ -326,16 +324,14 @@ router.post('/', async (req, res) => {
         usuario.email,
         `🔄 Tu plan ${NOMBRES_PLANES[plan]} se ha renovado — HomeClick24`,
         `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px;">
-            <img src="https://www.homeclick24.com/HomeClick-full.png" alt="HomeClick24" style="height:60px;margin-bottom:24px;">
-            <h1 style="color:#1a1a1a;font-size:1.4rem;">Plan renovado correctamente 🔄</h1>
-            <p style="color:#555;line-height:1.6;">Tu plan <strong>${NOMBRES_PLANES[plan]}</strong> se ha renovado.</p>
-            <div style="background:#f0f9e8;border-radius:10px;padding:16px 20px;margin:20px 0;">
-              <p style="margin:0;color:#5a9e2f;font-weight:600;">📅 Válido hasta: ${fechaFin.toLocaleDateString('es-ES')}</p>
-            </div>
-            <p style="color:#aaa;font-size:0.85rem;margin-top:32px;">HomeClick24 · Tu portal inmobiliario de confianza</p>
+          <p>Tu plan <strong>${NOMBRES_PLANES[plan]}</strong> se ha renovado.</p>
+          <div style="background:#f0f9e8;border-radius:10px;padding:16px 20px;margin:20px 0;">
+            <p style="margin:0;color:#5a9e2f;font-weight:600;">📅 Válido hasta: ${fechaFin.toLocaleDateString('es-ES')}</p>
           </div>
-        `
+        `,
+        {
+          title: "Plan renovado correctamente"
+        }
       );
     }
   }
@@ -381,17 +377,15 @@ router.post('/', async (req, res) => {
         usuario.email,
         `⚠️ Problema con tu pago — HomeClick24`,
         `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px;">
-            <img src="https://www.homeclick24.com/HomeClick-full.png" alt="HomeClick24" style="height:60px;margin-bottom:24px;">
-            <h1 style="color:#1a1a1a;font-size:1.4rem;">No hemos podido procesar tu pago ⚠️</h1>
-            <p style="color:#555;line-height:1.6;">Ha habido un problema al renovar tu suscripción. Por favor actualiza tu método de pago para no perder el acceso.</p>
-            <a href="https://www.homeclick24.com/perfil"
-              style="display:inline-block;background:#f59e0b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px;">
-              Actualizar método de pago
-            </a>
-            <p style="color:#aaa;font-size:0.85rem;margin-top:32px;">HomeClick24 · Tu portal inmobiliario de confianza</p>
-          </div>
-        `
+          <p>Ha habido un problema al renovar tu suscripción. Por favor actualiza tu método de pago para no perder el acceso.</p>
+        `,
+        {
+          title: "No hemos podido procesar tu pago",
+          cta: {
+            label: "Actualizar método de pago",
+            url: "https://www.homeclick24.com/perfil"
+          }
+        }
       );
     }
   }
@@ -422,17 +416,15 @@ router.post('/', async (req, res) => {
         usuario.email,
         `😔 Tu suscripción ha finalizado — HomeClick24`,
         `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px;">
-            <img src="https://www.homeclick24.com/HomeClick-full.png" alt="HomeClick24" style="height:60px;margin-bottom:24px;">
-            <h1 style="color:#1a1a1a;font-size:1.4rem;">Tu suscripción ha finalizado</h1>
-            <p style="color:#555;line-height:1.6;">Tu plan ha expirado y tu cuenta ha vuelto al plan gratuito. Tus anuncios activos pueden haberse desactivado.</p>
-            <a href="https://www.homeclick24.com/planes"
-              style="display:inline-block;background:#7cc242;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px;">
-              Ver planes
-            </a>
-            <p style="color:#aaa;font-size:0.85rem;margin-top:32px;">HomeClick24 · Tu portal inmobiliario de confianza</p>
-          </div>
-        `
+          <p>Tu plan ha expirado y tu cuenta ha vuelto al plan gratuito. Tus anuncios activos pueden haberse desactivado.</p>
+        `,
+        {
+          title: "Tu suscripción ha finalizado",
+          cta: {
+            label: "Ver planes",
+            url: "https://www.homeclick24.com/planes"
+          }
+        }
       );
     }
   }

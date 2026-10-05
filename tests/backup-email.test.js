@@ -76,7 +76,7 @@ test("enviarPorEmail configura Nodemailer 9 con SMTP seguro y adjunto Buffer", a
   });
 
   const sendMailCall = calls.find(call => call.type === "sendMail");
-  assert.equal(sendMailCall.message.from, "backup@homeclick24.com");
+  assert.equal(sendMailCall.message.from, "HomeClick24 <backup@homeclick24.com>");
   assert.equal(sendMailCall.message.to, destination);
   assert.match(sendMailCall.message.subject, /Backup HomeClick24/);
   assert.match(sendMailCall.message.text, /Backup automático/);
