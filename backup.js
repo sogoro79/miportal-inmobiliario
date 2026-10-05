@@ -3,6 +3,7 @@
 // Exporta colecciones MongoDB y envía por email
 // ===========================================
 
+import "dotenv/config";
 import mongoose from 'mongoose';
 import nodemailer from 'nodemailer';
 import { createGzip } from 'zlib';
