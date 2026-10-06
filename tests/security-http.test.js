@@ -376,6 +376,22 @@ test("home usa raíz canónica y /index.html redirige a /", async () => {
   assert.equal(legacy.headers.get("location"), "/");
 });
 
+test("URLs SEO locales antiguas redirigen 301 a rutas limpias", async () => {
+  const redirects = [
+    ["/venta-chipiona.html", "/comprar/chipiona"],
+    ["/venta-el-puerto-de-santa-maria.html", "/comprar/el-puerto-de-santa-maria"],
+    ["/alquiler-chipiona.html", "/alquiler/chipiona"],
+    ["/alquiler-rota.html", "/alquiler/rota"]
+  ];
+
+  for (const [legacyUrl, canonicalUrl] of redirects) {
+    const response = await request(legacyUrl);
+
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get("location"), canonicalUrl);
+  }
+});
+
 test("publicar sigue disponible pero queda fuera del índice", async () => {
   const response = await request("/publicar");
 

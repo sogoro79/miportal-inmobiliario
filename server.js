@@ -379,6 +379,19 @@ app.get(["/comprar/:zona", "/alquiler/:zona"], (req, res, next) => {
   res.type("html").send(inyectarSeoZona(html, context));
 });
 
+const legacySeoRedirects = {
+  "/venta-chipiona.html": "/comprar/chipiona",
+  "/venta-el-puerto-de-santa-maria.html": "/comprar/el-puerto-de-santa-maria",
+  "/alquiler-chipiona.html": "/alquiler/chipiona",
+  "/alquiler-rota.html": "/alquiler/rota"
+};
+
+Object.entries(legacySeoRedirects).forEach(([legacyPath, canonicalPath]) => {
+  app.get(legacyPath, (req, res) => {
+    res.redirect(301, canonicalPath);
+  });
+});
+
 app.get("/propiedad/:slug", async (req, res, next) => {
   const id = extraerIdPropiedadDesdeSlug(req.params.slug);
   if (!id) return next();
