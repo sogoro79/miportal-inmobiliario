@@ -6,6 +6,8 @@ import { PassThrough, Readable, Writable } from "stream";
 import { v2 as cloudinary } from "cloudinary";
 import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
+import Alerta from "../models/Alerta.js";
+import Notificacion from "../models/Notificacion.js";
 import { getSeoZoneContext } from "../utils/seoZones.js";
 
 process.env.NODE_ENV = "production";
@@ -116,6 +118,46 @@ function escapeRegExp(value = "") {
 
 function extractPageHeaderIntro(html = "") {
   return html.match(/<p class="page-header-intro"[^>]*>([\s\S]*?)<\/p>/i)?.[1]?.replace(/\s+/g, " ").trim() || "";
+}
+
+function getFieldValue(item, path) {
+  return String(path).split(".").reduce((value, key) => value?.[key], item);
+}
+
+function matchesMongoCondition(value, condition) {
+  if (condition && typeof condition === "object" && !Array.isArray(condition)) {
+    if ("$regex" in condition) {
+      return new RegExp(condition.$regex, condition.$options || "").test(String(value || ""));
+    }
+    if ("$exists" in condition) {
+      return condition.$exists ? value !== undefined : value === undefined;
+    }
+    if ("$ne" in condition) {
+      return value !== condition.$ne;
+    }
+    if ("$nin" in condition) {
+      return !condition.$nin.includes(value);
+    }
+    if ("$in" in condition) {
+      return condition.$in.includes(value);
+    }
+    if ("$gt" in condition) {
+      return value !== undefined && value !== null && value > condition.$gt;
+    }
+    if ("$not" in condition) {
+      return !matchesMongoCondition(value, condition.$not);
+    }
+  }
+
+  return value === condition;
+}
+
+function matchesMongoFilter(item, filter = {}) {
+  return Object.entries(filter).every(([key, condition]) => {
+    if (key === "$and") return condition.every(part => matchesMongoFilter(item, part));
+    if (key === "$or") return condition.some(part => matchesMongoFilter(item, part));
+    return matchesMongoCondition(getFieldValue(item, key), condition);
+  });
 }
 
 function createMultipartBody({ fields = {}, files = [] } = {}) {
@@ -347,6 +389,91 @@ test("override SEO de Sanlúcar alquiler no afecta Sanlúcar compra", async () =
   assert.match(response.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
   assert.match(response.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
   assert.doesNotMatch(response.text, /Casas y pisos en alquiler en Sanlúcar de Barrameda/);
+});
+
+test("filtro zona separa Cádiz capital de otros municipios de la provincia", async () => {
+  const previousFind = Propiedad.find;
+  const propiedades = [
+    {
+      _id: "chipiona-legacy",
+      titulo: "Casa en Chipiona",
+      direccion: "Avenida de Regla, Chipiona, Cádiz, Andalucía, España",
+      tipoOperacion: "venta"
+    },
+    {
+      _id: "rota-legacy",
+      titulo: "Casa en Rota",
+      direccion: "Calle Mina, Rota, Cádiz, Andalucía, España",
+      tipoOperacion: "venta"
+    },
+    {
+      _id: "sanlucar-legacy",
+      titulo: "Piso en Sanlúcar",
+      direccion: "Avenida Rocío Jurado, Sanlúcar de Barrameda, Cádiz, Andalucía, España",
+      tipoOperacion: "venta"
+    },
+    {
+      _id: "puerto-legacy",
+      titulo: "Casa en El Puerto",
+      direccion: "Calle Larga, El Puerto de Santa María, Cádiz, Andalucía, España",
+      tipoOperacion: "venta"
+    },
+    {
+      _id: "jerez-legacy",
+      titulo: "Piso en Jerez",
+      direccion: "Calle Honda, Jerez de la Frontera, Cádiz, Andalucía, España",
+      tipoOperacion: "venta"
+    },
+    {
+      _id: "cadiz-capital-legacy",
+      titulo: "Piso en Cádiz capital",
+      direccion: "Calle Ancha, Cádiz, Andalucía, España",
+      tipoOperacion: "venta"
+    },
+    {
+      _id: "cadiz-estructurada",
+      titulo: "Oportunidad en Chipiona mencionada en el título",
+      direccion: "Calle Sacramento, Cádiz, Andalucía, España",
+      localidad: "Cádiz",
+      provincia: "Cádiz",
+      tipoOperacion: "venta"
+    },
+    {
+      _id: "chipiona-estructurada",
+      titulo: "Casa anunciada también para Cádiz",
+      direccion: "Calle larga, Cádiz, Andalucía, España",
+      localidad: "Chipiona",
+      provincia: "Cádiz",
+      tipoOperacion: "venta"
+    }
+  ];
+
+  Propiedad.find = filtro => ({
+    sort: () => ({
+      lean: () => Promise.resolve(propiedades.filter(propiedad => matchesMongoFilter(propiedad, filtro)))
+    })
+  });
+
+  try {
+    const chipiona = await request("/propiedades?tipo=venta&zona=chipiona");
+    const cadiz = await request("/propiedades?tipo=venta&zona=cadiz");
+
+    assert.equal(chipiona.status, 200);
+    assert.equal(cadiz.status, 200);
+
+    const chipionaIds = JSON.parse(chipiona.text).map(propiedad => propiedad._id);
+    const cadizIds = JSON.parse(cadiz.text).map(propiedad => propiedad._id);
+
+    assert.deepEqual(new Set(chipionaIds), new Set(["chipiona-legacy", "chipiona-estructurada"]));
+    assert.deepEqual(new Set(cadizIds), new Set(["cadiz-capital-legacy", "cadiz-estructurada"]));
+    assert.equal(cadizIds.includes("chipiona-legacy"), false);
+    assert.equal(cadizIds.includes("rota-legacy"), false);
+    assert.equal(cadizIds.includes("sanlucar-legacy"), false);
+    assert.equal(cadizIds.includes("puerto-legacy"), false);
+    assert.equal(cadizIds.includes("jerez-legacy"), false);
+  } finally {
+    Propiedad.find = previousFind;
+  }
 });
 
 test("landings generales de compra y alquiler mantienen SEO general", async () => {
@@ -724,6 +851,68 @@ test("POST /propiedades limpia nueva imagen si falla validación tras subida", a
   }
 });
 
+test("POST /propiedades guarda localidad provincia y codigoPostal", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousCountDocuments = Propiedad.countDocuments;
+  const previousCreate = Propiedad.create;
+  const previousAlertaFind = Alerta.find;
+  const previousNotificacionCreate = Notificacion.create;
+  let createdPayload = null;
+
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.countDocuments = async () => 0;
+  Propiedad.create = async payload => {
+    createdPayload = payload;
+    return {
+      _id: { toString: () => "507f1f77bcf86cd799439088" },
+      ...payload
+    };
+  };
+  Alerta.find = async () => [];
+  Notificacion.create = async () => ({});
+
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa en Chipiona",
+      direccion: "Avenida de Regla, Chipiona, Cádiz",
+      localidad: "Chipiona",
+      provincia: "Cádiz",
+      codigoPostal: "11550",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2"
+    }
+  });
+
+  try {
+    const response = await request("/propiedades", {
+      method: "POST",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.98"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 201);
+    assert.equal(createdPayload.localidad, "Chipiona");
+    assert.equal(createdPayload.provincia, "Cádiz");
+    assert.equal(createdPayload.codigoPostal, "11550");
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.countDocuments = previousCountDocuments;
+    Propiedad.create = previousCreate;
+    Alerta.find = previousAlertaFind;
+    Notificacion.create = previousNotificacionCreate;
+  }
+});
+
 test("PUT /propiedades/:id comprueba ownership antes de subir archivos", async () => {
   const previousFindByIdUsuario = Usuario.findById;
   const previousFindByIdPropiedad = Propiedad.findById;
@@ -808,6 +997,113 @@ test("PUT conserva imágenes si imagenesExistentes está ausente", async () => {
 
     assert.equal(response.status, 200);
     assert.deepEqual(propiedad.imagenes, originalImages);
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+  }
+});
+
+test("PUT /propiedades/:id conserva geografía estructurada cuando se omite", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    titulo: "Casa",
+    direccion: "Calle Test",
+    localidad: "Chipiona",
+    provincia: "Cádiz",
+    codigoPostal: "11550",
+    imagenes: [],
+    save: async () => propiedad
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa editada",
+      direccion: "Calle Test editada",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2"
+    }
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.99"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(propiedad.localidad, "Chipiona");
+    assert.equal(propiedad.provincia, "Cádiz");
+    assert.equal(propiedad.codigoPostal, "11550");
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+  }
+});
+
+test("PUT /propiedades/:id actualiza geografía estructurada cuando se envía", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    usuarioId: "507f1f77bcf86cd799439099",
+    titulo: "Casa",
+    direccion: "Calle Test",
+    localidad: "Chipiona",
+    provincia: "Cádiz",
+    codigoPostal: "11550",
+    imagenes: [],
+    save: async () => propiedad
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439099" },
+    activo: true,
+    plan: "gratis",
+    planActivo: true
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const multipart = createMultipartBody({
+    fields: {
+      titulo: "Casa editada",
+      direccion: "Calle Ancha, Cádiz",
+      localidad: "Cádiz",
+      provincia: "Cádiz",
+      codigoPostal: "11001",
+      precio: "100000",
+      tipoOperacion: "venta",
+      habitaciones: "2"
+    }
+  });
+
+  try {
+    const response = await request("/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        ...authHeaderFor(),
+        "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": "203.0.113.100"
+      },
+      rawBody: multipart.body
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(propiedad.localidad, "Cádiz");
+    assert.equal(propiedad.provincia, "Cádiz");
+    assert.equal(propiedad.codigoPostal, "11001");
   } finally {
     Usuario.findById = previousFindByIdUsuario;
     Propiedad.findById = previousFindByIdPropiedad;
@@ -1149,6 +1445,93 @@ test("DELETE admin limpia Cloudinary con imágenes guardadas en MongoDB", async 
     Propiedad.findById = previousFindByIdPropiedad;
     Propiedad.findByIdAndDelete = previousFindByIdAndDelete;
     restoreCloudinary();
+  }
+});
+
+test("PUT /admin/propiedades/:id conserva geografía estructurada cuando se omite", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    localidad: "Chipiona",
+    provincia: "Cádiz",
+    codigoPostal: "11550",
+    tipoInmueble: "piso",
+    save: async () => propiedad
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439012" },
+    activo: true,
+    role: "admin"
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const adminToken = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
+
+  try {
+    const response = await request("/admin/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "203.0.113.101"
+      },
+      body: {
+        titulo: "Casa admin",
+        direccion: "Calle Test editada"
+      }
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(propiedad.localidad, "Chipiona");
+    assert.equal(propiedad.provincia, "Cádiz");
+    assert.equal(propiedad.codigoPostal, "11550");
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
+  }
+});
+
+test("PUT /admin/propiedades/:id actualiza geografía estructurada cuando se envía", async () => {
+  const previousFindByIdUsuario = Usuario.findById;
+  const previousFindByIdPropiedad = Propiedad.findById;
+  const propiedad = {
+    _id: "507f1f77bcf86cd799439088",
+    localidad: "Chipiona",
+    provincia: "Cádiz",
+    codigoPostal: "11550",
+    tipoInmueble: "piso",
+    save: async () => propiedad
+  };
+  Usuario.findById = () => Promise.resolve({
+    _id: { toString: () => "507f1f77bcf86cd799439012" },
+    activo: true,
+    role: "admin"
+  });
+  Propiedad.findById = () => Promise.resolve(propiedad);
+  const adminToken = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
+
+  try {
+    const response = await request("/admin/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "203.0.113.102"
+      },
+      body: {
+        localidad: "Cádiz",
+        provincia: "Cádiz",
+        codigoPostal: "11001"
+      }
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(propiedad.localidad, "Cádiz");
+    assert.equal(propiedad.provincia, "Cádiz");
+    assert.equal(propiedad.codigoPostal, "11001");
+  } finally {
+    Usuario.findById = previousFindByIdUsuario;
+    Propiedad.findById = previousFindByIdPropiedad;
   }
 });
 

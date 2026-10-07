@@ -1085,6 +1085,9 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
       numeroPlantas,
       sotano,
       direccion,
+      localidad,
+      provincia,
+      codigoPostal,
       habitaciones,
       banos,
       superficie,
@@ -1094,6 +1097,9 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
 
     if (titulo !== undefined) propiedad.titulo = limpiarTexto(titulo, 160);
     if (direccion !== undefined) propiedad.direccion = limpiarTexto(direccion, 300);
+    if (localidad !== undefined) propiedad.localidad = limpiarTexto(localidad, 120);
+    if (provincia !== undefined) propiedad.provincia = limpiarTexto(provincia, 120);
+    if (codigoPostal !== undefined) propiedad.codigoPostal = limpiarTexto(codigoPostal, 20);
     if (descripcion !== undefined) propiedad.descripcion = limpiarTexto(descripcion, 5000);
 
     if (precio !== undefined) {

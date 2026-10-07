@@ -28,7 +28,8 @@ import {
   getLimiteFotosPlan,
   planTieneLimiteFotos
 } from "../utils/planLimits.js";
-import { getSeoZoneAliases, getSeoZoneSlugs } from "../utils/seoZones.js";
+import { getSeoZoneSlugs } from "../utils/seoZones.js";
+import { buildZonaMunicipalFilter } from "../utils/geoZones.js";
 import {
   filtroEstadoDisponibleMongo,
   propiedadDisponiblePublicamente
@@ -106,6 +107,9 @@ const propiedadBaseSchema = {
   titulo: requiredCleanString(160, "titulo"),
   referencia: optionalCleanString(80),
   direccion: requiredCleanString(300, "direccion"),
+  localidad: optionalCleanString(120),
+  provincia: optionalCleanString(120),
+  codigoPostal: optionalCleanString(20),
   precio: priceFromInput.pipe(z.number().min(0)),
   descripcion: optionalCleanString(5000),
   tipoOperacion: tipoOperacionSchema,
@@ -147,11 +151,6 @@ const propiedadUpdateSchema = z.object({
 
 function escapeRegex(value = "") {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function regexZonaSeo(slug) {
-  const aliases = getSeoZoneAliases(slug);
-  return aliases.map(escapeRegex).join("|");
 }
 
 function extraerLocalidadPropiedad(propiedad = {}) {
@@ -386,13 +385,8 @@ router.get("/", validateQuery(propiedadesQuerySchema), async (req, res) => {
     }
 
     if (zona) {
-      const zonaRegex = regexZonaSeo(zona);
-      condicionesTexto.push({
-        $or: [
-          { titulo: { $regex: zonaRegex, $options: "i" } },
-          { direccion: { $regex: zonaRegex, $options: "i" } }
-        ]
-      });
+      const zonaFilter = buildZonaMunicipalFilter(zona);
+      if (zonaFilter) condicionesTexto.push(zonaFilter);
     }
 
     if (condicionesTexto.length) {
@@ -669,6 +663,9 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
     const {
       titulo,
       direccion,
+      localidad,
+      provincia,
+      codigoPostal,
       precio,
       descripcion,
       tipoOperacion,
@@ -759,6 +756,9 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       titulo,
       referencia:    req.body.referencia || "",
       direccion,
+      localidad:     localidad || "",
+      provincia:     provincia || "",
+      codigoPostal:  codigoPostal || "",
       precio:        Number(precio),
       descripcion,
 
@@ -896,13 +896,16 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     if (!bodyValido) return;
 
     const {
-      titulo, direccion, precio, descripcion,
+      titulo, direccion, localidad, provincia, codigoPostal, precio, descripcion,
       tipoOperacion, habitaciones, lat, lng
     } = req.body;
 
     propiedad.titulo       = titulo || propiedad.titulo;
     propiedad.referencia   = req.body.referencia !== undefined ? req.body.referencia : propiedad.referencia;
     propiedad.direccion    = direccion || propiedad.direccion;
+    propiedad.localidad    = localidad !== undefined ? localidad : propiedad.localidad;
+    propiedad.provincia    = provincia !== undefined ? provincia : propiedad.provincia;
+    propiedad.codigoPostal = codigoPostal !== undefined ? codigoPostal : propiedad.codigoPostal;
     propiedad.precio       = precio !== undefined ? Number(precio) : propiedad.precio;
     propiedad.descripcion  = descripcion || propiedad.descripcion;
     propiedad.tipoOperacion = tipoOperacion || propiedad.tipoOperacion;

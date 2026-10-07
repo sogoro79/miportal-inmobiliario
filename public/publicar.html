@@ -578,6 +578,9 @@ let mapaPrevio = null;
 let markerPrevio = null;
 let latSel = null;
 let lngSel = null;
+let geoSeleccionada = { localidad: "", provincia: "", codigoPostal: "" };
+let geoSeleccionValida = false;
+let direccionSeleccionada = "";
 let imgFiles = [];
 let imagenesExistentes = [];
 let usuarioActualPublicar = null;
@@ -857,6 +860,13 @@ if (propiedadIdEditar) {
       document.getElementById("titulo").value        = p.titulo || "";
       document.getElementById("referencia").value    = p.referencia || "";
       document.getElementById("direccion").value     = p.direccion || "";
+      geoSeleccionada = {
+        localidad: p.localidad || p.ciudad || "",
+        provincia: p.provincia || "",
+        codigoPostal: p.codigoPostal || ""
+      };
+      geoSeleccionValida = Boolean(geoSeleccionada.localidad || geoSeleccionada.provincia || geoSeleccionada.codigoPostal);
+      direccionSeleccionada = p.direccion || "";
       document.getElementById("precio").value        = p.precio ? Number(p.precio).toLocaleString("es-ES") : "";
       document.getElementById("descripcion").value   = p.descripcion || "";
       document.getElementById("tipoOperacion").value = p.tipoOperacion || "";
@@ -921,8 +931,22 @@ const inputDir = document.getElementById("direccion");
 const sugBox   = document.getElementById("sugerencias");
 
 let geocodeTimer = null;
+function geoDesdeNominatim(item = {}) {
+  const address = item.address || {};
+  return {
+    localidad: address.city || address.town || address.village || address.municipality || "",
+    provincia: address.province || address.state_district || address.county || "",
+    codigoPostal: address.postcode || ""
+  };
+}
+
 inputDir.addEventListener("input", async () => {
   const t = inputDir.value.trim();
+  geoSeleccionada = { localidad: "", provincia: "", codigoPostal: "" };
+  geoSeleccionValida = false;
+  direccionSeleccionada = "";
+  latSel = null;
+  lngSel = null;
   if (t.length < 3) { sugBox.style.display = "none"; return; }
   
   clearTimeout(geocodeTimer);
@@ -941,6 +965,9 @@ inputDir.addEventListener("input", async () => {
           inputDir.value = item.display_name;
           latSel = parseFloat(item.lat);
           lngSel = parseFloat(item.lon);
+          geoSeleccionada = geoDesdeNominatim(item);
+          geoSeleccionValida = true;
+          direccionSeleccionada = item.display_name;
           sugBox.style.display = "none";
           mostrarMapa(latSel, lngSel);
         };
@@ -1113,6 +1140,14 @@ async function publicar() {
   fd.append("titulo", titulo);
   fd.append("referencia", document.getElementById("referencia").value.trim());
   fd.append("direccion", direccion);
+  const geoCorrespondeADireccionActual = geoSeleccionValida && direccion === direccionSeleccionada;
+  if (!propiedadIdEditar || geoCorrespondeADireccionActual) {
+    if (geoCorrespondeADireccionActual) {
+      fd.append("localidad", geoSeleccionada.localidad || "");
+      fd.append("provincia", geoSeleccionada.provincia || "");
+      fd.append("codigoPostal", geoSeleccionada.codigoPostal || "");
+    }
+  }
   fd.append("precio", precio);
   fd.append("descripcion", document.getElementById("descripcion").value.trim());
   fd.append("videoUrl", document.getElementById("videoUrl").value.trim());
