@@ -227,6 +227,7 @@ function inyectarSeoZona(html, context) {
   const escapedIntro = escapeHtml(context.intro);
   const escapedLocalTitle = escapeHtml(context.localContentTitle);
   const escapedLocalContent = escapeHtml(context.localContent);
+  const localContentMarkup = context.localContentHtml || `<p id="seoZonaContenidoTexto">${escapedLocalContent}</p>`;
   const contextScript = `  <script id="seo-zone-context" type="application/json">${escapeJsonForHtml(context)}</script>\n`;
 
   return inyectarCanonicalAbsoluto(html, context.canonical)
@@ -251,7 +252,7 @@ function inyectarSeoZona(html, context) {
       /<section class="zona-contenido-local" id="seoZonaContenido" hidden>[\s\S]*?<\/section>/i,
       `<section class="zona-contenido-local" id="seoZonaContenido" aria-labelledby="seoZonaContenidoTitulo">
   <h2 id="seoZonaContenidoTitulo">${escapedLocalTitle}</h2>
-  <p id="seoZonaContenidoTexto">${escapedLocalContent}</p>
+  ${localContentMarkup}
 </section>`
     )
     .replace("</head>", `${contextScript}</head>`);

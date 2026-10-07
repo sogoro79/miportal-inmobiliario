@@ -369,6 +369,34 @@ test("landing local de compra entrega SEO de Chipiona en el HTML inicial", async
   assert.doesNotMatch(response.text, /<link rel="canonical" href="https:\/\/www\.homeclick24\.com\/comprar">/);
 });
 
+test("landing de compra en Cádiz usa SEO específico sin afectar Chipiona", async () => {
+  const cadiz = await request("/comprar/cadiz");
+  const chipiona = await request("/comprar/chipiona");
+  const context = getSeoZoneContext({ operacionPath: "comprar", slug: "cadiz" });
+
+  assert.equal(cadiz.status, 200);
+  assert.equal(context.title, "Casas y viviendas en venta en Cádiz | HomeClick24");
+  assert.equal(context.description, "Compra casas, pisos y viviendas en Cádiz capital. Consulta anuncios reales de particulares, agentes y agencias en el portal inmobiliario HomeClick24.");
+  assert.equal(context.h1, "Pisos y casas en venta en Cádiz");
+  assert.equal(context.canonical, "https://www.homeclick24.com/comprar/cadiz");
+  assert.match(cadiz.text, new RegExp(escapeRegExp(`<title>${context.title}</title>`)));
+  assert.match(cadiz.text, new RegExp(escapeRegExp(`<meta name="description" content="${context.description}">`)));
+  assert.match(cadiz.text, new RegExp(escapeRegExp(`<h1>${context.h1}</h1>`)));
+  assert.match(cadiz.text, new RegExp(escapeRegExp(`<link rel="canonical" href="${context.canonical}">`)));
+  assert.match(cadiz.text, /Comprar vivienda en Cádiz capital/);
+  assert.match(cadiz.text, /casas en venta en Cádiz/);
+  assert.match(cadiz.text, /portal inmobiliario/);
+  assert.match(cadiz.text, /href="\/comprar"/);
+  assert.match(cadiz.text, /href="\/alquiler\/cadiz"/);
+  assert.match(cadiz.text, /href="\/publicar\.html"/);
+  assert.match(cadiz.text, /Actualmente no hay inmuebles disponibles en venta en Cádiz capital/);
+
+  assert.equal(chipiona.status, 200);
+  assert.doesNotMatch(chipiona.text, /Comprar vivienda en Cádiz capital/);
+  assert.doesNotMatch(chipiona.text, /Actualmente no hay inmuebles disponibles en venta en Cádiz capital/);
+  assert.doesNotMatch(chipiona.text, /Compra casas, pisos y viviendas en Cádiz capital/);
+});
+
 test("SEO local se genera de forma genérica para otra zona configurada", async () => {
   const response = await request("/alquiler/rota");
   const context = getSeoZoneContext({ operacionPath: "alquiler", slug: "rota" });

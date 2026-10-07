@@ -7,7 +7,23 @@ export const SEO_ZONES = Object.freeze({
     filtro: "Cádiz",
     aliases: Object.freeze(["Cadiz", "Cádiz"]),
     introVenta: "Busca viviendas en venta en Cádiz y compara anuncios reales publicados por particulares, agentes y agencias de la zona.",
-    introAlquiler: "Consulta pisos y casas en alquiler en Cádiz con filtros útiles para encontrar una vivienda que encaje con tu presupuesto."
+    introAlquiler: "Consulta pisos y casas en alquiler en Cádiz con filtros útiles para encontrar una vivienda que encaje con tu presupuesto.",
+    seoOverrides: Object.freeze({
+      venta: Object.freeze({
+        title: "Casas y viviendas en venta en Cádiz | HomeClick24",
+        description: "Compra casas, pisos y viviendas en Cádiz capital. Consulta anuncios reales de particulares, agentes y agencias en el portal inmobiliario HomeClick24.",
+        intro: "Encuentra pisos y casas en venta en Cádiz capital, compara viviendas disponibles y contacta directamente con particulares, agentes o agencias desde HomeClick24.",
+        localContentTitle: "Comprar vivienda en Cádiz capital",
+        localContentHtml: `
+          <p>Si estás valorando comprar vivienda en Cádiz, esta página reúne anuncios de pisos y casas publicados en HomeClick24 para Cádiz capital. El catálogo se actualiza con inmuebles incorporados por particulares, agentes y agencias, siempre con filtros por precio, habitaciones y características.</p>
+          <p>Desde este portal inmobiliario puedes revisar casas en venta en Cádiz, comparar viviendas disponibles y volver a consultar la página cuando se incorporen nuevos anuncios. También puedes ampliar tu búsqueda en <a href="/comprar">viviendas en venta</a>, revisar <a href="/alquiler/cadiz">alquileres en Cádiz</a> o <a href="/publicar.html">publicar una propiedad</a> si quieres vender tu vivienda.</p>
+        `,
+        noResultsHtml: `
+          <p>Actualmente no hay inmuebles disponibles en venta en Cádiz capital.</p>
+          <p>El catálogo de HomeClick24 se actualiza con anuncios publicados por particulares, agentes y agencias. Puedes volver a consultar esta página, ampliar la búsqueda en <a href="/comprar">viviendas en venta</a> o <a href="/publicar.html">publicar tu propiedad</a>.</p>
+        `
+      })
+    })
   }),
   "el-puerto-de-santa-maria": Object.freeze({
     nombre: "El Puerto de Santa María",
@@ -104,10 +120,12 @@ export function getSeoZoneContext({ operacionPath, slug, siteUrl = DEFAULT_SITE_
     description: overrides.description || description,
     intro: overrides.intro || (esVenta ? zona.introVenta : zona.introAlquiler),
     h1: overrides.h1 || `Pisos y casas ${accionTitulo} en ${zona.nombreSeo}`,
-    localContentTitle: `${esVenta ? "Comprar vivienda" : "Alquiler"} en ${zona.nombreSeo}`,
+    localContentTitle: overrides.localContentTitle || `${esVenta ? "Comprar vivienda" : "Alquiler"} en ${zona.nombreSeo}`,
     localContent: esVenta
       ? `Compara viviendas en venta en ${zona.nombreSeo} con anuncios filtrados por ubicación, precio y características antes de contactar directamente con el anunciante.`
       : `Consulta viviendas en alquiler en ${zona.nombreSeo} con anuncios filtrados por ubicación, precio y características antes de contactar directamente con el anunciante.`,
+    localContentHtml: overrides.localContentHtml || "",
+    noResultsHtml: overrides.noResultsHtml || "",
     parentName: esVenta ? "Comprar" : "Alquiler",
     parentUrl: `${siteUrl}/${operacionPath}`,
     zoneLinks: getSeoZoneLinks()

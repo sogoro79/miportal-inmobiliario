@@ -31,7 +31,14 @@ function initSeoZona() {
     const tituloContenido = document.getElementById("seoZonaContenidoTitulo");
     const textoContenido = document.getElementById("seoZonaContenidoTexto");
     if (tituloContenido) tituloContenido.textContent = seoZoneContext.localContentTitle;
-    if (textoContenido) textoContenido.textContent = seoZoneContext.localContent;
+    if (seoZoneContext.localContentHtml) {
+      contenidoLocal.innerHTML = `
+        <h2 id="seoZonaContenidoTitulo">${seoZoneContext.localContentTitle}</h2>
+        ${seoZoneContext.localContentHtml}
+      `;
+    } else if (textoContenido) {
+      textoContenido.textContent = seoZoneContext.localContent;
+    }
   }
 
   const texto = document.getElementById("f_texto");
@@ -131,7 +138,7 @@ function renderLista(lista) {
     if (seoZoneContext) {
       cont.innerHTML = `
         <div class="no-resultados">
-          <p>Aún no hay inmuebles disponibles en esta zona. Vuelve pronto o publica tu propiedad.</p>
+          ${seoZoneContext.noResultsHtml || "<p>Aún no hay inmuebles disponibles en esta zona. Vuelve pronto o publica tu propiedad.</p>"}
           <a href="/publicar" class="btn-zona-publicar">Publicar propiedad</a>
         </div>`;
       return;
