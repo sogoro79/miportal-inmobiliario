@@ -132,6 +132,15 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   const localidad = firstText(item, ["localidad", "city", "town", "municipality", "location"]);
   const provincia = firstText(item, ["provincia", "province", "state"]);
   const codigoPostal = firstText(item, ["codigoPostal", "postalCode", "postcode", "zip"]);
+  const coordinate = (keys, limit) => {
+    const raw = firstText(item, keys);
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw)) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && Math.abs(value) <= limit ? value : null;
+  };
+  const latitude = coordinate(["lat", "latitude", "latitud"], 90);
+  const longitude = coordinate(["lng", "lon", "longitude", "longitud"], 180);
+  const validCoordinates = latitude !== null && longitude !== null;
   const habitaciones = Number(firstText(item, ["habitaciones", "rooms", "bedrooms"])) || 0;
   const banos = Number(firstText(item, ["banos", "baños", "bathrooms"])) || 0;
   const superficie = Number(firstText(item, ["superficie", "surface", "area", "builtArea"])) || null;
@@ -165,6 +174,8 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
     localidad,
     provincia,
     codigoPostal,
+    lat: validCoordinates ? latitude : null,
+    lng: validCoordinates ? longitude : null,
     habitaciones,
     banos,
     superficie,

@@ -56,8 +56,8 @@ export function buildPropiedadCreateData(body = {}, {
     piscina: body.piscina === "true",
     terraza: body.terraza === "true",
     usuarioId: usuarioId || null,
-    lat: body.lat ? Number(body.lat) : null,
-    lng: body.lng ? Number(body.lng) : null,
+    lat: body.lat !== undefined && body.lat !== null && body.lat !== "" ? Number(body.lat) : null,
+    lng: body.lng !== undefined && body.lng !== null && body.lng !== "" ? Number(body.lng) : null,
     imagenes,
     fechaExpiracion: plan === "gratis" ? calcularFechaExpiracionPlan(plan) : null
   };

@@ -2,6 +2,17 @@ let propiedad = null;
 let fotos = [];
 let indexFoto = 0;
 let mapa = null;
+let tieneFotosReales = false;
+
+function coordenadasValidas(lat, lng) {
+  return [lat, lng].every(value => (typeof value === "number" || typeof value === "string") && String(value).trim() !== "" && Number.isFinite(Number(value)))
+    && Math.abs(Number(lat)) <= 90 && Math.abs(Number(lng)) <= 180;
+}
+
+function consultaMapa(datos) {
+  const parts = [datos.direccion, datos.localidad, datos.provincia, datos.codigoPostal, "España"];
+  return [...new Set(parts.flatMap(value => String(value || "").split(",")).map(value => value.trim()).filter(Boolean))].join(", ");
+}
 
 const publicado =
   new URLSearchParams(window.location.search)
@@ -37,7 +48,8 @@ async function cargarPropiedad() {
     return mostrarError("Propiedad no encontrada");
   }
 
-  fotos = Array.isArray(propiedad.imagenes) && propiedad.imagenes.length
+  tieneFotosReales = Array.isArray(propiedad.imagenes) && propiedad.imagenes.length > 0;
+  fotos = tieneFotosReales
     ? propiedad.imagenes
     : ["https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=1200"];
 
@@ -210,7 +222,7 @@ function renderPropiedad() {
           <img class="slider-img" src="${fotos[0]}" alt="${propiedad.titulo}"
                onclick="abrirModal('${fotos[0]}')">
           <button class="slider-btn right" onclick="nextFoto()">›</button>
-          <span class="slider-count">1 / ${fotos.length}</span>
+          <span class="slider-count">${tieneFotosReales ? `1 / ${fotos.length}` : "Sin fotos"}</span>
           <span class="tag-tipo ${tipoCls}">${tipo}</span>
         </div>
 
@@ -381,9 +393,9 @@ async function iniciarMapa() {
   let lng = propiedad.lng;
 
   // Si no tiene coordenadas, geocodifica la dirección
-  if (!lat || !lng) {
+  if (!coordenadasValidas(lat, lng)) {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(propiedad.direccion)}&format=json&limit=1`;
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(consultaMapa(propiedad))}&format=json&limit=1&countrycodes=es`;
       const res = await fetch(url);
       const data = await res.json();
       if (data.length) {
@@ -395,7 +407,9 @@ async function iniciarMapa() {
     }
   }
 
-  if (!lat || !lng) return;
+  if (!coordenadasValidas(lat, lng)) return;
+  lat = Number(lat);
+  lng = Number(lng);
 
   if (mapa) mapa.remove();
 
@@ -422,7 +436,7 @@ function irFoto(i) {
     img.onclick = () => abrirModal(fotos[i]);
   }
   const count = document.querySelector(".slider-count");
-  if (count) count.textContent = `${i + 1} / ${fotos.length}`;
+  if (count) count.textContent = tieneFotosReales ? `${i + 1} / ${fotos.length}` : "Sin fotos";
   document.querySelectorAll(".miniatura").forEach((m, idx) => {
     m.classList.toggle("active", idx === i);
   });

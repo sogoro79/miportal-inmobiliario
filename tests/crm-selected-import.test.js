@@ -96,6 +96,51 @@ test("selección crea solo anuncios elegidos y persiste identidad CRM y datos or
   assert.equal(f.sources[0].importLockToken, undefined);
 });
 
+test("tres fotos fallidas devuelven contadores y logs sin datos sensibles", async () => {
+  const f = fixture({ failDownload: true });
+  const logs = [];
+  const original = console.warn;
+  console.warn = (...args) => logs.push(args);
+  let result;
+  try { result = await f.run(f.input); } finally { console.warn = original; }
+  assert.equal(result.imported, 1);
+  assert.equal(result.attemptedImages, 3);
+  assert.equal(result.importedImages, 0);
+  assert.equal(result.skippedImages, 3);
+  assert.equal(result.results[0].warnings.length, 3);
+  assert.equal(result.results[0].skippedImages, 3);
+  assert.equal(f.properties[0].imagenes.length, 0);
+  assert.equal(logs.length, 3);
+  assert.equal(logs[0][0], "[CRM Import Image]");
+  assert.deepEqual(logs[0][1], { imageIndex: 1, phase: "download", code: "IMAGE_FAILED" });
+  assert.doesNotMatch(JSON.stringify(logs), /https?:|private|secret|token|example/);
+});
+
+test("coordenadas válidas y cero se conservan hasta persistencia CRM", async () => {
+  const f = fixture();
+  f.analyzed.properties[0].lat = 0;
+  f.analyzed.properties[0].lng = -6.436;
+  const result = await f.run(f.input);
+  assert.equal(result.imported, 1);
+  assert.equal(f.properties[0].lat, 0);
+  assert.equal(f.properties[0].lng, -6.436);
+  assert.equal(result.importedImages, 3);
+  assert.equal(result.skippedImages, 0);
+});
+
+test("logs conservan códigos permitidos sin exponer mensaje ni URL de la imagen", async () => {
+  const f = fixture({ downloadHook: async () => {
+    throw Object.assign(new Error("https://private.example/token?secret=hidden"), { code: "DNS_LOOKUP_FAILED" });
+  } });
+  const logs = [];
+  const original = console.warn;
+  console.warn = (...args) => logs.push(args);
+  try { await f.run(f.input); } finally { console.warn = original; }
+  assert.equal(logs.length, 3);
+  for (const [, entry] of logs) assert.equal(entry.code, "DNS_LOOKUP_FAILED");
+  assert.doesNotMatch(JSON.stringify(logs), /https?:|private|secret|token|hidden/);
+});
+
 test("reimportación es idempotente y otro propietario puede importar misma referencia", async () => {
   const f = fixture(); await f.run(f.input);
   const downloads = f.downloaded.length;
@@ -450,7 +495,7 @@ test("selección frontend bloquea cupo excedido y copia solo referencias selecci
   const context = vm.createContext({ token: "test-token", Set,
     escaparHtml: text => String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"),
     document: { getElementById: get, querySelectorAll: () => selected },
-    fetch: async (url, options) => { sent = { url, ...options }; return { ok: true, json: async () => ({ imported: 1, skipped: 0, results: [{ externalId: "REF1", status: "imported" }] }) }; }
+    fetch: async (url, options) => { sent = { url, ...options }; return { ok: true, json: async () => ({ imported: 1, skipped: 0, skippedImages: 3, results: [{ externalId: "REF1", status: "imported" }] }) }; }
   });
   vm.runInContext(section, context);
   get("crmFeedUrl").value = "https://example.com/feed.xml";
@@ -464,6 +509,7 @@ test("selección frontend bloquea cupo excedido y copia solo referencias selecci
   assert.equal(sent.url, "/api/crm-import/import");
   assert.deepEqual(JSON.parse(sent.body), { feedUrl: "https://example.com/feed.xml", selectedExternalIds: ["REF1"] });
   assert.match(get("crmImportResults").innerHTML, /Importación completada/);
+  assert.match(get("crmImportResults").innerHTML, /3 imágenes omitidas/);
   assert.match(get("crmImportResults").innerHTML, /Ver mis propiedades/);
   assert.match(get("crmImportPreview").innerHTML, /Ya importado/);
 });

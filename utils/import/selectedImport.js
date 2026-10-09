@@ -21,6 +21,20 @@ export class ImportError extends Error {
   }
 }
 
+const imageErrorCodes = new Set([
+  "DNS_LOOKUP_FAILED", "PRIVATE_IP", "FEED_UNREACHABLE", "FEED_TIMEOUT",
+  "FEED_TOO_LARGE", "TOO_MANY_REDIRECTS", "BAD_STATUS", "IMAGE_INVALID",
+  "IMAGE_DIMENSIONS_INVALID", "IMPORT_TIMEOUT", "ECONNREFUSED", "ETIMEDOUT",
+  "ENETUNREACH", "ENOTFOUND", "ERR_INVALID_IP_ADDRESS"
+]);
+
+function logImageFailure(error, phase, imageIndex) {
+  const candidate = error?.internalCode || error?.code;
+  console.warn("[CRM Import Image]", {
+    imageIndex, phase, code: imageErrorCodes.has(candidate) ? candidate : "IMAGE_FAILED"
+  });
+}
+
 export function feedHash(rawUrl) {
   return crypto.createHash("sha256").update(parseAndValidateFeedUrl(rawUrl).toString()).digest("hex");
 }
@@ -121,6 +135,8 @@ export function createSelectedImporter({
           }
           const images = [];
           const warnings = [];
+          let attemptedImages = 0;
+          let skippedImages = 0;
           let persisted = false;
           let journaled = false;
           const propertyId = new mongoose.Types.ObjectId();
@@ -137,9 +153,12 @@ export function createSelectedImporter({
             journaled = true;
             for (const url of plannedPhotos.get(externalId).slice(0, maxPhotos)) {
               budget.assertActive();
+              attemptedImages += 1;
+              let phase = "download";
               try {
                 const buffer = await budget.run(() => downloadImage(url, { budget }));
                 budget.assertActive();
+                phase = "upload";
                 images.push(await budget.run(() => uploadImage(buffer), { onLateResult: async image => {
                   if (!await cleanup([image])) {
                     await ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: {
@@ -148,7 +167,12 @@ export function createSelectedImporter({
                   }
                 } }));
               }
-              catch (error) { if (error.code === "IMPORT_TIMEOUT") throw error; warnings.push("No se pudo importar una imagen: formato, tamaño, conexión o subida."); }
+              catch (error) {
+                skippedImages += 1;
+                logImageFailure(error, phase, attemptedImages);
+                if (error.code === "IMPORT_TIMEOUT") throw error;
+                warnings.push("No se pudo importar una imagen: formato, tamaño, conexión o subida.");
+              }
               await budget.run(() => ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: { publicIds: images.map(image => image.publicId) } }));
             }
             // Revalidar después de las descargas, antes de publicar.
@@ -162,7 +186,8 @@ export function createSelectedImporter({
             const created = await persist({ usuarioId, body: validation.data, propertyId, budget,
               imagenes: images.map(image => image.url), extra: { ...identity(externalId), visiblePublicamente: true, importedAt: date, lastImportedAt: date } });
             persisted = true;
-            results.push({ externalId, status: "imported", propertyId: String(created._id), warnings });
+            results.push({ externalId, status: "imported", propertyId: String(created._id), warnings,
+              attemptedImages, importedImages: images.length, skippedImages });
             await ReconciliationModel.deleteOne({ propiedadId: propertyId }).catch(() => {});
           } catch (error) {
             if (persisted) continue;
@@ -176,6 +201,7 @@ export function createSelectedImporter({
               }
             }
             results.push({ externalId, status: "skipped", reason: error.retainImages ? "reconciliation_required" : error?.code === 11000 ? "duplicate" : "creation_failed",
+              attemptedImages, importedImages: 0, skippedImages,
               errors: [error instanceof ImportError || error.status ? error.message : "No se pudo crear el inmueble."], warnings });
             if (error.code === "IMPORT_TIMEOUT" || error.retainImages) {
               for (const remaining of selected.slice(selected.indexOf(externalId) + 1)) results.push({ externalId: remaining, status: "skipped", reason: "not_started" });
@@ -185,7 +211,11 @@ export function createSelectedImporter({
         }
         await ImportSourceModel.updateOne({ _id: source._id, importLockToken: lockToken }, { $set: { lastImportedAt: now() } }).catch(() => console.warn("[CRM Import]", { code: "SOURCE_TIMESTAMP_FAILED" }));
         const imported = results.filter(item => item.status === "imported").length;
-        return { requested: selected.length, imported, skipped: results.length - imported, results };
+        const imageTotals = results.reduce((totals, item) => {
+          for (const key of Object.keys(totals)) totals[key] += item[key] || 0;
+          return totals;
+        }, { attemptedImages: 0, importedImages: 0, skippedImages: 0 });
+        return { requested: selected.length, imported, skipped: results.length - imported, ...imageTotals, results };
       } finally {
         await ImportSourceModel.updateOne({ _id: source._id, importLockToken: lockToken }, { $unset: { importLockToken: "", importLockUntil: "" } }).catch(() => console.warn("[CRM Import]", { code: "SOURCE_UNLOCK_FAILED" }));
       }
