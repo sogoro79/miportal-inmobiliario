@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <property>
+    <externalId>HC24-DEMO-001</externalId>
+    <title>Piso luminoso con terraza en Chipiona</title>
+    <description>Vivienda de prueba para validar el importador CRM de HomeClick24.</description>
+    <operation>venta</operation>
+    <price>245000</price>
+    <address>Avenida de Huelva 10</address>
+    <city>Chipiona</city>
+    <province>Cádiz</province>
+    <postalCode>11550</postalCode>
+    <bedrooms>3</bedrooms>
+    <bathrooms>2</bathrooms>
+    <surface>98</surface>
+    <propertyType>piso</propertyType>
+    <images>
+      <image>https://example.com/images/hc24-demo-001-1.jpg</image>
+      <image>https://example.com/images/hc24-demo-001-2.jpg</image>
+      <image>https://example.com/images/hc24-demo-001-3.jpg</image>
+    </images>
+  </property>
+
+  <property>
+    <externalId>HC24-DEMO-002</externalId>
+    <title>Casa de campo con piscina en Rota</title>
+    <description>Segunda vivienda de prueba para comprobar alquiler, fotos y características.</description>
+    <operation>alquiler</operation>
+    <price>1650</price>
+    <address>Camino del Bercial 22</address>
+    <city>Rota</city>
+    <province>Cádiz</province>
+    <postalCode>11520</postalCode>
+    <bedrooms>4</bedrooms>
+    <bathrooms>3</bathrooms>
+    <surface>180</surface>
+    <propertyType>casa_de_campo</propertyType>
+    <images>
+      <image>https://example.com/images/hc24-demo-002-1.jpg</image>
+      <image>https://example.com/images/hc24-demo-002-2.jpg</image>
+      <image>https://example.com/images/hc24-demo-002-3.jpg</image>
+      <image>https://example.com/images/hc24-demo-002-4.jpg</image>
+      <image>https://example.com/images/hc24-demo-002-5.jpg</image>
+    </images>
+  </property>
+
+  <property>
+    <externalId>HC24-DEMO-003</externalId>
+    <title>Local comercial en el centro de Sevilla</title>
+    <description>Inmueble comercial de prueba para validar otros tipos de propiedad.</description>
+    <operation>venta</operation>
+    <price>189000</price>
+    <address>Calle Feria 35</address>
+    <city>Sevilla</city>
+    <province>Sevilla</province>
+    <postalCode>41003</postalCode>
+    <bathrooms>1</bathrooms>
+    <surface>120</surface>
+    <propertyType>local_comercial</propertyType>
+    <images>
+      <image>https://example.com/images/hc24-demo-003-1.jpg</image>
+      <image>https://example.com/images/hc24-demo-003-2.jpg</image>
+    </images>
+  </property>
+
+  <property>
+    <externalId>HC24-DEMO-004</externalId>
+    <title>Parcela urbana en Málaga</title>
+    <description>Parcela de prueba para comprobar propiedades sin dormitorios ni baños.</description>
+    <operation>venta</operation>
+    <price>135000</price>
+    <address>Calle del Mirador 8</address>
+    <city>Málaga</city>
+    <province>Málaga</province>
+    <postalCode>29018</postalCode>
+    <surface>420</surface>
+    <propertyType>parcela</propertyType>
+    <images>
+      <image>https://example.com/images/hc24-demo-004-1.jpg</image>
+    </images>
+  </property>
+</properties>
