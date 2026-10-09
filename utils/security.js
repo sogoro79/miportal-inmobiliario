@@ -67,6 +67,17 @@ export function createSecurityRateLimit({ windowMs, max, keyPrefix }) {
   });
 }
 
+export function createUserSecurityRateLimit({ windowMs, max, keyPrefix }) {
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: req => `${keyPrefix}:user:${req.user?.id || "anonymous"}`,
+    handler: (req, res) => res.status(429).json({ error: RATE_LIMIT_MESSAGE })
+  });
+}
+
 export const securityRateLimits = {
   register: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "register" }),
   passwordRecovery: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "password-recovery" }),
@@ -77,6 +88,7 @@ export const securityRateLimits = {
   chatMessage: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: "chat-message" }),
   propertyUpload: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 20, keyPrefix: "property-upload" }),
   crmImportAnalyze: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 10, keyPrefix: "crm-import-analyze" }),
+  crmImportAnalyzeByUser: createUserSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 10, keyPrefix: "crm-import-analyze" }),
   professionalPromotionActivation: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 6, keyPrefix: "professional-promo-activation" }),
   adminSensitive: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 60, keyPrefix: "admin-sensitive" })
 };

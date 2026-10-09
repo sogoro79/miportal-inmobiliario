@@ -18,17 +18,52 @@ export class FeedFetchError extends Error {
   }
 }
 
-function defaultRequestOnce(url, {
+function createPinnedLookup(target) {
+  return (hostname, options, callback) => {
+    const done = typeof options === "function" ? options : callback;
+    done(null, target.address, target.family);
+  };
+}
+
+function isAllowedXmlContentType(contentType = "") {
+  if (!contentType) return true;
+  const type = String(contentType).split(";")[0].trim().toLowerCase();
+  return type === "application/xml" ||
+    type === "text/xml" ||
+    type === "application/octet-stream" ||
+    type === "text/plain" ||
+    type.endsWith("+xml");
+}
+
+function getHeader(headers = {}, name = "") {
+  const expected = name.toLowerCase();
+  const found = Object.entries(headers).find(([key]) => String(key).toLowerCase() === expected);
+  return found?.[1];
+}
+
+export function defaultRequestOnce(url, {
   timeoutMs = DEFAULT_FEED_TIMEOUT_MS,
-  maxBytes = DEFAULT_MAX_XML_BYTES
+  maxBytes = DEFAULT_MAX_XML_BYTES,
+  target
 } = {}) {
   return new Promise((resolve, reject) => {
     const client = url.protocol === "https:" ? https : http;
+    let settled = false;
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      reject(error instanceof FeedFetchError
+        ? error
+        : new FeedFetchError("No se pudo leer el feed XML.", "FEED_UNREACHABLE"));
+    };
     const req = client.request(url, {
       method: "GET",
       timeout: timeoutMs,
+      lookup: target ? createPinnedLookup(target) : undefined,
+      servername: url.hostname,
       headers: {
         "Accept": "application/xml,text/xml,*/*;q=0.8",
+        "Host": url.host,
         "User-Agent": "HomeClick24 CRM Importer/1.0"
       }
     }, res => {
@@ -45,11 +80,19 @@ function defaultRequestOnce(url, {
       });
 
       res.on("end", () => {
+        if (settled) return;
+        settled = true;
         resolve({
           statusCode: res.statusCode || 0,
           headers: res.headers || {},
           body: Buffer.concat(chunks).toString("utf8")
         });
+      });
+      res.on("aborted", () => {
+        fail(new FeedFetchError("La respuesta del feed se interrumpió antes de completarse.", "FEED_TRUNCATED"));
+      });
+      res.on("error", () => {
+        fail(new FeedFetchError("La respuesta del feed se interrumpió antes de completarse.", "FEED_TRUNCATED"));
       });
     });
 
@@ -57,9 +100,7 @@ function defaultRequestOnce(url, {
       req.destroy(new FeedFetchError("Tiempo de espera agotado al leer el feed.", "FEED_TIMEOUT"));
     });
     req.on("error", error => {
-      reject(error instanceof FeedFetchError
-        ? error
-        : new FeedFetchError("No se pudo leer el feed XML.", "FEED_UNREACHABLE"));
+      fail(error);
     });
     req.end();
   });
@@ -75,13 +116,15 @@ export async function fetchFeedXml(rawUrl, {
   let currentUrl = parseAndValidateFeedUrl(rawUrl);
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    let target;
     try {
-      await assertPublicFeedTarget(currentUrl, { lookup });
+      target = await assertPublicFeedTarget(currentUrl, { lookup });
     } catch (error) {
       if (error instanceof FeedSecurityError) throw error;
       throw new FeedFetchError("No se pudo resolver el dominio del feed XML.", "DNS_LOOKUP_FAILED");
     }
-    const response = await requestOnce(currentUrl, { timeoutMs, maxBytes });
+
+    const response = await requestOnce(currentUrl, { timeoutMs, maxBytes, target });
     const status = Number(response.statusCode || 0);
 
     if ([301, 302, 303, 307, 308].includes(status)) {
@@ -96,6 +139,10 @@ export async function fetchFeedXml(rawUrl, {
 
     if (status < 200 || status >= 300) {
       throw new FeedFetchError(`El feed respondió con estado ${status}.`, "BAD_STATUS");
+    }
+
+    if (!isAllowedXmlContentType(getHeader(response.headers, "content-type"))) {
+      throw new FeedFetchError("El feed no devuelve un contenido XML válido.", "INVALID_CONTENT_TYPE");
     }
 
     const body = String(response.body || "");

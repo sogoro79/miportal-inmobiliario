@@ -39,10 +39,15 @@ export function isPrivateOrReservedIp(ip) {
   if (version === 4) {
     return ipv4InRange(ip, "0.0.0.0", 8) ||
       ipv4InRange(ip, "10.0.0.0", 8) ||
+      ipv4InRange(ip, "100.64.0.0", 10) ||
       ipv4InRange(ip, "127.0.0.0", 8) ||
       ipv4InRange(ip, "169.254.0.0", 16) ||
       ipv4InRange(ip, "172.16.0.0", 12) ||
-      ipv4InRange(ip, "192.168.0.0", 16);
+      ipv4InRange(ip, "192.0.0.0", 24) ||
+      ipv4InRange(ip, "192.168.0.0", 16) ||
+      ipv4InRange(ip, "198.18.0.0", 15) ||
+      ipv4InRange(ip, "224.0.0.0", 4) ||
+      ipv4InRange(ip, "240.0.0.0", 4);
   }
 
   const value = normalizeIpv6(ip);
@@ -63,6 +68,7 @@ export function maskFeedUrl(rawUrl = "") {
     const url = new URL(rawUrl);
     url.username = "";
     url.password = "";
+    if (url.pathname && url.pathname !== "/") url.pathname = "/...";
     if (url.search) url.search = "?...";
     return url.toString();
   } catch {
@@ -109,15 +115,21 @@ export async function assertPublicFeedTarget(url, {
     throw new FeedSecurityError("La URL del feed apunta a una red no permitida.", "PRIVATE_IP");
   }
 
-  return parsed;
+  const firstRecord = Array.isArray(records) ? records[0] : records;
+  return {
+    url: parsed,
+    address: firstRecord.address,
+    family: firstRecord.family || net.isIP(firstRecord.address),
+    addresses
+  };
 }
 
 export function rejectUnsafeXml(xml = "") {
-  const sample = String(xml).slice(0, 4096);
-  if (/<!DOCTYPE/i.test(sample)) {
+  const value = String(xml);
+  if (/<!DOCTYPE/i.test(value)) {
     throw new FeedSecurityError("El XML contiene DOCTYPE y no se puede procesar.", "XML_DOCTYPE_BLOCKED");
   }
-  if (/<!ENTITY/i.test(sample)) {
+  if (/<!ENTITY/i.test(value)) {
     throw new FeedSecurityError("El XML contiene entidades externas y no se puede procesar.", "XML_ENTITY_BLOCKED");
   }
 }

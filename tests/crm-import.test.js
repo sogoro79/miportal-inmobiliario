@@ -1,17 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
+import http from "node:http";
 import jwt from "jsonwebtoken";
+import { EventEmitter } from "node:events";
 import { PassThrough, Readable, Writable } from "node:stream";
 import { v2 as cloudinary } from "cloudinary";
 import Usuario from "../models/Usuario.js";
 import { createCrmImportRouter } from "../routes/crmImport.js";
-import { FeedFetchError, fetchFeedXml } from "../utils/import/feedFetcher.js";
+import { FeedFetchError, defaultRequestOnce, fetchFeedXml } from "../utils/import/feedFetcher.js";
 import {
   DEFAULT_MAX_XML_BYTES,
   FeedSecurityError
 } from "../utils/import/feedSecurity.js";
 import { buildPropiedadCreateData } from "../utils/propertyCreation.js";
+import { createUserSecurityRateLimit } from "../utils/security.js";
 
 process.env.JWT_SECRET = "test-secret";
 
@@ -51,7 +54,12 @@ function createPropiedadModel({ count = 3 } = {}) {
   };
 }
 
-function createApp({ user = makeUsuario(), count = 3, fetchFeedXml: fetcher } = {}) {
+function createApp({
+  user = makeUsuario(),
+  count = 3,
+  fetchFeedXml: fetcher,
+  userRateLimitMiddleware = (req, res, next) => next()
+} = {}) {
   const app = express();
   app.use(express.json());
   const previousFindById = Usuario.findById;
@@ -63,7 +71,8 @@ function createApp({ user = makeUsuario(), count = 3, fetchFeedXml: fetcher } = 
   app.use("/api/crm-import", createCrmImportRouter({
     fetchFeedXml: fetcher || (async () => ({ xml: validFeedXml(), finalUrl: "https://example.com/feed.xml" })),
     PropiedadModel,
-    rateLimitMiddleware: (req, res, next) => next()
+    rateLimitMiddleware: (req, res, next) => next(),
+    userRateLimitMiddleware
   }));
   return {
     app,
@@ -178,6 +187,12 @@ test("análisis usa req.user.id, rechaza ownerId externo y no crea propiedades",
     });
     assert.equal(rejected.status, 400);
 
+    const rejectedUsuarioId = await request(app, "/api/crm-import/analyze", {
+      headers: authHeaderFor(),
+      body: { feedUrl: "https://example.com/feed.xml", usuarioId: OTHER_ID }
+    });
+    assert.equal(rejectedUsuarioId.status, 400);
+
     const accepted = await request(app, "/api/crm-import/analyze", {
       headers: authHeaderFor(),
       body: { feedUrl: "https://example.com/feed.xml" }
@@ -223,7 +238,11 @@ test("SSRF bloquea protocolos, localhost, loopback, privadas y metadata", async 
     "http://10.0.0.1/feed.xml",
     "http://172.16.0.1/feed.xml",
     "http://192.168.1.1/feed.xml",
-    "http://169.254.169.254/latest/meta-data"
+    "http://169.254.169.254/latest/meta-data",
+    "http://[fc00::1]/feed.xml",
+    "http://[fd00::1]/feed.xml",
+    "http://[fe80::1]/feed.xml",
+    "https://user:secret@example.com/feed.xml"
   ];
 
   for (const feedUrl of blockedUrls) {
@@ -236,6 +255,37 @@ test("SSRF bloquea protocolos, localhost, loopback, privadas y metadata", async 
       error => error instanceof FeedSecurityError
     );
   }
+});
+
+test("SSRF rechaza hosts con alguna IP privada y usa solo la IP validada", async () => {
+  await assert.rejects(
+    () => fetchFeedXml("https://mixed.example/feed.xml", {
+      lookup: async () => [
+        { address: "93.184.216.34", family: 4 },
+        { address: "10.0.0.5", family: 4 }
+      ],
+      requestOnce: async () => {
+        throw new Error("No debe descargarse si una IP resuelta es privada.");
+      }
+    }),
+    error => error instanceof FeedSecurityError
+  );
+
+  let targetUsed = null;
+  const response = await fetchFeedXml("https://public.example/feed.xml", {
+    lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    requestOnce: async (url, options) => {
+      targetUsed = options.target;
+      return {
+        statusCode: 200,
+        headers: { "content-type": "application/xml" },
+        body: validFeedXml()
+      };
+    }
+  });
+  assert.equal(response.xml.includes("<properties>"), true);
+  assert.equal(targetUsed.address, "93.184.216.34");
+  assert.equal(targetUsed.family, 4);
 });
 
 test("SSRF revalida redirects y bloquea destino privado", async () => {
@@ -252,7 +302,35 @@ test("SSRF revalida redirects y bloquea destino privado", async () => {
   );
 });
 
-test("fetcher controla timeout y XML mayor que el límite", async () => {
+test("SSRF rechaza redirects a protocolos no permitidos y demasiados redirects", async () => {
+  for (const location of ["file:///etc/passwd", "ftp://example.com/feed.xml"]) {
+    await assert.rejects(
+      () => fetchFeedXml("https://public.example/feed.xml", {
+        lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+        requestOnce: async () => ({
+          statusCode: 302,
+          headers: { location },
+          body: ""
+        })
+      }),
+      error => error instanceof FeedSecurityError
+    );
+  }
+
+  await assert.rejects(
+    () => fetchFeedXml("https://public.example/feed.xml", {
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      requestOnce: async () => ({
+        statusCode: 302,
+        headers: { location: "/next.xml" },
+        body: ""
+      })
+    }),
+    error => error instanceof FeedFetchError && error.code === "TOO_MANY_REDIRECTS"
+  );
+});
+
+test("fetcher controla timeout, XML mayor que el límite y estados HTTP", async () => {
   await assert.rejects(
     () => fetchFeedXml("https://public.example/feed.xml", {
       lookup: async () => [{ address: "93.184.216.34", family: 4 }],
@@ -274,12 +352,126 @@ test("fetcher controla timeout y XML mayor que el límite", async () => {
     }),
     error => error instanceof FeedFetchError && error.code === "FEED_TOO_LARGE"
   );
+
+  for (const statusCode of [404, 500]) {
+    await assert.rejects(
+      () => fetchFeedXml("https://public.example/feed.xml", {
+        lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+        requestOnce: async () => ({
+          statusCode,
+          headers: { "content-type": "application/xml" },
+          body: ""
+        })
+      }),
+      error => error instanceof FeedFetchError && error.code === "BAD_STATUS"
+    );
+  }
+});
+
+test("fetcher valida Content-Type XML sin bloquear respuestas genéricas", async () => {
+  for (const contentType of ["application/xml", "text/xml", "application/atom+xml", "application/octet-stream", undefined]) {
+    const response = await fetchFeedXml("https://public.example/feed.xml", {
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      requestOnce: async () => ({
+        statusCode: 200,
+        headers: contentType ? { "content-type": contentType } : {},
+        body: validFeedXml()
+      })
+    });
+    assert.equal(response.xml.includes("<properties>"), true);
+  }
+
+  const responseWithUppercaseHeader = await fetchFeedXml("https://public.example/feed.xml", {
+    lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    requestOnce: async () => ({
+      statusCode: 200,
+      headers: { "Content-Type": "application/xml" },
+      body: validFeedXml()
+    })
+  });
+  assert.equal(responseWithUppercaseHeader.xml.includes("<properties>"), true);
+
+  await assert.rejects(
+    () => fetchFeedXml("https://public.example/feed.xml", {
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      requestOnce: async () => ({
+        statusCode: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+        body: "<html></html>"
+      })
+    }),
+    error => error instanceof FeedFetchError && error.code === "INVALID_CONTENT_TYPE"
+  );
+});
+
+test("request HTTP libera recursos en timeout, exceso de tamaño en streaming y respuesta truncada", async () => {
+  const originalRequest = http.request;
+  try {
+    http.request = (url, options, callback) => {
+      const req = new EventEmitter();
+      req.end = () => setImmediate(() => req.emit("timeout"));
+      req.destroy = error => setImmediate(() => req.emit("error", error));
+      return req;
+    };
+    await assert.rejects(
+      () => defaultRequestOnce(new URL("http://public.example/feed.xml"), { timeoutMs: 30 }),
+      error => error instanceof FeedFetchError && error.code === "FEED_TIMEOUT"
+    );
+  } finally {
+    http.request = originalRequest;
+  }
+
+  try {
+    http.request = (url, options, callback) => {
+      const req = new EventEmitter();
+      req.end = () => {
+        const res = new PassThrough();
+        res.statusCode = 200;
+        res.headers = { "content-type": "application/xml" };
+        callback(res);
+        res.write(Buffer.alloc(64, "a"));
+        res.write(Buffer.alloc(64, "b"));
+      };
+      req.destroy = error => setImmediate(() => req.emit("error", error));
+      return req;
+    };
+    await assert.rejects(
+      () => defaultRequestOnce(new URL("http://public.example/feed.xml"), { maxBytes: 80 }),
+      error => error instanceof FeedFetchError && error.code === "FEED_TOO_LARGE"
+    );
+  } finally {
+    http.request = originalRequest;
+  }
+
+  try {
+    http.request = (url, options, callback) => {
+      const req = new EventEmitter();
+      req.end = () => {
+        const res = new PassThrough();
+        res.statusCode = 200;
+        res.headers = { "content-type": "application/xml", "content-length": "1000" };
+        callback(res);
+        res.write("<properties>");
+        setImmediate(() => res.emit("aborted"));
+      };
+      req.destroy = error => setImmediate(() => req.emit("error", error));
+      return req;
+    };
+    await assert.rejects(
+      () => defaultRequestOnce(new URL("http://public.example/feed.xml")),
+      error => error instanceof FeedFetchError && error.code === "FEED_TRUNCATED"
+    );
+  } finally {
+    http.request = originalRequest;
+  }
 });
 
 test("análisis controla DOCTYPE, ENTITY, XML inválido y vacío", async () => {
   const cases = [
     { xml: "<!DOCTYPE root><properties></properties>", status: 400 },
     { xml: "<!ENTITY xxe SYSTEM 'file:///etc/passwd'><properties></properties>", status: 400 },
+    { xml: `${" ".repeat(5000)}<!DOCTYPE root><properties></properties>`, status: 400 },
+    { xml: `${" ".repeat(5000)}<!ENTITY xxe SYSTEM 'file:///etc/passwd'><properties></properties>`, status: 400 },
     { xml: "<properties><property></properties>", status: 400 },
     { xml: "<properties></properties>", status: 400 }
   ];
@@ -320,12 +512,16 @@ test("feed válido limita preview a 500 inmuebles y 60 fotos por inmueble", asyn
   }
 });
 
-test("límites del preview respetan Plan Lanzamiento, gratis, vip y vip_trial", async () => {
+test("límites del preview respetan planes principales y usuarios sin cupo", async () => {
   const scenarios = [
-    { user: makeUsuario({ plan: "lanzamiento_2026", planActivo: true }), count: 3, anuncios: 10, fotos: 20, cupo: 7 },
-    { user: makeUsuario({ plan: "gratis", planActivo: false }), count: 1, anuncios: 2, fotos: 7, cupo: 1 },
-    { user: makeUsuario({ plan: "vip", planActivo: true }), count: 25, anuncios: null, fotos: null, cupo: null },
-    { user: makeUsuario({ plan: "vip_trial", planActivo: true, trialAccepted: true }), count: 25, anuncios: null, fotos: null, cupo: null }
+    { user: makeUsuario({ plan: "lanzamiento_2026", planActivo: true }), count: 3, anuncios: 10, fotos: 20, cupo: 7, puede: true, motivo: "puede_publicar" },
+    { user: makeUsuario({ plan: "gratis", planActivo: false }), count: 1, anuncios: 2, fotos: 7, cupo: 1, puede: true, motivo: "puede_publicar" },
+    { user: makeUsuario({ plan: "basico", planActivo: true }), count: 1, anuncios: 3, fotos: 10, cupo: 2, puede: true, motivo: "puede_publicar" },
+    { user: makeUsuario({ plan: "destacado", planActivo: true }), count: 2, anuncios: 4, fotos: 15, cupo: 2, puede: true, motivo: "puede_publicar" },
+    { user: makeUsuario({ plan: "basico", planActivo: true }), count: 3, anuncios: 3, fotos: 10, cupo: 0, puede: false, motivo: "limite_anuncios" },
+    { user: makeUsuario({ plan: "basico", planActivo: false }), count: 0, anuncios: 3, fotos: 10, cupo: 3, puede: false, motivo: "plan_inactivo" },
+    { user: makeUsuario({ plan: "vip", planActivo: true }), count: 25, anuncios: null, fotos: null, cupo: null, puede: true, motivo: "puede_publicar" },
+    { user: makeUsuario({ plan: "vip_trial", planActivo: true, trialAccepted: true }), count: 25, anuncios: null, fotos: null, cupo: null, puede: true, motivo: "puede_publicar" }
   ];
 
   for (const scenario of scenarios) {
@@ -339,9 +535,31 @@ test("límites del preview respetan Plan Lanzamiento, gratis, vip y vip_trial", 
       assert.equal(response.body.limiteAnuncios, scenario.anuncios);
       assert.equal(response.body.limiteFotos, scenario.fotos);
       assert.equal(response.body.cupoDisponible, scenario.cupo);
+      assert.equal(response.body.puedePublicarAhora, scenario.puede);
+      assert.equal(response.body.motivo, scenario.motivo);
     } finally {
       restore();
     }
+  }
+});
+
+test("rate limit de análisis CRM se aplica por usuario autenticado", async () => {
+  const userRateLimitMiddleware = createUserSecurityRateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 2,
+    keyPrefix: `crm-import-analyze-test-${Date.now()}`
+  });
+  const { app, restore } = createApp({ userRateLimitMiddleware });
+  try {
+    for (const expectedStatus of [200, 200, 429]) {
+      const response = await request(app, "/api/crm-import/analyze", {
+        headers: authHeaderFor(),
+        body: { feedUrl: "https://example.com/feed.xml" }
+      });
+      assert.equal(response.status, expectedStatus);
+    }
+  } finally {
+    restore();
   }
 });
 

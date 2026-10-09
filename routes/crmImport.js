@@ -49,11 +49,12 @@ export function createCrmImportRouter({
   fetchFeedXml = defaultFetchFeedXml,
   UsuarioModel = Usuario,
   PropiedadModel = Propiedad,
-  rateLimitMiddleware = securityRateLimits.crmImportAnalyze
+  rateLimitMiddleware = securityRateLimits.crmImportAnalyze,
+  userRateLimitMiddleware = securityRateLimits.crmImportAnalyzeByUser
 } = {}) {
   const router = express.Router();
 
-  router.post("/analyze", requireAuth, rateLimitMiddleware, async (req, res) => {
+  router.post("/analyze", requireAuth, userRateLimitMiddleware, rateLimitMiddleware, async (req, res) => {
     if (req.body && ("ownerId" in req.body || "usuarioId" in req.body)) {
       return res.status(400).json({ error: "No se permite indicar propietario en el análisis." });
     }
@@ -107,6 +108,8 @@ export function createCrmImportRouter({
         feedType: analyzed.feedType,
         total: properties.length,
         plan: disponibilidad.plan,
+        puedePublicarAhora: disponibilidad.puedePublicarAhora,
+        motivo: disponibilidad.motivo,
         limiteAnuncios: finiteOrNull(disponibilidad.limiteAnuncios),
         anunciosActuales: disponibilidad.anunciosActuales,
         cupoDisponible: finiteOrNull(disponibilidad.cupoDisponible),
