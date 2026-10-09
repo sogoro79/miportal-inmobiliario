@@ -737,7 +737,7 @@
   <div class="crm-import-card" id="crmImportCard">
     <h3>Importar desde CRM</h3>
     <p>Pega la URL de tu feed XML para analizar tus inmuebles antes de importarlos.</p>
-    <p>Por lote: hasta 5 inmuebles y 100 fotos, con un máximo de 120 segundos. Los límites comerciales de tu plan no cambian.</p>
+    <p>Por lote: hasta 10 inmuebles y 100 fotos, con un máximo de 120 segundos. Los límites comerciales de tu plan no cambian.</p>
     <div class="crm-import-form">
       <input type="url" id="crmFeedUrl" placeholder="https://tu-crm.com/feed.xml" autocomplete="off">
       <button class="btn-perfil green" id="btnAnalyzeCrmFeed" onclick="analizarFeedCrm()">Analizar feed</button>
@@ -1032,7 +1032,7 @@ function actualizarSeleccionCrm() {
   const photos = (crmPreviewData?.properties || []).filter(property => selected.includes(property.externalId)).reduce((total, property) => total + (property.fotosImportables || 0), 0);
   const cupo = crmPreviewData?.cupoDisponible;
   document.getElementById("crmSelectedCount").textContent = `Seleccionados: ${count} / ${cupo === null ? "sin límite" : cupo ?? 0}`;
-  document.getElementById("btnImportCrm").disabled = crmImportBusy || !crmPreviewData?.puedePublicarAhora || count === 0 || count > 5 || photos > 100 || (cupo !== null && count > (cupo ?? 0)) || document.getElementById("crmFeedUrl").value.trim() !== crmAnalyzedUrl;
+  document.getElementById("btnImportCrm").disabled = crmImportBusy || !crmPreviewData?.puedePublicarAhora || count === 0 || count > 10 || photos > 100 || (cupo !== null && count > (cupo ?? 0)) || document.getElementById("crmFeedUrl").value.trim() !== crmAnalyzedUrl;
 }
 
 document.getElementById("crmFeedUrl").addEventListener("input", actualizarSeleccionCrm);

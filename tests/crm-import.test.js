@@ -264,6 +264,25 @@ test("importación requiere auth, rechaza propietarios externos y usa selección
   } finally { restore(); }
 });
 
+test("endpoint import permite selección de 10 y rechaza 11 antes de importar", async () => {
+  let calls = 0;
+  const { app, restore } = createApp({ importSelected: async input => {
+    calls += 1;
+    assert.equal(input.selectedExternalIds.length, 10);
+    return { imported: 10 };
+  } });
+  const body = { feedUrl: "https://example.com/feed.xml", selectedExternalIds: Array.from({ length: 10 }, (_, i) => `CRM-${i + 1}`) };
+  try {
+    const allowed = await request(app, "/api/crm-import/import", { headers: authHeaderFor(), body });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.imported, 10);
+    const denied = await request(app, "/api/crm-import/import", { headers: authHeaderFor(), body: { ...body, selectedExternalIds: [...body.selectedExternalIds, "CRM-11"] } });
+    assert.equal(denied.status, 400);
+    assert.match(denied.body.error, /entre 1 y 10 inmuebles/);
+    assert.equal(calls, 1);
+  } finally { restore(); }
+});
+
 test("preview identifica duplicados de la fuente actual", async () => {
   const fixture = createApp({ ImportSourceModel: { findOne: async () => ({ _id: OTHER_ID }) } });
   fixture.PropiedadModel.find = async () => [{ externalId: "CRM-1" }];

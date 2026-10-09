@@ -1,4 +1,4 @@
-export const MAX_BATCH_PROPERTIES = 5;
+export const MAX_BATCH_PROPERTIES = 10;
 export const MAX_BATCH_PHOTOS = 100;
 export const MAX_BATCH_MS = 120000;
 

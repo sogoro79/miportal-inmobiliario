@@ -72,7 +72,7 @@ export function createCrmImportRouter({
       return res.status(400).json({ error: "No se permite indicar propietario en la importación." });
     }
     const parsed = importSchema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: "Indica un feed válido y selecciona entre 1 y 5 inmuebles por lote." });
+    if (!parsed.success) return res.status(400).json({ error: `Indica un feed válido y selecciona entre 1 y ${MAX_BATCH_PROPERTIES} inmuebles por lote.` });
     const budget = createImportBudget();
     try {
       const fetched = await fetchFeedXml(parsed.data.feedUrl, { budget });

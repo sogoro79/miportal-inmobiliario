@@ -71,7 +71,7 @@ export function createSelectedImporter({
       const initial = await budget.run(() => getPublicationAvailability(user, { usuarioId, PropiedadModel }));
       if (!initial.planActivoParaPublicar) throw new ImportError("Necesitas activar un plan para importar.", 403);
       const selected = [...new Set(selectedExternalIds)];
-      if (selected.length > MAX_BATCH_PROPERTIES) throw new ImportError("Selecciona como máximo 5 inmuebles por lote.");
+      if (selected.length > MAX_BATCH_PROPERTIES) throw new ImportError(`Selecciona como máximo ${MAX_BATCH_PROPERTIES} inmuebles por lote.`);
       const matches = new Map();
       for (const property of analyzed.properties) {
         if (!matches.has(property.externalId)) matches.set(property.externalId, []);
