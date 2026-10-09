@@ -18,7 +18,7 @@ function homeUbicacionCorta(propiedad = {}) {
 
 function renderDestacadaHome(p) {
   const imagen = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=700";
-  const precio = Number(p.precio || 0).toLocaleString("es-ES") + " €";
+  const precio = formatearPrecioPropiedad(p.precio, p.tipoOperacion);
   const tipo = p.tipoOperacion === "alquiler" ? "Alquiler" : "Venta";
   const tipoCls = p.tipoOperacion === "alquiler" ? "alquiler" : "venta";
   const hab = p.habitaciones ? `${p.habitaciones} hab.` : "";

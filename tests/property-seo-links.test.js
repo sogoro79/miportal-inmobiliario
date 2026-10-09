@@ -219,6 +219,7 @@ test("scripts de listados cargan juntos sin colisión global y renderizan propie
   context.window.URLSearchParams = URLSearchParams;
 
   assert.doesNotThrow(() => {
+    vm.runInContext(leer("public/js/precios.js"), context, { filename: "precios.js" });
     vm.runInContext(leer("public/js/seo-slug.js"), context, { filename: "seo-slug.js" });
     vm.runInContext(leer("public/js/seo-zonas.js"), context, { filename: "seo-zonas.js" });
     vm.runInContext(leer("public/js/filtros.js"), context, { filename: "filtros.js" });

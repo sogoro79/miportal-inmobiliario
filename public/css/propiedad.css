@@ -262,6 +262,25 @@ body {
   overflow: hidden;
 }
 
+#mapa.mapa-empty {
+  height: auto;
+  min-height: 150px;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: #f4f9f4;
+  border: 1px solid #d5e6d5;
+  color: #34533b;
+  text-align: center;
+}
+
+#mapa.mapa-empty p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: #536559;
+}
+
 /* ===========================
    CARD INFO (COLUMNA DERECHA)
 =========================== */

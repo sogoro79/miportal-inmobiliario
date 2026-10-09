@@ -799,6 +799,7 @@
 </nav>
 
 <script src="/js/publish-flow.js"></script>
+<script src="/js/precios.js?v=1"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");
@@ -1008,7 +1009,7 @@ function inicializarImportadorCrm(usuario) {
 function formatearPrecioCrm(precio, tipoOperacion = "") {
   const numero = Number(precio);
   if (!Number.isFinite(numero)) return "—";
-  return `${numero.toLocaleString("es-ES")} €${tipoOperacion === "alquiler" ? "/mes" : ""}`;
+  return formatearPrecioPropiedad(numero, tipoOperacion);
 }
 
 function textoImportacionCupo(data) {
@@ -1069,6 +1070,21 @@ function renderizarPreviewCrm(data) {
   actualizarSeleccionCrm();
 }
 
+function lineasResumenCrm(data) {
+  const count = value => Number.isInteger(value) && value >= 0 ? value : 0;
+  const imported = count(data.imported);
+  const skipped = count(data.skipped);
+  const importedImages = count(data.importedImages);
+  const skippedImages = count(data.skippedImages);
+  const lines = [`${imported} ${imported === 1 ? "inmueble importado" : "inmuebles importados"}`];
+  if (skipped > 0) lines.push(`${skipped} ${skipped === 1 ? "inmueble omitido" : "inmuebles omitidos"}`);
+  if (count(data.attemptedImages) > 0 || importedImages + skippedImages > 0) {
+    lines.push(`${importedImages} ${importedImages === 1 ? "imagen importada" : "imágenes importadas"}`);
+    lines.push(`${skippedImages} ${skippedImages === 1 ? "imagen omitida" : "imágenes omitidas"}`);
+  }
+  return lines;
+}
+
 async function importarSeleccionadosCrm() {
   const selectedExternalIds = [...document.querySelectorAll("#crmImportPreview input:checked")].map(input => input.value);
   const button = document.getElementById("btnImportCrm");
@@ -1087,11 +1103,7 @@ async function importarSeleccionadosCrm() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "No se pudo completar la importación.");
     const reasons = { duplicate: "Ya importado", invalid_data: "Error de datos", creation_failed: "No se pudo crear" };
-    const imageSummary = Number.isInteger(data.skippedImages) && data.skippedImages > 0
-      ? ` · ${data.skippedImages} ${data.skippedImages === 1 ? "imagen omitida" : "imágenes omitidas"}` : "";
-    const propertySummary = `${data.imported} ${data.imported === 1 ? "inmueble importado" : "inmuebles importados"}`
-      + (data.skipped > 0 ? ` · ${data.skipped} ${data.skipped === 1 ? "inmueble omitido" : "inmuebles omitidos"}` : "");
-    results.innerHTML = `<strong>Importación completada</strong><p>${propertySummary}${imageSummary}</p><ul>${(data.results || []).map(item => `<li>${escaparHtml(item.externalId)}: ${item.status === "imported" ? "Importado" : escaparHtml(reasons[item.reason] || "Omitido")}${[...(item.errors || []), ...(item.warnings || [])].map(message => ` · ${escaparHtml(message)}`).join("")}</li>`).join("")}</ul><a href="/perfil.html?crm=${Date.now()}#listaPropiedades">Ver mis propiedades</a>`;
+    results.innerHTML = `<strong>Importación completada</strong>${lineasResumenCrm(data).map(line => `<p>${line}</p>`).join("")}<ul>${(data.results || []).map(item => `<li>${escaparHtml(item.externalId)}: ${item.status === "imported" ? "Importado" : escaparHtml(reasons[item.reason] || "Omitido")}${[...(item.errors || []), ...(item.warnings || [])].map(message => ` · ${escaparHtml(message)}`).join("")}</li>`).join("")}</ul><a href="/perfil.html?crm=${Date.now()}#listaPropiedades">Ver mis propiedades</a>`;
     const importedIds = new Set((data.results || []).filter(item => item.status === "imported" || item.reason === "duplicate").map(item => item.externalId));
     for (const property of crmPreviewData.properties) if (importedIds.has(property.externalId)) property.duplicado = true;
     if (crmPreviewData.cupoDisponible !== null) crmPreviewData.cupoDisponible = Math.max(0, crmPreviewData.cupoDisponible - data.imported);
@@ -1252,7 +1264,7 @@ async function cargarPropiedades() {
 
   cont.innerHTML = mias.map(p => {
     const img     = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600";
-    const precio  = p.precio?.toLocaleString("es-ES") + " €";
+    const precio  = formatearPrecioPropiedad(p.precio, p.tipoOperacion);
     const tipo    = p.tipoOperacion === "venta" ? "Venta" : "Alquiler";
     const tipoCls = p.tipoOperacion === "venta" ? "tag-venta" : "tag-alquiler";
     const hab     = p.habitaciones ? `🛏 ${p.habitaciones} hab.` : "";

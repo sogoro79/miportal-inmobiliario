@@ -26,18 +26,22 @@ test("parser admite coordenadas cero", () => {
   assert.equal(p.lat, 0); assert.equal(p.lng, 0);
 });
 
-function frontend() {
+function frontend({ results = [{ lat: "36.727", lon: "-6.436" }], fail = false, ok = true } = {}) {
   const container = { innerHTML: "" };
+  const mapContainer = { innerHTML: "", classList: { add() {}, remove() {} } };
+  const image = {};
+  const count = {};
   const requests = [], centers = [];
   const marker = { addTo() { return this; }, bindPopup() { return this; }, openPopup() {} };
   const context = vm.createContext({ URLSearchParams, console, Event,
     window: { location: { search: "" }, addEventListener() {}, dispatchEvent() {} },
-    document: { addEventListener() {}, querySelector: () => null, getElementById: id => id === "contenedor" ? container : null },
-    fetch: async url => { requests.push(url); return { json: async () => [{ lat: "36.727", lon: "-6.436" }] }; },
+    document: { addEventListener() {}, querySelectorAll: () => [], querySelector: selector => selector === ".slider-img" ? image : selector === ".slider-count" ? count : null, getElementById: id => id === "contenedor" ? container : id === "mapa" ? mapContainer : null },
+    fetch: async url => { requests.push(url); if (fail) throw new Error("Network failure"); return { ok, json: async () => results }; },
     L: { map: () => ({ setView(coords) { centers.push(coords); return this; } }), tileLayer: () => ({ addTo() {} }), marker: () => marker }
   });
+  vm.runInContext(read("public/js/precios.js"), context);
   vm.runInContext(read("public/js/propiedad.js"), context);
-  return { context, requests, centers, container };
+  return { context, requests, centers, container, mapContainer, image, count };
 }
 test("mapa geocodifica dirección, municipio, provincia, CP y España sin comas vacías", async () => {
   const f = frontend();
@@ -55,13 +59,35 @@ test("mapa utiliza coordenadas válidas sin llamar Nominatim, incluido cero", as
   assert.equal(f.requests.length, 0);
   assert.deepEqual(Array.from(f.centers[0]), [0, -6.436]);
 });
+for (const [name, options] of [["cero resultados", { results: [] }], ["error de red", { fail: true }], ["error HTTP", { ok: false }], ["coordenadas inválidas", { results: [{ lat: "91", lon: "0" }] }]]) {
+  test(`mapa muestra estado controlado con ${name}`, async () => {
+    const f = frontend(options);
+    vm.runInContext('propiedad = {lat: null, lng: null, direccion: "Camino del Bercial 22", localidad: "Rota"};', f.context);
+    await vm.runInContext("iniciarMapa()", f.context);
+    assert.equal(f.centers.length, 0);
+    assert.match(f.mapContainer.innerHTML, /Ubicación exacta no disponible/);
+    assert.match(f.mapContainer.innerHTML, /dirección indicada por el anunciante/);
+  });
+}
 test("sin fotos reales, ficha y navegación no muestran un contador 1/1", () => {
   const f = frontend();
   vm.runInContext('propiedad = { titulo: "Prueba", imagenes: [] }; fotos = ["placeholder"]; tieneFotosReales = false; renderPropiedad();', f.context);
   assert.match(f.container.innerHTML, /slider-count">Sin fotos/);
   assert.doesNotMatch(f.container.innerHTML, /slider-count">1 \/ 1/);
-  vm.runInContext('tieneFotosReales = true; fotos = ["a", "b", "c"]; renderPropiedad();', f.context);
-  assert.match(f.container.innerHTML, /slider-count">1 \/ 3/);
+  vm.runInContext('tieneFotosReales = true; fotos = ["a", "b", "c", "d", "e"]; renderPropiedad();', f.context);
+  assert.match(f.container.innerHTML, /slider-count">1 \/ 5/);
+  vm.runInContext("irFoto(4)", f.context);
+  assert.equal(f.count.textContent, "5 / 5");
+  assert.equal(f.image.src, "e");
+});
+
+test("ficha muestra venta y alquiler con precio común para publicaciones manuales y CRM", () => {
+  const f = frontend();
+  for (const source of ["manual", "crm"]) for (const [precio, tipoOperacion, expected] of [[245000, "venta", "245.000 €"], [1650, "alquiler", "1.650 €/mes"]]) {
+    f.context.testProperty = { titulo: "Prueba", precio, tipoOperacion, source };
+    vm.runInContext('propiedad = testProperty; fotos = ["placeholder"]; renderPropiedad();', f.context);
+    assert.ok(f.container.innerHTML.includes(expected));
+  }
 });
 test("feed de prueba contiene 3/5/2/1 imágenes propias válidas sin acceder a servicios externos", async () => {
   const properties = analyzeFeedXml(feed, { maxPhotos: Infinity }).properties;

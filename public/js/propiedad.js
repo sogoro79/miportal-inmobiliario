@@ -62,8 +62,7 @@ async function cargarPropiedad() {
    SEO
 ================================ */
 function actualizarSEO() {
-  const precio = propiedad.precio?.toLocaleString("es-ES");
-  const precioTexto = precio ? `${precio} €` : "precio a consultar";
+  const precioTexto = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion);
   const zonaTexto = propiedad.direccion || "HomeClick24";
   const canonicalPath = typeof getPropiedadSeoUrl === "function"
     ? getPropiedadSeoUrl(propiedad)
@@ -173,7 +172,7 @@ function renderPropiedad() {
   const contenedor = document.getElementById("contenedor");
   const tipo = propiedad.tipoOperacion === "venta" ? "Venta" : "Alquiler";
   const tipoCls = propiedad.tipoOperacion === "venta" ? "tag-venta" : "tag-alquiler";
-  const precio = propiedad.precio?.toLocaleString("es-ES") + " €";
+  const precio = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion);
   const hab = propiedad.habitaciones ? `🛏 ${propiedad.habitaciones} habitaciones` : "";
   const estadoPropiedad = propiedad.estadoPropiedad || (propiedad.estado === "obra_nueva" ? "Obra nueva" : propiedad.estado === "segunda_mano" ? "Segunda mano" : "");
 
@@ -389,6 +388,13 @@ window.addEventListener("resize", ajustarOffsetRelacionadas);
    MAPA CON GEOCODING AUTOMÁTICO
 ================================ */
 async function iniciarMapa() {
+  const contenedor = document.getElementById("mapa");
+  if (!contenedor) return;
+  const mostrarSinUbicacion = () => {
+    if (mapa) { mapa.remove(); mapa = null; }
+    contenedor.classList.add("mapa-empty");
+    contenedor.innerHTML = '<div role="status"><strong>Ubicación exacta no disponible</strong><p>Se muestra la dirección indicada por el anunciante.</p></div>';
+  };
   let lat = propiedad.lat;
   let lng = propiedad.lng;
 
@@ -397,8 +403,9 @@ async function iniciarMapa() {
     try {
       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(consultaMapa(propiedad))}&format=json&limit=1&countrycodes=es`;
       const res = await fetch(url);
+      if (!res.ok) throw new Error("Geocodificación no disponible");
       const data = await res.json();
-      if (data.length) {
+      if (Array.isArray(data) && data.length) {
         lat = parseFloat(data[0].lat);
         lng = parseFloat(data[0].lon);
       }
@@ -407,11 +414,16 @@ async function iniciarMapa() {
     }
   }
 
-  if (!coordenadasValidas(lat, lng)) return;
+  if (!coordenadasValidas(lat, lng)) {
+    mostrarSinUbicacion();
+    return;
+  }
   lat = Number(lat);
   lng = Number(lng);
 
   if (mapa) mapa.remove();
+  contenedor.classList.remove("mapa-empty");
+  contenedor.innerHTML = "";
 
   mapa = L.map("mapa").setView([lat, lng], 15);
 

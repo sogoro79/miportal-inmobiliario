@@ -154,7 +154,7 @@ function renderLista(lista) {
 
   cont.innerHTML = lista.map(p => {
     const img = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600";
-    const precio = p.precio?.toLocaleString("es-ES") + " €";
+    const precio = formatearPrecioPropiedad(p.precio, p.tipoOperacion);
     const hab        = p.habitaciones ? `🛏 ${p.habitaciones} hab.` : "";
     const banos      = p.banos ? `🚿 ${p.banos} baño${p.banos > 1 ? "s" : ""}` : "";
     const superficie = p.superficie ? `📐 ${p.superficie} m²` : "";

@@ -75,7 +75,7 @@ async function cargarPropiedades() {
       <div class="card" onclick="location.href='${typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(p) : `/propiedad/propiedad-${encodeURIComponent(p._id)}`}'">
         <img src="${img}">
         <div class="info">
-          <div class="precio">${p.precio} €</div>
+          <div class="precio">${formatearPrecioPropiedad(p.precio, p.tipoOperacion)}</div>
           ${p.referencia ? `<div>Ref. ${p.referencia}</div>` : ""}
           <div>${p.direccion}</div>
           ${caducidad ? `<div>${caducidad}</div>` : ""}
