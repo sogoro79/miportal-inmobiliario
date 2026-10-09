@@ -21,7 +21,7 @@ const USER = "507f1f77bcf86cd799439099";
 const OTHER = "507f1f77bcf86cd799439088";
 const URL = "https://public.example/feed.xml?token=private";
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZfkAAAAASUVORK5CYII=", "base64");
-const fixtureXml = fs.readFileSync(new globalThis.URL("../public/test-feeds/homeclick24-crm-feed-prueba.xml", import.meta.url), "utf8");
+const fixtureXml = fs.readFileSync(new globalThis.URL("./fixtures/crm/homeclick24-crm-feed-prueba.xml", import.meta.url), "utf8");
 
 function fixture({ plan = "lanzamiento_2026", count = 0, failCreate = false, failDownload = false, failUpload = false, active = true, downloadHook = async () => {}, persistHook = async () => {} } = {}) {
   const users = new Map([USER, OTHER].map(id => [id, { _id: id, plan, planActivo: active, trialAccepted: true, activo: true }]));

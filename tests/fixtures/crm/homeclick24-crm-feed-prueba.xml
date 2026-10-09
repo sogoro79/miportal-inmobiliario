@@ -15,9 +15,9 @@
     <surface>98</surface>
     <propertyType>piso</propertyType>
     <images>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-001-1.png</image>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-001-2.png</image>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-001-3.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-001-1.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-001-2.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-001-3.png</image>
     </images>
   </property>
 
@@ -36,11 +36,11 @@
     <surface>180</surface>
     <propertyType>casa_de_campo</propertyType>
     <images>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-002-1.png</image>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-002-2.png</image>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-002-3.png</image>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-002-4.png</image>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-002-5.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-002-1.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-002-2.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-002-3.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-002-4.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-002-5.png</image>
     </images>
   </property>
 
@@ -58,8 +58,8 @@
     <surface>120</surface>
     <propertyType>local_comercial</propertyType>
     <images>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-003-1.png</image>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-003-2.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-003-1.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-003-2.png</image>
     </images>
   </property>
 
@@ -76,7 +76,7 @@
     <surface>420</surface>
     <propertyType>parcela</propertyType>
     <images>
-      <image>https://www.homeclick24.com/test-feeds/images/hc24-demo-004-1.png</image>
+      <image>https://crm-fixtures.example/images/hc24-demo-004-1.png</image>
     </images>
   </property>
 </properties>

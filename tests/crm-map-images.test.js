@@ -6,7 +6,7 @@ import { analyzeFeedXml } from "../utils/importers/importerRegistry.js";
 import { fetchImportImage } from "../utils/import/imageFetcher.js";
 
 const read = path => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const feed = read("public/test-feeds/homeclick24-crm-feed-prueba.xml");
+const feed = read("tests/fixtures/crm/homeclick24-crm-feed-prueba.xml");
 const parseCoordinates = tags => analyzeFeedXml(feed.replace("<city>Chipiona</city>", `<city>Chipiona</city>${tags}`)).properties[0];
 
 for (const [lat, lng] of [["lat", "lng"], ["latitude", "longitude"], ["latitud", "longitud"], ["lat", "lon"]]) {
@@ -89,18 +89,22 @@ test("ficha muestra venta y alquiler con precio común para publicaciones manual
     assert.ok(f.container.innerHTML.includes(expected));
   }
 });
-test("feed de prueba contiene 3/5/2/1 imágenes propias válidas sin acceder a servicios externos", async () => {
+test("fixture interno contiene 3/5/2/1 imágenes válidas sin acceder a servicios externos", async () => {
   const properties = analyzeFeedXml(feed, { maxPhotos: Infinity }).properties;
   assert.deepEqual(properties.map(p => p.fotos.length), [3, 5, 2, 1]);
   for (const property of properties) for (const imageUrl of property.fotos) {
     const url = new URL(imageUrl);
-    assert.equal(url.origin, "https://www.homeclick24.com");
-    assert.match(url.pathname, /^\/test-feeds\/images\/hc24-demo-\d+-\d+\.png$/);
-    const buffer = fs.readFileSync(new URL(`../public${url.pathname}`, import.meta.url));
+    assert.equal(url.origin, "https://crm-fixtures.example");
+    assert.match(url.pathname, /^\/images\/hc24-demo-\d+-\d+\.png$/);
+    const buffer = fs.readFileSync(new URL(`./fixtures/crm${url.pathname}`, import.meta.url));
     const downloaded = await fetchImportImage(imageUrl, {
       lookup: async () => [{ address: "8.8.8.8", family: 4 }],
       requestOnce: async () => ({ statusCode: 200, headers: { "content-type": "image/png" }, body: buffer })
     });
     assert.deepEqual(downloaded, buffer);
   }
+});
+
+test("material DEMO CRM no permanece bajo public", () => {
+  assert.equal(fs.existsSync(new URL("../public/test-feeds", import.meta.url)), false);
 });
