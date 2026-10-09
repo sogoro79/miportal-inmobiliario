@@ -6,6 +6,7 @@ import {
   rejectUnsafeXml
 } from "../import/feedSecurity.js";
 import { normalizeSpanishPrice } from "../prices.js";
+import { tipoInmuebleSchema } from "../propertySchemas.js";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -48,6 +49,9 @@ function normalizeOperacion(value = "") {
 
 function normalizeTipoInmueble(value = "") {
   const normalized = value.toLowerCase();
+  const key = normalized.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]+/g, "_");
+  if (tipoInmuebleSchema.options.includes(key)) return key;
+  if (key === "casa_de_campo") return "casa_campo";
   if (/chalet/.test(normalized)) return "chalet";
   if (/casa de campo|country/.test(normalized)) return "casa_campo";
   if (/casa/.test(normalized)) return "casa";
@@ -59,14 +63,14 @@ function normalizeTipoInmueble(value = "") {
   return "piso";
 }
 
-function collectPhotos(value, output = []) {
-  if (!value || output.length >= DEFAULT_MAX_PHOTOS_PER_PROPERTY) return output;
+function collectPhotos(value, output = [], maxPhotos = DEFAULT_MAX_PHOTOS_PER_PROPERTY) {
+  if (!value || output.length >= maxPhotos) return output;
   if (typeof value === "string") {
     if (/^https?:\/\//i.test(value.trim())) output.push(value.trim());
     return output;
   }
   if (Array.isArray(value)) {
-    for (const item of value) collectPhotos(item, output);
+    for (const item of value) collectPhotos(item, output, maxPhotos);
     return output;
   }
   if (typeof value === "object") {
@@ -74,11 +78,11 @@ function collectPhotos(value, output = []) {
     if (/^https?:\/\//i.test(directUrl)) output.push(directUrl);
     for (const [key, nested] of Object.entries(value)) {
       if (/^(image|images|photo|photos|picture|pictures|url|urls|gallery|media)$/i.test(key)) {
-        collectPhotos(nested, output);
+        collectPhotos(nested, output, maxPhotos);
       }
     }
   }
-  return [...new Set(output)].slice(0, DEFAULT_MAX_PHOTOS_PER_PROPERTY);
+  return [...new Set(output)].slice(0, maxPhotos);
 }
 
 function looksLikeProperty(node = {}) {
@@ -116,7 +120,7 @@ function buildPreviewId(externalId, index) {
     .slice(0, 16);
 }
 
-function mapProperty(item = {}, index = 0) {
+function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PROPERTY) {
   const externalId = firstText(item, ["externalId", "external_id", "id", "propertyId", "reference", "referencia", "ref"]);
   const titulo = firstText(item, ["titulo", "title", "name", "headline"]);
   const descripcion = firstText(item, ["descripcion", "description", "desc"]);
@@ -132,7 +136,7 @@ function mapProperty(item = {}, index = 0) {
   const banos = Number(firstText(item, ["banos", "baños", "bathrooms"])) || 0;
   const superficie = Number(firstText(item, ["superficie", "surface", "area", "builtArea"])) || null;
   const tipoInmueble = normalizeTipoInmueble(firstText(item, ["tipoInmueble", "propertyType", "category", "subtype"]));
-  const fotos = collectPhotos(item);
+  const fotos = [...new Set(collectPhotos(item, [], maxPhotos))].slice(0, maxPhotos);
   const errors = [];
   const warnings = [];
 
@@ -158,6 +162,9 @@ function mapProperty(item = {}, index = 0) {
     banos,
     superficie,
     tipoInmueble,
+    garaje: /^(true|1|yes|si|sí)$/i.test(firstText(item, ["garaje", "garage"])),
+    piscina: /^(true|1|yes|si|sí)$/i.test(firstText(item, ["piscina", "pool"])),
+    terraza: /^(true|1|yes|si|sí)$/i.test(firstText(item, ["terraza", "terrace"])),
     fotos,
     errors,
     warnings
@@ -165,7 +172,8 @@ function mapProperty(item = {}, index = 0) {
 }
 
 export function analyzeGenericXml(xml, {
-  maxProperties = DEFAULT_MAX_PREVIEW_PROPERTIES
+  maxProperties = DEFAULT_MAX_PREVIEW_PROPERTIES,
+  maxPhotos = DEFAULT_MAX_PHOTOS_PER_PROPERTY
 } = {}) {
   rejectUnsafeXml(xml);
   const validation = XMLValidator.validate(xml);
@@ -191,5 +199,5 @@ export function analyzeGenericXml(xml, {
     throw error;
   }
 
-  return nodes.map(mapProperty);
+  return nodes.map((item, index) => mapProperty(item, index, maxPhotos));
 }

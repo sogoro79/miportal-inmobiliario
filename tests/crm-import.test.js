@@ -120,6 +120,9 @@ function createApp({
   user = makeUsuario(),
   count = 3,
   fetchFeedXml: fetcher,
+  importSelected,
+  ImportSourceModel = { findOne: async () => null },
+  importUserRateLimitMiddleware = (req, res, next) => next(),
   userRateLimitMiddleware = (req, res, next) => next()
 } = {}) {
   const app = express();
@@ -133,6 +136,10 @@ function createApp({
   app.use("/api/crm-import", createCrmImportRouter({
     fetchFeedXml: fetcher || (async () => ({ xml: validFeedXml(), finalUrl: "https://example.com/feed.xml" })),
     PropiedadModel,
+    ImportSourceModel,
+    importSelected,
+    importRateLimitMiddleware: (req, res, next) => next(),
+    importUserRateLimitMiddleware,
     rateLimitMiddleware: (req, res, next) => next(),
     userRateLimitMiddleware
   }));
@@ -238,6 +245,51 @@ test("POST /api/crm-import/analyze requiere autenticación", async () => {
   } finally {
     restore();
   }
+});
+
+test("importación requiere auth, rechaza propietarios externos y usa selección del servidor", async () => {
+  let called;
+  const { app, restore } = createApp({ importSelected: async input => { called = input; return { imported: 1 }; } });
+  const body = { feedUrl: "https://example.com/feed.xml", selectedExternalIds: ["CRM-1"] };
+  try {
+    assert.equal((await request(app, "/api/crm-import/import", { body })).status, 401);
+    for (const invalid of [{ ...body, ownerId: OTHER_ID }, { ...body, usuarioId: OTHER_ID }, { ...body, selectedExternalIds: [] }, { ...body, properties: [] }]) {
+      assert.equal((await request(app, "/api/crm-import/import", { headers: authHeaderFor(), body: invalid })).status, 400);
+    }
+    assert.equal(called, undefined);
+    assert.equal((await request(app, "/api/crm-import/import", { headers: authHeaderFor(), body })).status, 200);
+    assert.equal(called.usuarioId, USER_ID);
+    assert.deepEqual(called.selectedExternalIds, ["CRM-1"]);
+    assert.equal(called.analyzed.properties[0].titulo, "Casa 1");
+  } finally { restore(); }
+});
+
+test("preview identifica duplicados de la fuente actual", async () => {
+  const fixture = createApp({ ImportSourceModel: { findOne: async () => ({ _id: OTHER_ID }) } });
+  fixture.PropiedadModel.find = async () => [{ externalId: "CRM-1" }];
+  try {
+    const response = await request(fixture.app, "/api/crm-import/analyze", { headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml" } });
+    assert.equal(response.body.properties[0].duplicado, true);
+    assert.equal(response.body.properties[1].duplicado, false);
+  } finally { fixture.restore(); }
+});
+
+test("preview VIP no recorta fotos y referencia ausente impide selección", async () => {
+  const fixture = createApp({ user: makeUsuario({ plan: "vip" }), fetchFeedXml: async () => ({ xml: validFeedXml({ photoCount: 75 }).replace("<id>CRM-1</id>", "") }) });
+  try {
+    const result = await request(fixture.app, "/api/crm-import/analyze", { headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml" } });
+    assert.equal(result.body.properties[0].fotosImportables, 75);
+    assert.match(result.body.properties[0].errors.join(" "), /referencia externa ausente/);
+  } finally { fixture.restore(); }
+});
+
+test("importación real aplica rate limit por usuario autenticado", async () => {
+  const fixture = createApp({ importSelected: async () => ({ imported: 0 }), importUserRateLimitMiddleware: createUserSecurityRateLimit({ windowMs: 60000, max: 1, keyPrefix: "crm-import-test" }) });
+  const options = { headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml", selectedExternalIds: ["CRM-1"] } };
+  try {
+    assert.equal((await request(fixture.app, "/api/crm-import/import", options)).status, 200);
+    assert.equal((await request(fixture.app, "/api/crm-import/import", options)).status, 429);
+  } finally { fixture.restore(); }
 });
 
 test("análisis usa req.user.id, rechaza ownerId externo y no crea propiedades", async () => {

@@ -6,7 +6,8 @@ export const IMPORTER_TYPES = Object.freeze({
 
 export function analyzeFeedXml(xml, {
   feedType = IMPORTER_TYPES.GENERIC_XML,
-  maxProperties
+  maxProperties,
+  maxPhotos
 } = {}) {
   if (feedType !== IMPORTER_TYPES.GENERIC_XML) {
     const error = new Error("Tipo de feed no soportado.");
@@ -16,6 +17,6 @@ export function analyzeFeedXml(xml, {
 
   return {
     feedType,
-    properties: analyzeGenericXml(xml, { maxProperties })
+    properties: analyzeGenericXml(xml, { maxProperties, maxPhotos })
   };
 }

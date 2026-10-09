@@ -50,14 +50,17 @@ function getHeader(headers = {}, name = "") {
 export function defaultRequestOnce(url, {
   timeoutMs = DEFAULT_FEED_TIMEOUT_MS,
   maxBytes = DEFAULT_MAX_XML_BYTES,
+  binary = false,
   target
 } = {}) {
   return new Promise((resolve, reject) => {
     const client = url.protocol === "https:" ? https : http;
     let settled = false;
+    let deadline;
     const fail = error => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       reject(error instanceof FeedFetchError
         ? error
         : new FeedFetchError("No se pudo leer el feed XML.", "FEED_UNREACHABLE", { cause: error }));
@@ -88,10 +91,11 @@ export function defaultRequestOnce(url, {
       res.on("end", () => {
         if (settled) return;
         settled = true;
+        clearTimeout(deadline);
         resolve({
           statusCode: res.statusCode || 0,
           headers: res.headers || {},
-          body: Buffer.concat(chunks).toString("utf8")
+          body: binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8")
         });
       });
       res.on("aborted", () => {
@@ -108,15 +112,17 @@ export function defaultRequestOnce(url, {
     req.on("error", error => {
       fail(error);
     });
+    deadline = setTimeout(() => req.destroy(new FeedFetchError("Tiempo de espera agotado al leer el feed.", "FEED_TIMEOUT")), timeoutMs);
     req.end();
   });
 }
 
-export async function fetchFeedXml(rawUrl, {
+export async function fetchPublicResource(rawUrl, {
   lookup,
   maxRedirects = DEFAULT_MAX_REDIRECTS,
   timeoutMs = DEFAULT_FEED_TIMEOUT_MS,
   maxBytes = DEFAULT_MAX_XML_BYTES,
+  binary = false,
   requestOnce = defaultRequestOnce
 } = {}) {
   let currentUrl = parseAndValidateFeedUrl(rawUrl);
@@ -130,7 +136,7 @@ export async function fetchFeedXml(rawUrl, {
       throw new FeedFetchError("No se pudo resolver el dominio del feed XML.", "DNS_LOOKUP_FAILED");
     }
 
-    const response = await requestOnce(currentUrl, { timeoutMs, maxBytes, target });
+    const response = await requestOnce(currentUrl, { timeoutMs, maxBytes, target, binary });
     const status = Number(response.statusCode || 0);
 
     if ([301, 302, 303, 307, 308].includes(status)) {
@@ -147,21 +153,27 @@ export async function fetchFeedXml(rawUrl, {
       throw new FeedFetchError(`El feed respondió con estado ${status}.`, "BAD_STATUS");
     }
 
-    if (!isAllowedXmlContentType(getHeader(response.headers, "content-type"))) {
+    if (!binary && !isAllowedXmlContentType(getHeader(response.headers, "content-type"))) {
       throw new FeedFetchError("El feed no devuelve un contenido XML válido.", "INVALID_CONTENT_TYPE");
     }
 
-    const body = String(response.body || "");
-    if (Buffer.byteLength(body, "utf8") > maxBytes) {
+    const body = binary ? response.body : String(response.body || "");
+    if (binary && !Buffer.isBuffer(body)) throw new FeedFetchError("Respuesta incompleta.", "FEED_TRUNCATED");
+    if (Buffer.byteLength(body) > maxBytes) {
       throw new FeedFetchError("El feed XML supera el tamaño máximo permitido.", "FEED_TOO_LARGE");
     }
 
     return {
       xml: body,
+      headers: response.headers,
       finalUrl: currentUrl.toString(),
       safeUrlForLogs: maskFeedUrl(currentUrl.toString())
     };
   }
 
   throw new FeedSecurityError("No se pudo validar el feed.", "FEED_VALIDATION_FAILED");
+}
+
+export function fetchFeedXml(rawUrl, options) {
+  return fetchPublicResource(rawUrl, options);
 }

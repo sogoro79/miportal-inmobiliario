@@ -1,6 +1,8 @@
 import express from "express";
 import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
+import ImportSource from "../models/ImportSource.js";
+import { createSelectedImporter, feedHash, validateImportProperty, ImportError } from "../utils/import/selectedImport.js";
 import { requireAuth } from "../middleware/auth.js";
 import { securityRateLimits } from "../utils/security.js";
 import {
@@ -17,6 +19,11 @@ import { z } from "../utils/validation.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
+}).strict();
+
+const importSchema = z.object({
+  feedUrl: z.string().trim().url().max(2000),
+  selectedExternalIds: z.array(z.string().trim().min(1).max(200)).min(1).max(DEFAULT_MAX_PREVIEW_PROPERTIES)
 }).strict();
 
 function finiteOrNull(value) {
@@ -49,10 +56,32 @@ export function createCrmImportRouter({
   fetchFeedXml = defaultFetchFeedXml,
   UsuarioModel = Usuario,
   PropiedadModel = Propiedad,
+  ImportSourceModel = ImportSource,
+  importSelected,
+  importRateLimitMiddleware = securityRateLimits.crmImport,
+  importUserRateLimitMiddleware = securityRateLimits.crmImportByUser,
   rateLimitMiddleware = securityRateLimits.crmImportAnalyze,
   userRateLimitMiddleware = securityRateLimits.crmImportAnalyzeByUser
 } = {}) {
   const router = express.Router();
+  const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
+
+  router.post("/import", requireAuth, importUserRateLimitMiddleware, importRateLimitMiddleware, async (req, res) => {
+    if (req.body && ("ownerId" in req.body || "usuarioId" in req.body)) {
+      return res.status(400).json({ error: "No se permite indicar propietario en la importación." });
+    }
+    const parsed = importSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: "Indica un feed válido y selecciona al menos un inmueble." });
+    try {
+      const fetched = await fetchFeedXml(parsed.data.feedUrl);
+      const analyzed = analyzeFeedXml(fetched.xml, { maxProperties: DEFAULT_MAX_PREVIEW_PROPERTIES, maxPhotos: Infinity });
+      return res.json(await runImport({ usuarioId: req.user.id, ...parsed.data, analyzed }));
+    } catch (error) {
+      const response = error instanceof ImportError ? { status: error.status, error: error.message } : normalizarErrorFeed(error);
+      console.warn("[CRM Import]", { feedUrl: maskFeedUrl(parsed.data.feedUrl), code: error instanceof ImportError ? "IMPORT_REJECTED" : error?.code || "IMPORT_FAILED", status: response.status });
+      return res.status(response.status).json({ error: response.error });
+    }
+  });
 
   router.post("/analyze", requireAuth, userRateLimitMiddleware, rateLimitMiddleware, async (req, res) => {
     if (req.body && ("ownerId" in req.body || "usuarioId" in req.body)) {
@@ -80,8 +109,14 @@ export function createCrmImportRouter({
       const limiteFotos = fotosIlimitadas ? null : getLimiteFotosPlan(planFotos);
       const fetched = await fetchFeedXml(feedUrl);
       const analyzed = analyzeFeedXml(fetched.xml, {
-        maxProperties: DEFAULT_MAX_PREVIEW_PROPERTIES
+        maxProperties: DEFAULT_MAX_PREVIEW_PROPERTIES,
+        ...(fotosIlimitadas ? { maxPhotos: Infinity } : {})
       });
+      const source = await ImportSourceModel.findOne({ usuarioId, feedUrlHash: feedHash(feedUrl) });
+      const imported = source ? await PropiedadModel.find({ usuarioId, importSourceId: source._id, source: "crm" }) : [];
+      const duplicateIds = new Set(imported.map(item => item.externalId));
+      const referenceCounts = new Map();
+      for (const property of analyzed.properties) referenceCounts.set(property.externalId, (referenceCounts.get(property.externalId) || 0) + 1);
 
       const properties = analyzed.properties.map(propiedad => {
         const resumenFotos = crearResumenFotos(propiedad, {
@@ -92,14 +127,14 @@ export function createCrmImportRouter({
         return {
           previewId: propiedad.previewId,
           externalId: propiedad.externalId || "",
-          duplicado: false,
+          duplicado: duplicateIds.has(propiedad.externalId),
           titulo: propiedad.titulo || "",
           tipoOperacion: propiedad.tipoOperacion || "",
           precio: propiedad.precio,
           localidad: propiedad.localidad || "",
           fotosDisponibles: resumenFotos.fotosDisponibles,
           fotosImportables: resumenFotos.fotosImportables,
-          errors: propiedad.errors || [],
+          errors: [...validateImportProperty(propiedad).errors, ...(referenceCounts.get(propiedad.externalId) > 1 ? ["Referencia repetida dentro del feed"] : [])],
           warnings: propiedad.warnings || []
         };
       });

@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 
 const PropiedadSchema = new mongoose.Schema({
+  source: { type: String, enum: ["manual", "crm"], default: "manual" },
+  externalId: { type: String },
+  importSourceId: { type: mongoose.Schema.Types.ObjectId, ref: "ImportSource" },
+  importedAt: { type: Date },
+  lastImportedAt: { type: Date },
   titulo:        { type: String, required: true },
   referencia:    { type: String, default: "" },
   direccion:     { type: String, required: true },
@@ -81,5 +86,15 @@ const PropiedadSchema = new mongoose.Schema({
   fechaExpiracion: { type: Date, default: null },
   videoUrl: { type: String, default: "" },
 }, { timestamps: true });
+
+PropiedadSchema.index({ usuarioId: 1, importSourceId: 1, externalId: 1 }, {
+  unique: true,
+  partialFilterExpression: {
+    source: "crm",
+    usuarioId: { $type: "objectId" },
+    importSourceId: { $type: "objectId" },
+    externalId: { $type: "string" }
+  }
+});
 
 export default mongoose.model("Propiedad", PropiedadSchema);

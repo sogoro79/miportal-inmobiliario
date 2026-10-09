@@ -747,6 +747,7 @@
       <table class="crm-import-table">
         <thead>
           <tr>
+            <th>Seleccionar</th>
             <th>Referencia</th>
             <th>Título</th>
             <th>Operación</th>
@@ -759,7 +760,9 @@
         <tbody id="crmImportPreview"></tbody>
       </table>
     </div>
-    <button class="btn-perfil outline crm-import-disabled" type="button" disabled>Importación disponible en el siguiente paso</button>
+    <p id="crmSelectedCount">Seleccionados: 0</p>
+    <button class="btn-perfil green" id="btnImportCrm" type="button" onclick="importarSeleccionadosCrm()" disabled>Importar seleccionados</button>
+    <div id="crmImportResults" class="crm-import-status" aria-live="polite"></div>
   </div>
 
   <!-- MIS PROPIEDADES -->
@@ -1013,11 +1016,26 @@ function textoImportacionCupo(data) {
   return `
     <strong>${data.total} inmueble${data.total === 1 ? "" : "s"} encontrado${data.total === 1 ? "" : "s"}</strong><br>
     Tu plan permite ${limite}. Actualmente tienes ${data.anunciosActuales} publicado${data.anunciosActuales === 1 ? "" : "s"}.
-    Podrás importar hasta ${cupo} en el siguiente paso.
+    Puedes importar hasta ${cupo}.
   `;
 }
 
+let crmPreviewData = null;
+let crmAnalyzedUrl = "";
+let crmImportBusy = false;
+
+function actualizarSeleccionCrm() {
+  const count = document.querySelectorAll("#crmImportPreview input:checked").length;
+  const cupo = crmPreviewData?.cupoDisponible;
+  document.getElementById("crmSelectedCount").textContent = `Seleccionados: ${count} / ${cupo === null ? "sin límite" : cupo ?? 0}`;
+  document.getElementById("btnImportCrm").disabled = crmImportBusy || !crmPreviewData?.puedePublicarAhora || count === 0 || (cupo !== null && count > (cupo ?? 0)) || document.getElementById("crmFeedUrl").value.trim() !== crmAnalyzedUrl;
+}
+
+document.getElementById("crmFeedUrl").addEventListener("input", actualizarSeleccionCrm);
+document.getElementById("crmImportPreview").addEventListener("change", actualizarSeleccionCrm);
+
 function renderizarPreviewCrm(data) {
+  crmPreviewData = data;
   const summary = document.getElementById("crmImportSummary");
   const tableWrap = document.getElementById("crmImportTableWrap");
   const tbody = document.getElementById("crmImportPreview");
@@ -1027,12 +1045,13 @@ function renderizarPreviewCrm(data) {
   summary.style.display = "block";
 
   tbody.innerHTML = (data.properties || []).map(propiedad => {
-    const estado = [
+    const estado = propiedad.duplicado ? "Ya importado" : [
       ...(propiedad.errors || []),
       ...(propiedad.warnings || [])
     ].join(" · ") || "Listo para revisar";
     return `
       <tr>
+        <td><input type="checkbox" value="${escaparHtml(propiedad.externalId || "")}" aria-label="Seleccionar inmueble" ${propiedad.duplicado || propiedad.errors?.length || !propiedad.externalId || !data.puedePublicarAhora ? "disabled" : ""}></td>
         <td>${escaparHtml(propiedad.externalId || "—")}</td>
         <td>${escaparHtml(propiedad.titulo || "Sin título")}</td>
         <td>${escaparHtml(propiedad.tipoOperacion || "—")}</td>
@@ -1044,6 +1063,41 @@ function renderizarPreviewCrm(data) {
     `;
   }).join("");
   tableWrap.style.display = data.properties?.length ? "block" : "none";
+  actualizarSeleccionCrm();
+}
+
+async function importarSeleccionadosCrm() {
+  const selectedExternalIds = [...document.querySelectorAll("#crmImportPreview input:checked")].map(input => input.value);
+  const button = document.getElementById("btnImportCrm");
+  if (button.disabled || crmImportBusy) return;
+  crmImportBusy = true;
+  button.disabled = true;
+  document.getElementById("btnAnalyzeCrmFeed").disabled = true;
+  document.getElementById("crmFeedUrl").disabled = true;
+  const results = document.getElementById("crmImportResults");
+  results.textContent = "Importando los inmuebles seleccionados...";
+  try {
+    const response = await fetch("/api/crm-import/import", {
+      method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ feedUrl: crmAnalyzedUrl, selectedExternalIds })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "No se pudo completar la importación.");
+    const reasons = { duplicate: "Ya importado", invalid_data: "Error de datos", creation_failed: "No se pudo crear" };
+    results.innerHTML = `<strong>Importación completada</strong><p>${data.imported} inmuebles importados · ${data.skipped} omitidos</p><ul>${(data.results || []).map(item => `<li>${escaparHtml(item.externalId)}: ${item.status === "imported" ? "Importado" : escaparHtml(reasons[item.reason] || "Omitido")}${[...(item.errors || []), ...(item.warnings || [])].map(message => ` · ${escaparHtml(message)}`).join("")}</li>`).join("")}</ul><a href="/perfil.html?crm=${Date.now()}#listaPropiedades">Ver mis propiedades</a>`;
+    const importedIds = new Set((data.results || []).filter(item => item.status === "imported" || item.reason === "duplicate").map(item => item.externalId));
+    for (const property of crmPreviewData.properties) if (importedIds.has(property.externalId)) property.duplicado = true;
+    if (crmPreviewData.cupoDisponible !== null) crmPreviewData.cupoDisponible = Math.max(0, crmPreviewData.cupoDisponible - data.imported);
+    crmPreviewData.anunciosActuales += data.imported;
+    renderizarPreviewCrm(crmPreviewData);
+  } catch (error) {
+    results.textContent = error.message || "No se pudo completar la importación.";
+  } finally {
+    crmImportBusy = false;
+    document.getElementById("btnAnalyzeCrmFeed").disabled = false;
+    document.getElementById("crmFeedUrl").disabled = false;
+    actualizarSeleccionCrm();
+  }
 }
 
 async function analizarFeedCrm() {
@@ -1056,6 +1110,8 @@ async function analizarFeedCrm() {
 
   status.classList.remove("error");
   status.textContent = "";
+  crmPreviewData = null;
+  actualizarSeleccionCrm();
   if (summary) summary.style.display = "none";
   if (tableWrap) tableWrap.style.display = "none";
 
@@ -1081,7 +1137,8 @@ async function analizarFeedCrm() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "No se pudo analizar el feed.");
 
-    status.textContent = "Análisis completado. Revisa el preview antes de importar en el siguiente paso.";
+    crmAnalyzedUrl = feedUrl;
+    status.textContent = "Análisis completado. Selecciona los inmuebles que quieras importar.";
     renderizarPreviewCrm(data);
   } catch (error) {
     status.classList.add("error");
@@ -1093,6 +1150,7 @@ async function analizarFeedCrm() {
 }
 
 window.analizarFeedCrm = analizarFeedCrm;
+window.importarSeleccionadosCrm = importarSeleccionadosCrm;
 
 document.getElementById("statPlan").textContent = planActualInfo.nombre;
 document.getElementById("tagPlan").textContent = "Plan " + planActualInfo.nombre;
