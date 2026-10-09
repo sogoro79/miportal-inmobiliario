@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import ipaddr from "ipaddr.js";
 
 export const DEFAULT_MAX_REDIRECTS = 3;
 export const DEFAULT_FEED_TIMEOUT_MS = 9000;
@@ -15,52 +16,17 @@ export class FeedSecurityError extends Error {
   }
 }
 
-function ipv4ToInt(ip) {
-  return ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
-}
-
-function ipv4InRange(ip, base, maskBits) {
-  const mask = maskBits === 0 ? 0 : (0xffffffff << (32 - maskBits)) >>> 0;
-  return (ipv4ToInt(ip) & mask) === (ipv4ToInt(base) & mask);
-}
-
-function normalizeIpv6(ip = "") {
-  return ip.toLowerCase();
-}
-
 function normalizeHostname(hostname = "") {
   return hostname.toLowerCase().replace(/^\[|\]$/g, "");
 }
 
 export function isPrivateOrReservedIp(ip) {
-  const version = net.isIP(ip);
-  if (!version) return true;
-
-  if (version === 4) {
-    return ipv4InRange(ip, "0.0.0.0", 8) ||
-      ipv4InRange(ip, "10.0.0.0", 8) ||
-      ipv4InRange(ip, "100.64.0.0", 10) ||
-      ipv4InRange(ip, "127.0.0.0", 8) ||
-      ipv4InRange(ip, "169.254.0.0", 16) ||
-      ipv4InRange(ip, "172.16.0.0", 12) ||
-      ipv4InRange(ip, "192.0.0.0", 24) ||
-      ipv4InRange(ip, "192.168.0.0", 16) ||
-      ipv4InRange(ip, "198.18.0.0", 15) ||
-      ipv4InRange(ip, "224.0.0.0", 4) ||
-      ipv4InRange(ip, "240.0.0.0", 4);
-  }
-
-  const value = normalizeIpv6(ip);
-  if (value.startsWith("::ffff:")) {
-    const mapped = value.slice("::ffff:".length);
-    if (net.isIP(mapped) === 4) return isPrivateOrReservedIp(mapped);
-    return true;
-  }
-
-  return value === "::1" ||
-    value.startsWith("fc") ||
-    value.startsWith("fd") ||
-    value.startsWith("fe80:");
+  if (!net.isIP(ip) || ip.includes("%")) return true;
+  let address = ipaddr.parse(ip);
+  if (address.kind() === "ipv6" && address.isIPv4MappedAddress()) address = address.toIPv4Address();
+  if (address.range() !== "unicast") return true;
+  // Only allocated global IPv6 unicast; transition and special ranges fail closed.
+  return address.kind() === "ipv6" && !address.match(ipaddr.parseCIDR("2000::/3"));
 }
 
 export function maskFeedUrl(rawUrl = "") {
@@ -68,6 +34,7 @@ export function maskFeedUrl(rawUrl = "") {
     const url = new URL(rawUrl);
     url.username = "";
     url.password = "";
+    url.hash = "";
     if (url.pathname && url.pathname !== "/") url.pathname = "/...";
     if (url.search) url.search = "?...";
     return url.toString();
@@ -108,7 +75,7 @@ export async function assertPublicFeedTarget(url, {
   lookup = dns.lookup
 } = {}) {
   const parsed = typeof url === "string" ? parseAndValidateFeedUrl(url) : url;
-  const records = await lookup(parsed.hostname, { all: true, verbatim: true });
+  const records = await lookup(normalizeHostname(parsed.hostname), { all: true, verbatim: true });
   const addresses = Array.isArray(records) ? records.map(record => record.address) : [records.address];
 
   if (!addresses.length || addresses.some(isPrivateOrReservedIp)) {

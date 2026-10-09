@@ -8,6 +8,7 @@ const UsuarioSchema = new mongoose.Schema({
   favoritos:  [{ type: mongoose.Schema.Types.ObjectId, ref: "Propiedad" }],
   verificado: { type: Boolean, default: false },
   activo:     { type: Boolean, default: true },
+  publicationVersion: { type: Number, default: 0, select: false },
   desactivadoAt: { type: Date },
   token:      { type: String },
   tipoDoc:    { type: String },

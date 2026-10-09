@@ -16,6 +16,7 @@ import { getPublicationAvailability } from "../utils/propertyCreation.js";
 import { getLimiteFotosPlan, planTieneLimiteFotos } from "../utils/planLimits.js";
 import { getPlanParaFotos } from "../utils/publishEligibility.js";
 import { z } from "../utils/validation.js";
+import { createImportBudget, MAX_BATCH_PROPERTIES } from "../utils/import/importBudget.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
@@ -23,7 +24,7 @@ const analyzeSchema = z.object({
 
 const importSchema = z.object({
   feedUrl: z.string().trim().url().max(2000),
-  selectedExternalIds: z.array(z.string().trim().min(1).max(200)).min(1).max(DEFAULT_MAX_PREVIEW_PROPERTIES)
+  selectedExternalIds: z.array(z.string().trim().min(1).max(200)).min(1).max(MAX_BATCH_PROPERTIES)
 }).strict();
 
 function finiteOrNull(value) {
@@ -71,15 +72,18 @@ export function createCrmImportRouter({
       return res.status(400).json({ error: "No se permite indicar propietario en la importación." });
     }
     const parsed = importSchema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: "Indica un feed válido y selecciona al menos un inmueble." });
+    if (!parsed.success) return res.status(400).json({ error: "Indica un feed válido y selecciona entre 1 y 5 inmuebles por lote." });
+    const budget = createImportBudget();
     try {
-      const fetched = await fetchFeedXml(parsed.data.feedUrl);
+      const fetched = await fetchFeedXml(parsed.data.feedUrl, { budget });
       const analyzed = analyzeFeedXml(fetched.xml, { maxProperties: DEFAULT_MAX_PREVIEW_PROPERTIES, maxPhotos: Infinity });
-      return res.json(await runImport({ usuarioId: req.user.id, ...parsed.data, analyzed }));
+      return res.json(await runImport({ usuarioId: req.user.id, ...parsed.data, analyzed, budget }));
     } catch (error) {
-      const response = error instanceof ImportError ? { status: error.status, error: error.message } : normalizarErrorFeed(error);
+      const response = error instanceof ImportError || error.code === "IMPORT_TIMEOUT" ? { status: error.status, error: error.message } : normalizarErrorFeed(error);
       console.warn("[CRM Import]", { feedUrl: maskFeedUrl(parsed.data.feedUrl), code: error instanceof ImportError ? "IMPORT_REJECTED" : error?.code || "IMPORT_FAILED", status: response.status });
       return res.status(response.status).json({ error: response.error });
+    } finally {
+      budget.dispose();
     }
   });
 

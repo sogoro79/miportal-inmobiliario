@@ -139,6 +139,13 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   const fotos = [...new Set(collectPhotos(item, [], maxPhotos))].slice(0, maxPhotos);
   const errors = [];
   const warnings = [];
+  const commercial = firstText(item, ["estadoComercial", "commercialStatus", "status", "availability", "available"]);
+  if (commercial && !/^(disponible|available|active|activo|true|1)$/i.test(commercial)) {
+    errors.push("El inmueble no está disponible o su estado comercial no se reconoce; no se publicará.");
+  }
+  if (/^(true|1|yes|si|sí)$/i.test(firstText(item, ["sold", "vendido", "rented", "alquilado", "reserved", "reservado"]))) {
+    errors.push("El inmueble está vendido, alquilado o reservado; no se publicará.");
+  }
 
   if (!externalId) warnings.push("No se encontró referencia externa estable.");
   if (!titulo) errors.push("Falta el título.");

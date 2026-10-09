@@ -883,6 +883,8 @@ test("POST /propiedades guarda localidad provincia y codigoPostal", async () => 
   const previousFindByIdUsuario = Usuario.findById;
   const previousCountDocuments = Propiedad.countDocuments;
   const previousCreate = Propiedad.create;
+  const previousStartSession = Usuario.startSession;
+  const previousUpdateUsuario = Usuario.updateOne;
   const previousAlertaFind = Alerta.find;
   const previousNotificacionCreate = Notificacion.create;
   let createdPayload = null;
@@ -894,12 +896,14 @@ test("POST /propiedades guarda localidad provincia y codigoPostal", async () => 
     planActivo: true
   });
   Propiedad.countDocuments = async () => 0;
+  Usuario.startSession = async () => ({ withTransaction: async action => action(), endSession: async () => {} });
+  Usuario.updateOne = async () => ({ matchedCount: 1 });
   Propiedad.create = async payload => {
-    createdPayload = payload;
-    return {
+    createdPayload = payload[0];
+    return [{
       _id: { toString: () => "507f1f77bcf86cd799439088" },
-      ...payload
-    };
+      ...payload[0]
+    }];
   };
   Alerta.find = async () => [];
   Notificacion.create = async () => ({});
@@ -936,6 +940,8 @@ test("POST /propiedades guarda localidad provincia y codigoPostal", async () => 
     Usuario.findById = previousFindByIdUsuario;
     Propiedad.countDocuments = previousCountDocuments;
     Propiedad.create = previousCreate;
+    Usuario.startSession = previousStartSession;
+    Usuario.updateOne = previousUpdateUsuario;
     Alerta.find = previousAlertaFind;
     Notificacion.create = previousNotificacionCreate;
   }

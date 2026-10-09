@@ -13,9 +13,12 @@ const tiposViviendaCompleta = new Set(["casa", "chalet", "adosado", "casa_campo"
 
 export async function getPublicationAvailability(usuario, {
   usuarioId = usuario?._id,
-  PropiedadModel = Propiedad
+  PropiedadModel = Propiedad,
+  session
 } = {}) {
-  const anunciosActuales = await PropiedadModel.countDocuments(filtroPropiedadesValidasVisibles(usuarioId));
+  let count = PropiedadModel.countDocuments(filtroPropiedadesValidasVisibles(usuarioId));
+  if (session && count.session) count = count.session(session);
+  const anunciosActuales = await count;
   return getEstadoPublicacionUsuario(usuario, anunciosActuales);
 }
 

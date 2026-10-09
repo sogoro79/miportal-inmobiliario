@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { propiedadCreateSchema, propiedadUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
 import express from "express";
+import { persistPublication } from "../utils/publicationPersistence.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import Propiedad from "../models/Propiedad.js";
@@ -40,10 +41,7 @@ import {
   getPlanParaLimites,
   usuarioTienePlanActivoParaPublicar
 } from "../utils/publishEligibility.js";
-import {
-  buildPropiedadCreateData,
-  getPublicationAvailability
-} from "../utils/propertyCreation.js";
+import { getPublicationAvailability } from "../utils/propertyCreation.js";
 import { filtroNoCaducado } from "../utils/freeListingExpiration.js";
 import { limitarFotosPublicasPorPlan } from "../utils/trialPlanLimits.js";
 import {
@@ -645,13 +643,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       }
     }
 
-    const propiedad = await Propiedad.create(
-      buildPropiedadCreateData(req.body, {
-        usuarioId,
-        plan,
-        imagenes: urlsSubidas
-      })
-    );
+    const propiedad = await persistPublication({ usuarioId, body: req.body, imagenes: urlsSubidas });
     debeLimpiarSubidas = false;
 
     if (usuario?.email) {
@@ -732,7 +724,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
     res.status(201).json(propiedad);
 
   } catch (err) {
-    if (debeLimpiarSubidas) {
+    if (debeLimpiarSubidas && !err.retainImages) {
       await limpiarImagenesSubidas(urlsSubidas);
     }
     logPublicacion("error_servidor", {
@@ -744,7 +736,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       name: err.name,
       message: err.message
     });
-    res.status(500).json({ message: "Error al crear propiedad" });
+    res.status(err.status || 500).json({ message: err.status ? err.message : "Error al crear propiedad" });
   }
 });
 

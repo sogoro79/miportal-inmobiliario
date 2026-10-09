@@ -51,16 +51,19 @@ export function defaultRequestOnce(url, {
   timeoutMs = DEFAULT_FEED_TIMEOUT_MS,
   maxBytes = DEFAULT_MAX_XML_BYTES,
   binary = false,
-  target
+  target,
+  signal
 } = {}) {
   return new Promise((resolve, reject) => {
     const client = url.protocol === "https:" ? https : http;
     let settled = false;
     let deadline;
+    let abort;
     const fail = error => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
+      if (abort) signal?.removeEventListener("abort", abort);
       reject(error instanceof FeedFetchError
         ? error
         : new FeedFetchError("No se pudo leer el feed XML.", "FEED_UNREACHABLE", { cause: error }));
@@ -68,6 +71,7 @@ export function defaultRequestOnce(url, {
     const req = client.request(url, {
       method: "GET",
       timeout: timeoutMs,
+      signal,
       lookup: target ? createPinnedLookup(target) : undefined,
       servername: url.hostname,
       headers: {
@@ -92,6 +96,7 @@ export function defaultRequestOnce(url, {
         if (settled) return;
         settled = true;
         clearTimeout(deadline);
+        if (abort) signal?.removeEventListener("abort", abort);
         resolve({
           statusCode: res.statusCode || 0,
           headers: res.headers || {},
@@ -112,6 +117,9 @@ export function defaultRequestOnce(url, {
     req.on("error", error => {
       fail(error);
     });
+    abort = () => req.destroy(signal.reason || new FeedFetchError("Tiempo máximo de importación alcanzado.", "FEED_TIMEOUT"));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) { abort(); return; }
     deadline = setTimeout(() => req.destroy(new FeedFetchError("Tiempo de espera agotado al leer el feed.", "FEED_TIMEOUT")), timeoutMs);
     req.end();
   });
@@ -123,20 +131,25 @@ export async function fetchPublicResource(rawUrl, {
   timeoutMs = DEFAULT_FEED_TIMEOUT_MS,
   maxBytes = DEFAULT_MAX_XML_BYTES,
   binary = false,
-  requestOnce = defaultRequestOnce
+  requestOnce = defaultRequestOnce,
+  budget,
+  signal = budget?.signal
 } = {}) {
   let currentUrl = parseAndValidateFeedUrl(rawUrl);
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    budget?.assertActive();
     let target;
     try {
-      target = await assertPublicFeedTarget(currentUrl, { lookup });
+      target = await (budget ? budget.run(() => assertPublicFeedTarget(currentUrl, { lookup })) : assertPublicFeedTarget(currentUrl, { lookup }));
     } catch (error) {
-      if (error instanceof FeedSecurityError) throw error;
+      if (error instanceof FeedSecurityError || error.code === "IMPORT_TIMEOUT") throw error;
       throw new FeedFetchError("No se pudo resolver el dominio del feed XML.", "DNS_LOOKUP_FAILED");
     }
 
-    const response = await requestOnce(currentUrl, { timeoutMs, maxBytes, target, binary });
+    budget?.assertActive();
+    const request = () => requestOnce(currentUrl, { timeoutMs: budget ? Math.min(timeoutMs, budget.remainingMs()) : timeoutMs, maxBytes, target, binary, signal });
+    const response = await (budget ? budget.run(request) : request());
     const status = Number(response.statusCode || 0);
 
     if ([301, 302, 303, 307, 308].includes(status)) {
