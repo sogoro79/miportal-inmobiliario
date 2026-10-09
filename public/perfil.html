@@ -354,6 +354,118 @@
       gap: 16px;
     }
 
+    .crm-import-card {
+      display: none;
+      background: #fff;
+      border: 1px solid #d8edc6;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 18px;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    .crm-import-card h3 {
+      margin: 0 0 6px;
+      color: #1a1a1a;
+      font-size: 1.1rem;
+    }
+
+    .crm-import-card p {
+      margin: 0 0 14px;
+      color: #666;
+      line-height: 1.45;
+      font-size: 0.9rem;
+    }
+
+    .crm-import-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .crm-import-form input {
+      width: 100%;
+      min-height: 44px;
+      padding: 11px 12px;
+      border: 1.5px solid #e5e5e0;
+      border-radius: 10px;
+      font: inherit;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    .crm-import-form input:focus { border-color: #7cc242; }
+
+    .crm-import-status {
+      margin-top: 10px;
+      color: #5a9e2f;
+      font-size: 0.9rem;
+      font-weight: 700;
+      min-height: 18px;
+    }
+
+    .crm-import-status.error { color: #dc2626; }
+
+    .crm-import-summary {
+      display: none;
+      margin-top: 14px;
+      background: #f9fdf5;
+      border: 1px solid #e5f0d8;
+      border-radius: 12px;
+      padding: 14px;
+      color: #365f21;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .crm-import-table-wrap {
+      display: none;
+      margin-top: 14px;
+      overflow-x: auto;
+      border: 1px solid #eee;
+      border-radius: 12px;
+    }
+
+    .crm-import-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 780px;
+      background: #fff;
+      font-size: 0.84rem;
+    }
+
+    .crm-import-table th,
+    .crm-import-table td {
+      padding: 10px;
+      border-bottom: 1px solid #f1f1ee;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .crm-import-table th {
+      background: #f7faf3;
+      color: #5a9e2f;
+      font-size: 0.72rem;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    .crm-import-table td {
+      color: #333;
+      overflow-wrap: anywhere;
+    }
+
+    .crm-import-muted { color: #999; }
+
+    .crm-import-disabled {
+      margin-top: 12px;
+      width: auto;
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
     .card-propiedad {
       background: #fff;
       border-radius: 12px;
@@ -533,6 +645,8 @@
       .lista-propiedades { grid-template-columns: 1fr; }
       .perfil-stats { grid-template-columns: 1fr; }
       .promo-code-form { grid-template-columns: 1fr; }
+      .crm-import-form { grid-template-columns: 1fr; }
+      .crm-import-card { padding: 18px 16px; }
       .plan-card { padding: 18px 16px; }
       .plan-card-top {
         align-items: stretch;
@@ -618,6 +732,34 @@
       <button class="btn-perfil green" onclick="canjearCodigoVipTrialPerfil()">Canjear código</button>
     </div>
     <div class="promo-code-status" id="estadoCodigoVipTrialPerfil"></div>
+  </div>
+
+  <div class="crm-import-card" id="crmImportCard">
+    <h3>Importar desde CRM</h3>
+    <p>Pega la URL de tu feed XML para analizar tus inmuebles antes de importarlos.</p>
+    <div class="crm-import-form">
+      <input type="url" id="crmFeedUrl" placeholder="https://tu-crm.com/feed.xml" autocomplete="off">
+      <button class="btn-perfil green" id="btnAnalyzeCrmFeed" onclick="analizarFeedCrm()">Analizar feed</button>
+    </div>
+    <div class="crm-import-status" id="crmImportStatus"></div>
+    <div class="crm-import-summary" id="crmImportSummary"></div>
+    <div class="crm-import-table-wrap" id="crmImportTableWrap">
+      <table class="crm-import-table">
+        <thead>
+          <tr>
+            <th>Referencia</th>
+            <th>Título</th>
+            <th>Operación</th>
+            <th>Precio</th>
+            <th>Localidad</th>
+            <th>Fotos</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="crmImportPreview"></tbody>
+      </table>
+    </div>
+    <button class="btn-perfil outline crm-import-disabled" type="button" disabled>Importación disponible en el siguiente paso</button>
   </div>
 
   <!-- MIS PROPIEDADES -->
@@ -837,6 +979,119 @@ function actualizarVisibilidadCodigoPromocional(usuario) {
   card.style.display = tienePromocionProfesionalActiva(usuario) ? "none" : "";
 }
 
+function escaparHtml(valor = "") {
+  return String(valor).replace(/[&<>"']/g, caracter => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;"
+  })[caracter]);
+}
+
+function esUsuarioProfesional(usuario) {
+  return ["inmobiliaria", "agente_autonomo", "otro_profesional_inmobiliario"].includes(usuario?.tipoProfesional);
+}
+
+function inicializarImportadorCrm(usuario) {
+  const card = document.getElementById("crmImportCard");
+  if (!card) return;
+  card.style.display = esUsuarioProfesional(usuario) ? "block" : "none";
+}
+
+function formatearPrecioCrm(precio, tipoOperacion = "") {
+  const numero = Number(precio);
+  if (!Number.isFinite(numero)) return "—";
+  return `${numero.toLocaleString("es-ES")} €${tipoOperacion === "alquiler" ? "/mes" : ""}`;
+}
+
+function textoImportacionCupo(data) {
+  const limite = data.limiteAnuncios === null ? "sin límite" : `${data.limiteAnuncios} anuncios`;
+  const cupo = data.cupoDisponible === null ? "sin límite" : `${data.cupoDisponible} inmueble${data.cupoDisponible === 1 ? "" : "s"}`;
+  return `
+    <strong>${data.total} inmueble${data.total === 1 ? "" : "s"} encontrado${data.total === 1 ? "" : "s"}</strong><br>
+    Tu plan permite ${limite}. Actualmente tienes ${data.anunciosActuales} publicado${data.anunciosActuales === 1 ? "" : "s"}.
+    Podrás importar hasta ${cupo} en el siguiente paso.
+  `;
+}
+
+function renderizarPreviewCrm(data) {
+  const summary = document.getElementById("crmImportSummary");
+  const tableWrap = document.getElementById("crmImportTableWrap");
+  const tbody = document.getElementById("crmImportPreview");
+  if (!summary || !tableWrap || !tbody) return;
+
+  summary.innerHTML = textoImportacionCupo(data);
+  summary.style.display = "block";
+
+  tbody.innerHTML = (data.properties || []).map(propiedad => {
+    const estado = [
+      ...(propiedad.errors || []),
+      ...(propiedad.warnings || [])
+    ].join(" · ") || "Listo para revisar";
+    return `
+      <tr>
+        <td>${escaparHtml(propiedad.externalId || "—")}</td>
+        <td>${escaparHtml(propiedad.titulo || "Sin título")}</td>
+        <td>${escaparHtml(propiedad.tipoOperacion || "—")}</td>
+        <td>${escaparHtml(formatearPrecioCrm(propiedad.precio, propiedad.tipoOperacion))}</td>
+        <td>${escaparHtml(propiedad.localidad || "—")}</td>
+        <td>${propiedad.fotosDisponibles || 0} disponibles / ${propiedad.fotosImportables || 0} importables</td>
+        <td class="${propiedad.errors?.length ? "crm-import-muted" : ""}">${escaparHtml(estado)}</td>
+      </tr>
+    `;
+  }).join("");
+  tableWrap.style.display = data.properties?.length ? "block" : "none";
+}
+
+async function analizarFeedCrm() {
+  const input = document.getElementById("crmFeedUrl");
+  const status = document.getElementById("crmImportStatus");
+  const button = document.getElementById("btnAnalyzeCrmFeed");
+  const summary = document.getElementById("crmImportSummary");
+  const tableWrap = document.getElementById("crmImportTableWrap");
+  if (!input || !status || !button) return;
+
+  status.classList.remove("error");
+  status.textContent = "";
+  if (summary) summary.style.display = "none";
+  if (tableWrap) tableWrap.style.display = "none";
+
+  const feedUrl = input.value.trim();
+  if (!feedUrl) {
+    status.classList.add("error");
+    status.textContent = "Introduce la URL del feed XML.";
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Analizando...";
+
+  try {
+    const res = await fetch("/api/crm-import/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
+      body: JSON.stringify({ feedUrl })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "No se pudo analizar el feed.");
+
+    status.textContent = "Análisis completado. Revisa el preview antes de importar en el siguiente paso.";
+    renderizarPreviewCrm(data);
+  } catch (error) {
+    status.classList.add("error");
+    status.textContent = error.message || "No se pudo analizar el feed.";
+  } finally {
+    button.disabled = false;
+    button.textContent = "Analizar feed";
+  }
+}
+
+window.analizarFeedCrm = analizarFeedCrm;
+
 document.getElementById("statPlan").textContent = planActualInfo.nombre;
 document.getElementById("tagPlan").textContent = "Plan " + planActualInfo.nombre;
 actualizarVisibilidadCodigoPromocional(usuario);
@@ -860,6 +1115,7 @@ if (tieneSuscripcionStripe) {
 }
 
 const planInfo = planActualInfo;
+inicializarImportadorCrm(usuario);
 document.getElementById("planNombre").textContent = planInfo.nombre;
 const fechaFin = usuario.plan !== 'gratis' && usuario.planFechaFin ? new Date(usuario.planFechaFin) : null;
 const fechaTexto = fechaFin

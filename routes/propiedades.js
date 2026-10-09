@@ -24,7 +24,6 @@ import {
 } from "../utils/cloudinaryService.js";
 import { createCloudinaryStreamStorage } from "../utils/cloudinaryStorage.js";
 import {
-  calcularFechaExpiracionPlan,
   getLimiteFotosPlan,
   planTieneLimiteFotos
 } from "../utils/planLimits.js";
@@ -36,11 +35,14 @@ import {
 } from "../utils/propertyAvailability.js";
 import {
   filtroPropiedadesValidasVisibles,
-  getEstadoPublicacionUsuario,
   getPlanParaFotos,
   getPlanParaLimites,
   usuarioTienePlanActivoParaPublicar
 } from "../utils/publishEligibility.js";
+import {
+  buildPropiedadCreateData,
+  getPublicationAvailability
+} from "../utils/propertyCreation.js";
 import { filtroNoCaducado } from "../utils/freeListingExpiration.js";
 import { limitarFotosPublicasPorPlan } from "../utils/trialPlanLimits.js";
 import {
@@ -660,20 +662,6 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
     const bodyValido = await validateBodyOrCleanup(propiedadCreateSchema, req, res, urlsSubidas, "POST /propiedades");
     if (!bodyValido) return;
 
-    const {
-      titulo,
-      direccion,
-      localidad,
-      provincia,
-      codigoPostal,
-      precio,
-      descripcion,
-      tipoOperacion,
-      habitaciones,
-      lat,
-      lng,
-      videoUrl
-    } = req.body;
     const usuarioId = req.user.id;
 
     let usuario = null;
@@ -712,13 +700,12 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
           error: `Tu plan permite un máximo de ${maxFotos} fotos por anuncio.`
         });
       }
-      const totalAnuncios = await Propiedad.countDocuments(filtroPropiedadesValidasVisibles(usuarioId));
-      const estadoPublicacion = getEstadoPublicacionUsuario(usuario, totalAnuncios);
+      const estadoPublicacion = await getPublicationAvailability(usuario, { usuarioId });
       if (!estadoPublicacion.puedePublicarAhora) {
         logPublicacion("limite_anuncios", {
           userId: usuarioId,
           plan,
-          totalAnuncios,
+          totalAnuncios: estadoPublicacion.anunciosActuales,
           limite: estadoPublicacion.limiteAnuncios
         });
         await limpiarImagenesSubidas(urlsSubidas);
@@ -728,64 +715,13 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       }
     }
 
-    const imagenes = urlsSubidas;
-
-    const {
-      banos,
-      superficie,
-      tipoInmueble,
-      estado,
-      certificadoEnergetico,
-      estadoPropiedad,
-      estadoComercial,
-      plantaLocal,
-      numeroPlantas,
-      sotano,
-      garaje,
-      piscina,
-      terraza
-    } = req.body;
-
-    // Calcular expiración
-    let fechaExpiracion = null;
-    if (plan === "gratis") {
-      fechaExpiracion = calcularFechaExpiracionPlan(plan);
-    }
-
-    const propiedad = await Propiedad.create({
-      titulo,
-      referencia:    req.body.referencia || "",
-      direccion,
-      localidad:     localidad || "",
-      provincia:     provincia || "",
-      codigoPostal:  codigoPostal || "",
-      precio:        Number(precio),
-      descripcion,
-
-      videoUrl: videoUrl || "",
-
-      tipoOperacion,
-      habitaciones:  Number(habitaciones),
-      banos:         Number(banos) || 1,
-      superficie:    superficie ? Number(superficie) : null,
-      superficieParcela:  req.body.superficieParcela ? Number(req.body.superficieParcela) : null,
-      tipoInmueble:  tipoInmueble || "piso",
-      estado:        estado || "segunda_mano",
-      certificadoEnergetico: certificadoEnergetico || "",
-      estadoPropiedad: estadoPropiedad || "",
-      estadoComercial: estadoComercial || "Disponible",
-      plantaLocal: tiposConPlanta.has(tipoInmueble || "piso") ? (plantaLocal || "") : "",
-      numeroPlantas: tiposViviendaCompleta.has(tipoInmueble || "piso") ? (numeroPlantas || "") : "",
-      sotano: tiposViviendaCompleta.has(tipoInmueble || "piso") ? (sotano || "") : "",
-      garaje:        garaje === "true",
-      piscina:       piscina === "true",
-      terraza:       terraza === "true",
-      usuarioId:     usuarioId || null,
-      lat:           lat ? Number(lat) : null,
-      lng:           lng ? Number(lng) : null,
-      imagenes,
-      fechaExpiracion
-    });
+    const propiedad = await Propiedad.create(
+      buildPropiedadCreateData(req.body, {
+        usuarioId,
+        plan,
+        imagenes: urlsSubidas
+      })
+    );
     debeLimpiarSubidas = false;
 
     if (usuario?.email) {
@@ -825,7 +761,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       userId: usuarioId,
       propiedadId: propiedad._id.toString(),
       plan,
-      fotos: imagenes.length
+      fotos: urlsSubidas.length
     });
 
     const alertasCoincidentes = await Alerta.find({

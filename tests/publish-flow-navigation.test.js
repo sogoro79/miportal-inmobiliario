@@ -16,6 +16,7 @@ const perfilHtml = fs.readFileSync(new URL("../public/perfil.html", import.meta.
 const publicarHtml = fs.readFileSync(new URL("../public/publicar.html", import.meta.url), "utf8");
 const usuariosRoutes = fs.readFileSync(new URL("../routes/usuarios.js", import.meta.url), "utf8");
 const propiedadesRoutes = fs.readFileSync(new URL("../routes/propiedades.js", import.meta.url), "utf8");
+const propertyCreationJs = fs.readFileSync(new URL("../utils/propertyCreation.js", import.meta.url), "utf8");
 
 test("estado de publicación deriva límites desde catálogo central", () => {
   const gratis0 = getEstadoPublicacionUsuario({ plan: "gratis" }, 0);
@@ -87,7 +88,9 @@ test("Mis anuncios del propietario no excluye anuncios ocultados por límites", 
 
 test("backend de publicar conserva comprobación segura de límites", () => {
   assert.match(propiedadesRoutes, /usuarioTienePlanActivoParaPublicar\(usuario\)/);
-  assert.match(propiedadesRoutes, /getEstadoPublicacionUsuario\(usuario, totalAnuncios\)/);
+  assert.match(propiedadesRoutes, /getPublicationAvailability\(usuario, \{ usuarioId \}\)/);
+  assert.match(propertyCreationJs, /getEstadoPublicacionUsuario\(usuario, anunciosActuales\)/);
+  assert.match(propertyCreationJs, /PropiedadModel\.countDocuments\(filtroPropiedadesValidasVisibles\(usuarioId\)\)/);
   assert.match(propiedadesRoutes, /!estadoPublicacion\.puedePublicarAhora/);
   assert.match(propiedadesRoutes, /Has alcanzado el límite de anuncios/);
 });

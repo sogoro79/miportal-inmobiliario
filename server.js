@@ -41,6 +41,7 @@ import adminRoutes from "./routes/admin.js";
 import planesRoutes from "./routes/planes.js";
 import professionalPromotionRoutes from "./routes/professionalPromotion.js";
 import launchPlanRoutes from "./routes/launchPlan.js";
+import crmImportRoutes from "./routes/crmImport.js";
 
 // =============================
 // FIX __dirname (ES MODULES)
@@ -493,6 +494,7 @@ app.use("/notificaciones", notificacionesRoutes);
 app.use("/api/planes", planesRoutes);
 app.use("/api/promocion-profesional", professionalPromotionRoutes);
 app.use("/api/plan-lanzamiento", launchPlanRoutes);
+app.use("/api/crm-import", crmImportRoutes);
 app.use("/pagos", pagosRoutes);
 app.use("/admin", adminRoutes);
 

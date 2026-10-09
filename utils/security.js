@@ -76,6 +76,7 @@ export const securityRateLimits = {
   alertCreate: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 20, keyPrefix: "alert-create" }),
   chatMessage: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: "chat-message" }),
   propertyUpload: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 20, keyPrefix: "property-upload" }),
+  crmImportAnalyze: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 10, keyPrefix: "crm-import-analyze" }),
   professionalPromotionActivation: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 6, keyPrefix: "professional-promo-activation" }),
   adminSensitive: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 60, keyPrefix: "admin-sensitive" })
 };
