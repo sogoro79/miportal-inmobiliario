@@ -256,6 +256,21 @@ test("perfil.html fallback representa vip, vip_trial y plan desconocido correcta
   assert.match(perfilHtml, /limitePlanTexto\(valor, ilimitado\)[\s\S]*return ilimitado \? "∞" : valor/);
 });
 
+test("perfil muestra importador CRM a profesionales y planes VIP sin cambiar límites", () => {
+  const perfilHtml = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
+  const crmImportRoutes = fs.readFileSync(new URL("../routes/crmImport.js", import.meta.url), "utf8");
+
+  assert.match(perfilHtml, /function esUsuarioProfesional\(usuario\)/);
+  assert.match(perfilHtml, /const tiposProfesionales = \["inmobiliaria", "agente_autonomo", "otro_profesional_inmobiliario"\]/);
+  assert.match(perfilHtml, /const planesInternosConCrm = \["vip", "vip_trial"\]/);
+  assert.match(perfilHtml, /tiposProfesionales\.includes\(usuario\?\.tipoProfesional\) \|\| planesInternosConCrm\.includes\(usuario\?\.plan\)/);
+  assert.match(perfilHtml, /card\.style\.display = esUsuarioProfesional\(usuario\) \? "block" : "none"/);
+  assert.match(perfilHtml, /\/api\/crm-import\/analyze/);
+  assert.match(crmImportRoutes, /getPublicationAvailability/);
+  assert.match(crmImportRoutes, /getLimiteFotosPlan/);
+  assert.match(crmImportRoutes, /planTieneLimiteFotos/);
+});
+
 test("perfil oculta códigos promocionales solo durante promoción profesional activa", () => {
   const perfilHtml = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
 

@@ -990,7 +990,9 @@ function escaparHtml(valor = "") {
 }
 
 function esUsuarioProfesional(usuario) {
-  return ["inmobiliaria", "agente_autonomo", "otro_profesional_inmobiliario"].includes(usuario?.tipoProfesional);
+  const tiposProfesionales = ["inmobiliaria", "agente_autonomo", "otro_profesional_inmobiliario"];
+  const planesInternosConCrm = ["vip", "vip_trial"];
+  return tiposProfesionales.includes(usuario?.tipoProfesional) || planesInternosConCrm.includes(usuario?.plan);
 }
 
 function inicializarImportadorCrm(usuario) {
