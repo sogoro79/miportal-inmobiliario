@@ -11,17 +11,23 @@ import {
 } from "./feedSecurity.js";
 
 export class FeedFetchError extends Error {
-  constructor(message, code = "FEED_FETCH_ERROR") {
-    super(message);
+  constructor(message, code = "FEED_FETCH_ERROR", options = {}) {
+    super(message, options);
     this.name = "FeedFetchError";
     this.code = code;
+    const safeCodes = ["ERR_INVALID_IP_ADDRESS", "ECONNREFUSED", "ETIMEDOUT", "ENETUNREACH", "EHOSTUNREACH", "ECONNRESET", "EAI_AGAIN", "ENOTFOUND", "ERR_TLS_CERT_ALTNAME_INVALID", "CERT_HAS_EXPIRED", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "DEPTH_ZERO_SELF_SIGNED_CERT"];
+    if (safeCodes.includes(options.cause?.code)) this.internalCode = options.cause.code;
   }
 }
 
-function createPinnedLookup(target) {
+export function createPinnedLookup(target) {
   return (hostname, options, callback) => {
     const done = typeof options === "function" ? options : callback;
-    done(null, target.address, target.family);
+    if (options?.all) {
+      done(null, [{ address: target.address, family: target.family }]);
+    } else {
+      done(null, target.address, target.family);
+    }
   };
 }
 
@@ -54,7 +60,7 @@ export function defaultRequestOnce(url, {
       settled = true;
       reject(error instanceof FeedFetchError
         ? error
-        : new FeedFetchError("No se pudo leer el feed XML.", "FEED_UNREACHABLE"));
+        : new FeedFetchError("No se pudo leer el feed XML.", "FEED_UNREACHABLE", { cause: error }));
     };
     const req = client.request(url, {
       method: "GET",

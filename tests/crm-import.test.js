@@ -8,7 +8,7 @@ import { PassThrough, Readable, Writable } from "node:stream";
 import { v2 as cloudinary } from "cloudinary";
 import Usuario from "../models/Usuario.js";
 import { createCrmImportRouter } from "../routes/crmImport.js";
-import { FeedFetchError, defaultRequestOnce, fetchFeedXml } from "../utils/import/feedFetcher.js";
+import { FeedFetchError, createPinnedLookup, defaultRequestOnce, fetchFeedXml } from "../utils/import/feedFetcher.js";
 import {
   DEFAULT_MAX_XML_BYTES,
   FeedSecurityError
@@ -17,6 +17,68 @@ import { buildPropiedadCreateData } from "../utils/propertyCreation.js";
 import { createUserSecurityRateLimit } from "../utils/security.js";
 
 process.env.JWT_SECRET = "test-secret";
+
+test("lookup fijado respeta contratos all y simple para IPv4 e IPv6", () => {
+  for (const target of [{ address: "93.184.216.34", family: 4 }, { address: "2606:4700:4700::1111", family: 6 }]) {
+    const lookup = createPinnedLookup(target);
+    lookup("public.example", { all: true }, (error, records) => {
+      assert.equal(error, null);
+      assert.deepEqual(records, [target]);
+    });
+    lookup("public.example", { all: false }, (error, address, family) => {
+      assert.equal(error, null);
+      assert.equal(address, target.address);
+      assert.equal(family, target.family);
+    });
+    lookup("public.example", (error, address, family) => {
+      assert.equal(error, null);
+      assert.equal(address, target.address);
+      assert.equal(family, target.family);
+    });
+  }
+});
+
+test("transporte real de Node conecta a IP fijada conservando Host", async () => {
+  // Loopback solo en la prueba del transporte; fetchFeedXml sigue rechazándolo.
+  const server = http.createServer((req, res) => {
+    assert.equal(req.headers.host, `unresolvable.example:${server.address().port}`);
+    res.writeHead(200, { "content-type": "application/xml" });
+    res.end("<properties/>");
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const response = await defaultRequestOnce(new URL(`http://unresolvable.example:${server.address().port}/feed.xml`), {
+      target: { address: "127.0.0.1", family: 4 }
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body, "<properties/>");
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test("FEED_UNREACHABLE conserva cause y solo permite codigos internos seguros", async () => {
+  const originalRequest = http.request;
+  try {
+    for (const code of ["ERR_INVALID_IP_ADDRESS", "ECONNREFUSED", "ETIMEDOUT", "ENETUNREACH", "secret-token"] ) {
+      const originalError = Object.assign(new Error("mensaje sensible"), { code });
+      http.request = () => {
+        const req = new EventEmitter();
+        req.end = () => setImmediate(() => req.emit("error", originalError));
+        return req;
+      };
+      await assert.rejects(() => defaultRequestOnce(new URL("http://public.example/feed.xml")), error => {
+        assert.equal(error.code, "FEED_UNREACHABLE");
+        assert.equal(error.cause, originalError);
+        assert.equal(error.internalCode, code === "secret-token" ? undefined : code);
+        assert.equal(error.message, "No se pudo leer el feed XML.");
+        return true;
+      });
+    }
+  } finally {
+    http.request = originalRequest;
+  }
+});
 
 const USER_ID = "507f1f77bcf86cd799439099";
 const OTHER_ID = "507f1f77bcf86cd799439088";

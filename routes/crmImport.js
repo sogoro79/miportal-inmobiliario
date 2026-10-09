@@ -124,6 +124,7 @@ export function createCrmImportRouter({
         userId: usuarioId,
         feedUrl: safeUrl,
         code: error?.code || error?.name || "ERROR",
+        ...(error instanceof FeedFetchError && error.internalCode ? { internalCode: error.internalCode } : {}),
         status: response.status
       });
       return res.status(response.status).json({ error: response.error });
