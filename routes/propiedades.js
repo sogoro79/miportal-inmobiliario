@@ -2,6 +2,8 @@ import "dotenv/config";
 import { propiedadCreateSchema, propiedadUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
 import express from "express";
 import { persistPublication } from "../utils/publicationPersistence.js";
+import mongoose from "mongoose";
+import { recordManualPublicationUncertainty } from "../utils/manualPublicationReconciliation.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import Propiedad from "../models/Propiedad.js";
@@ -585,6 +587,7 @@ router.get("/:id", async (req, res) => {
 // ==================================================
 router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes, async (req, res) => {
   const urlsSubidas = getUploadedImageUrls(req.files);
+  const propertyId = new mongoose.Types.ObjectId();
   let debeLimpiarSubidas = true;
   try {
     const bodyValido = await validateBodyOrCleanup(propiedadCreateSchema, req, res, urlsSubidas, "POST /propiedades");
@@ -643,7 +646,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       }
     }
 
-    const propiedad = await persistPublication({ usuarioId, body: req.body, imagenes: urlsSubidas });
+    const propiedad = await persistPublication({ usuarioId, propertyId, body: req.body, imagenes: urlsSubidas });
     debeLimpiarSubidas = false;
 
     if (usuario?.email) {
@@ -724,6 +727,10 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
     res.status(201).json(propiedad);
 
   } catch (err) {
+    if (debeLimpiarSubidas && err.retainImages) {
+      await recordManualPublicationUncertainty({ usuarioId: req.user.id, propertyId, files: req.files || [], error: err });
+      return res.status(503).json({ error: "No se pudo confirmar la publicación. Contacta con soporte antes de volver a intentarlo." });
+    }
     if (debeLimpiarSubidas && !err.retainImages) {
       await limpiarImagenesSubidas(urlsSubidas);
     }

@@ -8,6 +8,8 @@ import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
 import Alerta from "../models/Alerta.js";
 import Notificacion from "../models/Notificacion.js";
+import ImportReconciliation from "../models/ImportReconciliation.js";
+import { recordManualPublicationUncertainty } from "../utils/manualPublicationReconciliation.js";
 import { getSeoZoneContext } from "../utils/seoZones.js";
 
 process.env.NODE_ENV = "production";
@@ -945,6 +947,116 @@ test("POST /propiedades guarda localidad provincia y codigoPostal", async () => 
     Alerta.find = previousAlertaFind;
     Notificacion.create = previousNotificacionCreate;
   }
+});
+
+for (const mode of ["failed", "stored", "unknown", "reconciliation_failed", "normal"]) {
+  test(`POST /propiedades reconciliación manual: ${mode}`, async () => {
+    const replacements = [];
+    const replace = (object, key, value) => { replacements.push([object, key, object[key]]); object[key] = value; };
+    const destroyed = [];
+    const restoreCloudinary = mockCloudinaryUpload({ destroyed, uploadedPrefix: `manual-${mode}` });
+    const records = [];
+    const logs = [];
+    let attempted;
+    replace(Usuario, "findById", async () => ({ _id: "507f1f77bcf86cd799439099", plan: "gratis", planActivo: true, activo: true }));
+    replace(Usuario, "startSession", async () => ({ withTransaction: async action => action(), endSession: async () => {} }));
+    replace(Usuario, "updateOne", async () => ({ matchedCount: 1 }));
+    replace(Propiedad, "countDocuments", async () => 0);
+    replace(Propiedad, "create", async documents => {
+      attempted = documents[0];
+      if (mode !== "normal") throw new Error("sensitive MongoDB credentials");
+      return documents;
+    });
+    replace(Propiedad, "findById", async id => {
+      assert.equal(String(id), String(attempted._id));
+      if (["unknown", "reconciliation_failed"].includes(mode)) throw new Error("sensitive connection details");
+      return mode === "stored" ? attempted : null;
+    });
+    replace(ImportReconciliation, "init", async () => {});
+    replace(ImportReconciliation, "updateOne", async (filter, update, options) => {
+      if (mode === "reconciliation_failed") throw new Error("secret reconciliation failure");
+      assert.equal(options.upsert, true);
+      assert.equal(String(filter.propiedadId), String(attempted._id));
+      records.push(update.$setOnInsert);
+    });
+    replace(Alerta, "find", async () => []);
+    replace(Notificacion, "create", async () => ({}));
+    replace(console, "warn", (...args) => logs.push(args));
+    replace(console, "error", (...args) => logs.push(args));
+    const multipart = createMultipartBody({ fields: {
+      titulo: "Prueba manual", direccion: "Chipiona", precio: "100000", tipoOperacion: "venta", habitaciones: "2"
+    }, files: [{ field: "imagenes", filename: "foto.jpg", contentType: "image/jpeg", content: "fake image" }] });
+    try {
+      const response = await request("/propiedades", { method: "POST", headers: {
+        ...authHeaderFor(), "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": `203.0.113.${180 + ["failed", "stored", "unknown", "reconciliation_failed", "normal"].indexOf(mode)}`
+      }, rawBody: multipart.body });
+      assert.ok(attempted._id);
+      assert.equal(restoreCloudinary.getUploadCount(), 1);
+      if (mode === "failed") {
+        assert.equal(response.status, 500); assert.equal(destroyed.length, 1); assert.equal(records.length, 0);
+      } else if (["stored", "normal"].includes(mode)) {
+        assert.equal(response.status, 201); assert.equal(destroyed.length, 0); assert.equal(records.length, 0);
+        assert.equal(JSON.parse(response.text)._id, String(attempted._id));
+      } else {
+        assert.equal(response.status, 503); assert.equal(destroyed.length, 0);
+        assert.match(JSON.parse(response.text).error, /No se pudo confirmar la publicación/);
+        assert.doesNotMatch(response.text, /sensitive|secret|MongoDB|reconciliación|_id/);
+        assert.doesNotMatch(JSON.stringify(logs), /sensitive|secret|credentials|connection details/);
+        if (mode === "unknown") {
+          assert.equal(records.length, 1);
+          assert.equal(records[0].usuarioId, "507f1f77bcf86cd799439099");
+          assert.equal(String(records[0].propiedadId), String(attempted._id));
+          assert.equal(records[0].source, "manual"); assert.equal(records[0].state, "unknown");
+          assert.equal(records[0].externalId, String(attempted._id));
+          assert.deepEqual(records[0].publicIds, ["miportal_inmobiliario/manual-unknown-1"]);
+          assert.equal(records[0].reasonCode, "PERSISTENCE_UNCONFIRMED");
+          assert.ok(records[0].createdAt instanceof Date);
+          assert.doesNotMatch(JSON.stringify(records), /https:|sensitive|secret/);
+        } else {
+          assert.equal(records.length, 0);
+          assert.ok(JSON.stringify(logs).includes("RECONCILIATION_RECORD_FAILED"));
+        }
+      }
+    } finally {
+      for (const [object, key, original] of replacements.reverse()) object[key] = original;
+      restoreCloudinary();
+    }
+  });
+}
+
+test("reconciliación manual admite varias publicaciones sin cambiar índices CRM", () => {
+  const user = "507f1f77bcf86cd799439099";
+  const records = ["507f1f77bcf86cd799439088", "507f1f77bcf86cd799439077"].map(id => new ImportReconciliation({
+    usuarioId: user, propiedadId: id, source: "manual", externalId: id, publicIds: [], state: "unknown"
+  }));
+  for (const record of records) assert.equal(record.validateSync(), undefined);
+  assert.notEqual(records[0].externalId, records[1].externalId);
+  const crm = new ImportReconciliation({ usuarioId: user, propiedadId: records[0].propiedadId, externalId: "CRM-1" });
+  assert.equal(crm.source, "crm"); assert.ok(crm.validateSync().errors.importSourceId);
+  assert.deepEqual(ImportReconciliation.schema.indexes().find(([fields]) => fields.externalId)[0], { usuarioId: 1, importSourceId: 1, externalId: 1 });
+});
+
+test("reconciliación manual guarda solo identificadores y códigos seguros de forma idempotente", async () => {
+  const records = new Map(); const logs = [];
+  const input = {
+    usuarioId: "507f1f77bcf86cd799439099", propertyId: "507f1f77bcf86cd799439088",
+    files: [{ public_id: "miportal_inmobiliario/test-manual", path: "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/test-manual.jpg?signature=secret#private" }],
+    error: { cause: { message: "sensitive credentials", hasErrorLabel: label => label === "UnknownTransactionCommitResult" } }
+  };
+  const dependencies = {
+    ReconciliationModel: { init: async () => {}, updateOne: async (filter, update, options) => {
+      assert.equal(options.upsert, true);
+      if (!records.has(String(filter.propiedadId))) records.set(String(filter.propiedadId), update.$setOnInsert);
+    } }, logger: { warn: (...args) => logs.push(args), error: (...args) => logs.push(args) }
+  };
+  assert.equal(await recordManualPublicationUncertainty(input, dependencies), true);
+  assert.equal(await recordManualPublicationUncertainty(input, dependencies), true);
+  assert.equal(records.size, 1);
+  const record = [...records.values()][0];
+  assert.deepEqual(record.publicIds, ["miportal_inmobiliario/test-manual"]);
+  assert.equal(record.reasonCode, "UNKNOWN_TRANSACTION_COMMIT_RESULT");
+  assert.doesNotMatch(JSON.stringify([record, logs]), /https:|signature|secret|private|sensitive|credentials/);
 });
 
 test("PUT /propiedades/:id comprueba ownership antes de subir archivos", async () => {
