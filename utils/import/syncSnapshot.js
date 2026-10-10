@@ -32,6 +32,10 @@ const aliases = {
   garaje: ["garaje", "garage"], piscina: ["piscina", "pool"], terraza: ["terraza", "terrace"]
 };
 
+const propertyTypes = new Map(Object.entries({ apartment: "apartamento", flat: "piso", house: "casa", country_house: "casa_campo", casa_de_campo: "casa_campo" }));
+const conditions = new Map(Object.entries({ obra_nueva: "obra_nueva", new: "obra_nueva", segunda_mano: "segunda_mano", used: "segunda_mano", resale: "segunda_mano" }));
+const commercialStatuses = new Map(Object.entries({ available: "Disponible", active: "Disponible", disponible: "Disponible", reserved: "Reservado", reservado: "Reservado", sold: "Vendido", vendido: "Vendido", rented: "Alquilado", alquilado: "Alquilado" }));
+
 export function normalizedKey(value) {
   return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
@@ -97,16 +101,16 @@ export function normalizeSyncProperty(node) {
           if (!value) throw new Error("UNKNOWN_OPERATION");
         } else if (field === "tipoInmueble") {
           const key = normalizedKey(value);
-          value = ({ apartment: "apartamento", flat: "piso", house: "casa", country_house: "casa_campo", casa_de_campo: "casa_campo" })[key] || key;
+          value = propertyTypes.get(key) || key;
           if (!tipoInmuebleSchema.options.includes(value)) throw new Error("UNKNOWN_PROPERTY_TYPE");
         } else if (field === "estado") {
-          value = ({ obra_nueva: "obra_nueva", new: "obra_nueva", segunda_mano: "segunda_mano", used: "segunda_mano", resale: "segunda_mano" })[normalizedKey(value)];
-          if (!value) throw new Error("UNKNOWN_CONDITION");
+          value = conditions.get(normalizedKey(value));
+          if (!["obra_nueva", "segunda_mano"].includes(value)) throw new Error("UNKNOWN_CONDITION");
         } else if (field === "estadoComercial") {
           const status = normalizedKey(value);
-          const mapped = ({ available: "Disponible", active: "Disponible", disponible: "Disponible", reserved: "Reservado", reservado: "Reservado", sold: "Vendido", vendido: "Vendido", rented: "Alquilado", alquilado: "Alquilado" })[status];
+          const mapped = commercialStatuses.get(status);
           if (["withdrawn", "inactive", "deleted"].includes(status)) { data.crmWithdrawal = true; continue; }
-          if (!mapped) throw new Error("UNKNOWN_COMMERCIAL_STATUS");
+          if (!["Disponible", "Reservado", "Vendido", "Alquilado"].includes(mapped)) throw new Error("UNKNOWN_COMMERCIAL_STATUS");
           value = mapped;
         } else {
           value = String(value);

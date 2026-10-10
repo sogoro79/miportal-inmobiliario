@@ -120,14 +120,43 @@ export function parseGenericPropertyNodes(xml, limit) {
   const parsed = parser.parse(xml);
   const nodes = [];
   const warnings = new Set();
-  function visit(node, explicitRecord = false, depth = 0) {
+  const recordTag = /^(property|inmueble|listing|ad|item|estate)$/i;
+  const containerTag = /^(feed|root|data|catalog|catalogue|properties|inmuebles|listings|ads|items|estates|realestate)$/i;
+  const metadataTag = /^(id|title|name|description|version|updated|generated|next|nextPage|next_page|hasMore|has_more|total|totalCount|total_count|xmlns(?::.*)?|#text|\?xml)$/i;
+  function inspectRecordChildren(node, depth) {
     if (nodes.length >= limit) return;
     if (depth > 64) { warnings.add("SNAPSHOT_STRUCTURE_LIMIT"); return; }
     if (Array.isArray(node)) {
-      for (const item of node) visit(item, explicitRecord, depth + 1);
+      for (const item of node) inspectRecordChildren(item, depth + 1);
+    } else if (node && typeof node === "object") {
+      for (const [key, value] of Object.entries(node)) {
+        if (recordTag.test(key) || containerTag.test(key)) {
+          warnings.add("SNAPSHOT_AMBIGUOUS_STRUCTURE");
+          visit(value, key, depth + 1);
+        } else {
+          if (value && typeof value === "object" && !/^(imagenes|fotos|images|photos|image|photo|gallery|pictures|picture|url|src|href|link|descripcion|description|desc)$/i.test(key)) {
+            warnings.add("SNAPSHOT_UNRECOGNIZED_STRUCTURE");
+          }
+          inspectRecordChildren(value, depth + 1);
+        }
+      }
+    }
+  }
+  function visit(node, tag = "", depth = 0) {
+    if (nodes.length >= limit) return;
+    if (tag === "?xml") return;
+    if (depth > 64) { warnings.add("SNAPSHOT_STRUCTURE_LIMIT"); return; }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, tag, depth + 1);
       return;
     }
-    if (explicitRecord || looksLikeProperty(node)) { nodes.push(node); return; }
+    // Only explicit record tags are candidates; container metadata is never an estate.
+    if (recordTag.test(tag)) {
+      nodes.push(node);
+      inspectRecordChildren(node, depth + 1);
+      return;
+    }
+    if (tag && !containerTag.test(tag) && !metadataTag.test(tag)) warnings.add("SNAPSHOT_UNRECOGNIZED_STRUCTURE");
     if (!node || typeof node !== "object") return;
     for (const [key, value] of Object.entries(node)) {
       if (/^(next|nextPage|next_page|hasMore|has_more)$/i.test(key) && !["", "false", "0", false, null].includes(value)) warnings.add("SNAPSHOT_PAGINATION_UNSUPPORTED");
@@ -135,7 +164,7 @@ export function parseGenericPropertyNodes(xml, limit) {
         // Check advertised totals after traversal (their position in XML is irrelevant).
         totals.push(Number(value));
       }
-      visit(value, /^(property|inmueble|listing|ad|item|estate)$/i.test(key), depth + 1);
+      visit(value, key, depth + 1);
     }
   }
   const totals = [];

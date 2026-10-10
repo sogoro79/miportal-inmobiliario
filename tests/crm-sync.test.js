@@ -72,9 +72,48 @@ test("snapshot completo procesa más de 500 sin truncar", () => {
   assert.equal(result.properties[600].data.externalId, "REF-600");
 });
 
+test("contenedor feed con id/title no oculta los inmuebles hijos", () => {
+  const result = buildSyncSnapshot('<?xml version="1.0" encoding="UTF-8"?><feed><id>FEED</id><title>Catalogo</title><properties><property><id>A</id><title>Casa</title></property></properties></feed>');
+  assert.equal(result.snapshotComplete, true);
+  assert.deepEqual(result.properties.map(item => item.data.externalId), ["A"]);
+  assert.equal(compareSyncSnapshot(result, [{ externalId: "A", syncEnabled: true }]).missingCount, 0);
+});
+
+test("wrappers desconocidos se recorren sin declarar snapshot completo", () => {
+  const result = buildSyncSnapshot("<feed><custom><nested><id>WRAPPER</id><title>Catalogo</title><property><id>A</id><title>Casa</title></property></nested></custom></feed>");
+  assert.deepEqual(result.properties.map(item => item.data.externalId), ["A"]);
+  assert.equal(result.snapshotComplete, false);
+  assert.ok(result.warnings.includes("SNAPSHOT_UNRECOGNIZED_STRUCTURE"));
+  assert.equal(compareSyncSnapshot(result, [{ externalId: "OLD" }]).missingCount, 0);
+});
+
+test("rama no procesable en feed mixto bloquea todos los MISSING", () => {
+  for (const branch of ["<unknownRecord><id>B</id></unknownRecord>", "<unknownRecord>contenido</unknownRecord>"]) {
+    const result = buildSyncSnapshot(`<properties><property><id>A</id><title>Casa</title></property>${branch}</properties>`);
+    assert.equal(result.snapshotCount, 1);
+    assert.equal(result.snapshotComplete, false);
+    assert.equal(compareSyncSnapshot(result, [{ externalId: "B" }]).missingCount, 0);
+  }
+});
+
+test("registro ambiguo con inmuebles anidados no detiene la exploracion", () => {
+  const result = buildSyncSnapshot("<feed><property><id>WRAPPER</id><title>Catalogo</title><properties><property><id>A</id><title>Casa</title></property></properties></property></feed>");
+  assert.ok(result.properties.some(item => item.data.externalId === "A"));
+  assert.equal(result.snapshotComplete, false);
+  assert.ok(result.warnings.includes("SNAPSHOT_AMBIGUOUS_STRUCTURE"));
+  assert.equal(compareSyncSnapshot(result, [{ externalId: "OLD" }]).missingCount, 0);
+});
+
+test("rama desconocida dentro de un candidato tampoco permite MISSING", () => {
+  const result = buildSyncSnapshot("<properties><property><id>A</id><title>Casa</title><unknownRecord><id>B</id></unknownRecord></property></properties>");
+  assert.equal(result.snapshotComplete, false);
+  assert.equal(compareSyncSnapshot(result, [{ externalId: "B" }]).missingCount, 0);
+});
+
 test("límite snapshot explícito e incompleto sin MISSING", () => {
   const full = buildSyncSnapshot(xml(MAX_SYNC_PROPERTIES));
   assert.equal(full.snapshotComplete, true);
+  assert.equal(full.snapshotCount, 2000);
   const result = buildSyncSnapshot(xml(MAX_SYNC_PROPERTIES + 1));
   assert.equal(result.snapshotCount, MAX_SYNC_PROPERTIES);
   assert.equal(result.snapshotComplete, false);
@@ -151,6 +190,29 @@ test("estado comercial documentado y retiradas requieren revisión", () => {
   assert.ok(normalizeSyncProperty(node({ status: "active", sold: "true" })).errors.includes("CONTRADICTORY_COMMERCIAL_STATUS"));
 });
 
+for (const value of ["constructor", "__proto__", "prototype", "toString", "valueOf", "estado_desconocido"]) {
+  test(`estados y condiciones rechazan claves heredadas/desconocidas: ${value}`, () => {
+    for (const [alias, field] of [["status", "estadoComercial"], ["condition", "estado"], ["propertyType", "tipoInmueble"]]) {
+      const incoming = node({ [alias]: value });
+      const normalized = normalizeSyncProperty(incoming);
+      assert.ok(normalized.errors.includes(`INVALID_${field}`));
+      assert.equal(Object.hasOwn(normalized.data, field), false);
+      assert.equal(compareSyncSnapshot(snapshot([incoming]), [property()]).results[0].type, "INVALID");
+      const result = buildSyncSnapshot(`<properties><property><id>REF-1</id><${alias}>${value}</${alias}></property></properties>`);
+      assert.equal(result.snapshotComplete, false);
+      assert.equal(compareSyncSnapshot(result, [{ externalId: "OLD" }]).missingCount, 0);
+    }
+  });
+}
+
+test("condiciones reconocidas conservan exactamente su enum", () => {
+  for (const [condition, expected] of [["new", "obra_nueva"], ["obra_nueva", "obra_nueva"], ["used", "segunda_mano"], ["resale", "segunda_mano"], ["segunda_mano", "segunda_mano"]]) {
+    const result = normalizeSyncProperty(node({ condition }));
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.data.estado, expected);
+  }
+});
+
 test("valores suministrados inválidos no se clasifican como UPDATE válido", () => {
   for (const incoming of [node({ title: "" }), node({ price: null }), node({ price: false }), node({ status: null }), node({ id: "https://feeds.example/?token=secret" })]) {
     assert.ok(normalizeSyncProperty(incoming).errors.length > 0);
@@ -214,6 +276,15 @@ function harness({ feed = xml(1), existing = [], fetcher, source: sourceOverride
   });
   return { simulate, runs, updates, lookups };
 }
+
+test("XML invalido o truncado aborta la simulacion antes del diff/MISSING", async () => {
+  for (const feed of ["<properties><property><id>A</id>", "<feed><properties></feed>"]) {
+    const { simulate, updates } = harness({ feed, existing: [property({ externalId: "OLD" })] });
+    await assert.rejects(() => simulate({ usuarioId: userId, importSourceId: sourceId }), { code: "XML_INVALID" });
+    assert.equal(updates.length, 1);
+    assert.doesNotMatch(JSON.stringify(updates), /MISSING/);
+  }
+});
 
 test("simulación guarda exclusivamente run y respuesta no contiene URL/tokens", async () => {
   const { simulate, runs, updates } = harness();
