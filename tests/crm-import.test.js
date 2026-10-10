@@ -123,7 +123,6 @@ function createApp({
   importSelected,
   simulateSync,
   syncSourceManager,
-  syncDemo,
   ImportSourceModel = { findOne: async () => null },
   importUserRateLimitMiddleware = (req, res, next) => next(),
   userRateLimitMiddleware = (req, res, next) => next()
@@ -143,7 +142,6 @@ function createApp({
     importSelected,
     simulateSync,
     syncSourceManager,
-    syncDemo,
     importRateLimitMiddleware: (req, res, next) => next(),
     importUserRateLimitMiddleware,
     rateLimitMiddleware: (req, res, next) => next(),
@@ -253,23 +251,11 @@ test("POST /api/crm-import/analyze requiere autenticación", async () => {
   }
 });
 
-test("rutas temporales demo estan cerradas por defecto y rechazan usuario externo", async () => {
-  const previous = { enabled: process.env.CRM_SYNC_TEST_ENABLED, user: process.env.CRM_SYNC_TEST_USER_ID };
-  const { app, restore } = createApp({ syncDemo: { enroll: async () => ({ ok: true }), simulateV2: async () => ({ mode: "simulation" }) } });
-  try {
-    for (const path of ["enroll", "simulate-v2"]) {
-      assert.equal((await request(app, `/api/crm-import/sync/test/${path}`, { headers: authHeaderFor(), body: { importSourceId: OTHER_ID } })).status, 404);
-      process.env.CRM_SYNC_TEST_ENABLED = "true";
-      process.env.CRM_SYNC_TEST_USER_ID = USER_ID;
-      assert.equal((await request(app, `/api/crm-import/sync/test/${path}`, { headers: authHeaderFor(), body: { importSourceId: OTHER_ID, usuarioId: OTHER_ID } })).status, 400);
-      assert.equal((await request(app, `/api/crm-import/sync/test/${path}`, { headers: authHeaderFor(), body: { importSourceId: OTHER_ID } })).status, 200);
-      delete process.env.CRM_SYNC_TEST_ENABLED;
-    }
-  } finally {
-    restore();
-    if (previous.enabled === undefined) delete process.env.CRM_SYNC_TEST_ENABLED; else process.env.CRM_SYNC_TEST_ENABLED = previous.enabled;
-    if (previous.user === undefined) delete process.env.CRM_SYNC_TEST_USER_ID; else process.env.CRM_SYNC_TEST_USER_ID = previous.user;
-  }
+test("router solo registra configuracion y simulacion normales de sincronizacion", () => {
+  const router = createCrmImportRouter();
+  const routes = router.stack.filter(layer => layer.route?.path.startsWith("/sync/"))
+    .map(layer => [layer.route.path, Object.keys(layer.route.methods)]);
+  assert.deepEqual(routes, [["/sync/source", ["get"]], ["/sync/source", ["put"]], ["/sync/simulate", ["post"]]]);
 });
 
 test("GET/PUT fuente sync requieren auth y solo permiten el propietario autenticado", async () => {

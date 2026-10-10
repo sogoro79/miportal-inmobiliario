@@ -6,8 +6,6 @@ import vm from "node:vm";
 import { createSyncSourceManager, safeSourceStatus } from "../utils/import/syncSource.js";
 import { decryptFeedUrl, encryptFeedUrl } from "../utils/import/feedUrlCrypto.js";
 import { assertPublicFeedTarget } from "../utils/import/feedSecurity.js";
-import { buildSyncSnapshot } from "../utils/import/syncSnapshot.js";
-import { compareSyncSnapshot } from "../utils/import/syncDiff.js";
 
 const env = { CRM_FEED_URL_KEY_VERSION: "1", CRM_FEED_URL_KEY_V1: crypto.randomBytes(32).toString("base64") };
 const feedUrl = "https://feeds.example/private-token.xml?token=secret-test";
@@ -190,16 +188,6 @@ test("indice unico/lock activo devuelve conflicto sin reemplazar la fuente", asy
   await assert.rejects(() => h.manager.configure("owner", feedUrl), { code: "SYNC_SOURCE_BUSY" });
 });
 
-test("feed temporal tiene 4 referencias NEW, snapshot completo y cero fotos", () => {
-  const snapshot = buildSyncSnapshot(read("public/test-sync/homeclick24-sync-simulation.xml"));
-  assert.equal(snapshot.snapshotComplete, true);
-  assert.deepEqual(snapshot.properties.map(item => item.data.externalId), ["SYNC-DEMO-001", "SYNC-DEMO-002", "SYNC-DEMO-003", "SYNC-DEMO-004"]);
-  assert.ok(snapshot.properties.every(item => !item.data.imagenes?.length));
-  const result = compareSyncSnapshot(snapshot, []);
-  assert.equal(result.newCount, 4);
-  assert.equal(result.missingCount, 0);
-});
-
 function uiHarness(fetcher = async () => ({ ok: true, json: async () => ({ configured: false }) })) {
   const elements = new Map();
   function element() { return { value: "", textContent: "", disabled: false, children: [], listeners: {}, classList: { add() {}, remove() {} },
@@ -240,6 +228,7 @@ test("UI configura y simula solo su id, limpia URL y nunca llama import", async 
   assert.deepEqual(JSON.parse(calls[2].options.body), { importSourceId: "own-id" });
   assert.ok(calls.every(item => item.options.headers.Authorization === "Bearer mock-token"));
   assert.ok(calls.every(item => !item.path.endsWith("/import")));
+  assert.deepEqual([...elements.keys()].sort(), ["crmSyncFeedUrl", "crmSyncSave", "crmSyncSimulate", "crmSyncStatus", "crmSyncMasked", "crmSyncResults"].sort());
   assert.doesNotMatch(JSON.stringify([...elements.values()]), /private-token|secret-test/);
 });
 

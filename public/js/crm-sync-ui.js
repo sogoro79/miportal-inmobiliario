@@ -42,7 +42,6 @@
     const output = document.getElementById("crmSyncResults");
     let sourceId;
     let busy = false;
-    let testEnabled = false;
     async function api(method, path, body) {
       const token = getToken();
       if (!token) throw new Error("Inicia sesión de nuevo para continuar.");
@@ -54,8 +53,6 @@
       return data;
     }
     function showSource(data) {
-      testEnabled = data.testScenarioEnabled === true;
-      document.getElementById("crmSyncTestActions").hidden = !testEnabled;
       sourceId = data.configured ? data.importSourceId : null;
       masked.textContent = data.feedUrlMasked ? `Fuente: ${data.feedUrlMasked}` : "No hay fuente configurada para simular.";
       simulate.disabled = !sourceId || busy;
@@ -84,17 +81,6 @@
       const data = await api("POST", "simulate", { importSourceId: sourceId });
       renderizar(data, output);
       status.textContent = "Simulación completada. No se ha modificado ningún anuncio.";
-    }));
-    document.getElementById("crmSyncTestEnroll").addEventListener("click", () => action(async () => {
-      if (!testEnabled || !sourceId) throw new Error("La prueba controlada no está disponible.");
-      if (!window.confirm("Se habilitarán solo los cuatro anuncios SYNC-DEMO para comparación. No se aplicarán cambios del feed. ¿Continuar?")) { status.textContent = ""; return; }
-      const data = await api("POST", "test/enroll", { importSourceId: sourceId });
-      status.textContent = data.message;
-    }));
-    document.getElementById("crmSyncTestV2").addEventListener("click", () => action(async () => {
-      if (!testEnabled || !sourceId) throw new Error("La prueba controlada no está disponible.");
-      renderizar(await api("POST", "test/simulate-v2", { importSourceId: sourceId }), output);
-      status.textContent = "Simulación v2 completada. No se ha modificado ningún anuncio.";
     }));
     action(async () => { showSource(await api("GET", "source")); status.textContent = ""; });
   }

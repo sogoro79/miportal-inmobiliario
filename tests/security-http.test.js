@@ -1189,7 +1189,7 @@ for (const [name, originalRooms, fields, expectedRooms, overrides, certificate =
       descripcion: "Descripcion original", tipoOperacion: "venta", tipoInmueble: "estudio",
       habitaciones: originalRooms, banos: 1, superficie: 40, imagenes: [],
       certificadoEnergetico: certificate,
-      source: "crm", externalId: "SYNC-DEMO-003", importSourceId: "507f1f77bcf86cd799439077",
+      source: "crm", externalId: "REF-STUDIO", importSourceId: "507f1f77bcf86cd799439077",
       syncEnabled: true, syncFingerprint: "unchanged-baseline", syncFingerprintVersion: 1,
       syncOverrides: {}, contentRevision: 4,
       save: async () => { saves++; return propiedad; }

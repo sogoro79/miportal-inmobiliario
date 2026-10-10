@@ -147,8 +147,14 @@ test("Fase 2 sigue importando URL original tras configurar esa misma fuente lega
 });
 
 test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras", async () => {
-  const v1 = fs.readFileSync(new globalThis.URL("../public/test-sync/homeclick24-sync-simulation.xml", import.meta.url), "utf8");
-  const v2 = fs.readFileSync(new globalThis.URL("../public/test-sync/homeclick24-sync-simulation-v2.xml", import.meta.url), "utf8");
+  const record = (id, price = 100000, description = "Descripcion original") => `<property>
+    <id>REF-${id}</id><title>Vivienda ${id}</title><description>${description}</description>
+    <operation>sale</operation><price>${price}</price><address>Calle Test, Chipiona</address>
+    <city>Chipiona</city><province>Cadiz</province><bedrooms>2</bedrooms><bathrooms>1</bathrooms>
+    <surface>80</surface><propertyType>piso</propertyType><condition>used</condition><status>available</status>
+  </property>`;
+  const v1 = `<properties>${["001", "002", "003", "004"].map(id => record(id)).join("")}</properties>`;
+  const v2 = `<properties>${record("001")}${record("002", 110000)}${record("003", 100000, "Descripcion nueva del proveedor")}${record("005")}</properties>`;
   const f = fixture({ plan: "vip" });
   const analyzed = analyzeFeedXml(v1, { maxPhotos: Infinity });
   const selectedExternalIds = analyzed.properties.map(item => item.externalId);
@@ -179,7 +185,7 @@ test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras"
     item.syncFingerprintVersion = SYNC_FINGERPRINT_VERSION;
   }
   assert.equal((await simulate({ usuarioId: USER, importSourceId: source._id })).unchangedCount, 4);
-  const edited = properties.find(item => item.externalId === "SYNC-DEMO-003");
+  const edited = properties.find(item => item.externalId === "REF-003");
   const beforeEdit = capturePropertyContent(edited);
   edited.descripcion = "Descripcion revisada manualmente para la prueba controlada.";
   assert.deepEqual(markManualContentChanges(edited, beforeEdit), ["descripcion"]);
@@ -193,7 +199,7 @@ test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras"
   assert.equal(result.errorCount, 0);
   assert.equal(result.totalResults, 5);
   assert.deepEqual(Object.fromEntries(result.results.map(item => [item.externalId, item.type])), {
-    "SYNC-DEMO-001": "UNCHANGED", "SYNC-DEMO-002": "UPDATE", "SYNC-DEMO-003": "CONFLICT", "SYNC-DEMO-005": "NEW", "SYNC-DEMO-004": "MISSING"
+    "REF-001": "UNCHANGED", "REF-002": "UPDATE", "REF-003": "CONFLICT", "REF-005": "NEW", "REF-004": "MISSING"
   });
   assert.deepEqual(Object.keys(result.results.find(item => item.type === "UPDATE").changes), ["precio"]);
   assert.equal(result.results.find(item => item.type === "CONFLICT").changes.descripcion.blockedByOverride, true);

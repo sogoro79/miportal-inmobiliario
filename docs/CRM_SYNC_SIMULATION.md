@@ -3,8 +3,6 @@
 The normal simulation only simulates. No property insert/update/delete, photo download/upload,
 visibility change, quota reservation, automatic job or scheduled synchronization.
 The existing selected import remains 10 properties / 100 photos / 120 seconds.
-The separately gated second test below can explicitly enroll four test properties
-by updating comparison metadata only; it never applies feed changes.
 
 ## Source configuration
 
@@ -58,28 +56,18 @@ to Render's secret environment variable, never Git, frontend, logs or API respon
 Without the key the app still starts; configuration/simulation returns a controlled
 409 and manual Phase 2 remains available. No environment changes in this task.
 
-### Controlled temporary feed and scenarios
+### Profile simulation
 
 Profile includes a separate “Sincronización CRM — Vista previa” section. Saving
 clears the typed URL; only its masked form is subsequently displayed. Simulation
 shows full counters, incomplete-snapshot notice, conflicts/overrides and at most
 100 details. There is no apply button or automatic job.
 
-Temporary public resource (remove after the controlled test):
-`https://www.homeclick24.com/test-sync/homeclick24-sync-simulation.xml`.
-Four fictional `SYNC-DEMO-001..004` records, sale/rent, valid statuses and zero photos.
-It is not added to sitemap and nothing imports it automatically.
-With no matching stored references it yields four NEW simulation entries only.
-Public data contains no customer information, credentials, coordinates or images.
-
-UNCHANGED/UPDATE/CONFLICT need an explicitly enrolled, matching CRM property;
-legacy properties with `syncEnabled=false` intentionally remain CONFLICT. The
-normal simulation does not enroll or edit them. Those scenarios are covered with internal mocks:
-equal normalized data -> UNCHANGED; different price -> UPDATE; manual price override
--> CONFLICT; absent reference in a complete snapshot -> MISSING. To exercise those
-scenarios in production needs separate authorization and suitable test data;
-never alter MongoDB manually. The second controlled procedure below uses normal
-Phase 2 import only in the authorized test account, not real customer accounts.
+UNCHANGED/UPDATE/CONFLICT require a matching CRM property enabled for comparison;
+legacy properties with `syncEnabled=false` intentionally remain CONFLICT.
+Simulation never enrolls properties or applies feed changes. Internal tests cover
+normalized equality, price differences, manual overrides and complete-snapshot
+MISSING classifications without public fixtures or external service calls.
 
 ## Endpoint and history
 
@@ -146,65 +134,6 @@ property may show a photo UPDATE even for the same visual image. Version 1 does
 not assert image-content equivalence or establish baselines by writing properties.
 Signed photo URL rotation also changes the fingerprint. Neither can cause a real
 update in 3A; a source-photo baseline is needed before implementing real photo sync.
-
-## Second controlled test: temporary enrollment and v2
-
-Disabled by default. Only for the existing authorized SYNC-DEMO test account:
-`CRM_SYNC_TEST_ENABLED=true` and `CRM_SYNC_TEST_USER_ID=<its exact 24-character id>`.
-Do not set a real customer's ID. No environment variables or live accounts were
-changed while preparing this code. Remove both variables and these temporary
-endpoints/UI/feed resources after validation; do not use this for general enrollment.
-
-Temporary authenticated routes, strict body `{ importSourceId }`:
-- `POST /api/crm-import/sync/test/enroll`
-- `POST /api/crm-import/sync/test/simulate-v2`
-
-The profile reveals the two test controls only to that account when enabled. The
-server independently enforces the gate, ownership, active generic source, automatic
-sync disabled, and exact encrypted v1 URL:
-`https://www.homeclick24.com/test-sync/homeclick24-sync-simulation.xml`.
-There is no arbitrary feed URL override, second source, scheduler or apply endpoint.
-Configuring v2 through PUT remains forbidden with linked CRM properties.
-
-Procedure after separately authorized deployment/environment configuration:
-1. Keep the test source on v1. Analyze/import 001..004 using normal Phase 2 UI.
-   All four records now have importable status/type/condition; no photos, uploads
-   or coordinates. Existing real import policies remain unchanged.
-2. Confirm four successful imports, same importSourceId, stable externalIds and
-   `source=crm`. Initially schema default `syncEnabled=false` remains untouched.
-   A normal baseline simulation should show four PROPERTY_SYNC_DISABLED conflicts.
-3. Press “Vincular cuatro anuncios de prueba” and explicitly confirm. It rejects
-   extra/missing/duplicate records, foreign ownership, different feed, existing
-   overrides, inconsistent enrollment or content different from normalized v1.
-   Under the same Phase 2 source lock, one MongoDB transaction sets ONLY each
-   property's syncEnabled=true, fingerprint and fingerprint version. Source
-   syncEnabled remains false. No content, revision, quotas or visibility change.
-   This flag permits comparison/manual override tracking, not automatic sync.
-   Downloads are outside the retryable callback; failures abort all four updates.
-   Repeating with four unchanged enrolled rows and identical fingerprints/version
-   returns `alreadyEnrolled=true` without property writes. Only the shared lock is
-   acquired/released, without changing source timestamps. Any baseline discrepancy
-   returns `SYNC_TEST_BASELINE_MISMATCH`; it never repairs or overwrites a baseline.
-4. Normal v1 simulation now shows four UNCHANGED. From the normal owner edit form,
-   edit ONLY description of SYNC-DEMO-003 to a distinct sentence; save it once.
-   The existing route/helper records only syncOverrides.descripcion=true and
-   increments contentRevision. No direct MongoDB edit, no test endpoint for overrides.
-5. Press “Simular escenario v2”. The temporary wrapper fetches the fixed sibling
-   XML through the hardened fetcher, without changing v1's stored URL/hash/source.
-   001 is identical; 002 price is 1750 instead of 1650; 003 description differs from
-   both baseline and manual text; 004 is absent; 005 is new. Zero images in both.
-
-Expected v2: Encontrados=4 (current snapshot), UNCHANGED=1, UPDATE=1, NEW=1,
-MISSING=1, CONFLICT=1, INVALID=0. There are FIVE details: MISSING refers to a stored
-property not in the four-record snapshot. 003's description change has
-blockedByOverride=true. 004 stays visible/unchanged and 005 is never created.
-Baseline/diff, real Phase 2 code with mocks, and the normal manual-edit helper
-are tested locally; no production import/enrollment/manual edit was executed.
-
-Public v2 resource:
-`https://www.homeclick24.com/test-sync/homeclick24-sync-simulation-v2.xml`.
-Do NOT import v2. Test controls do not automatically import anything. Repeating
-enrollment after editing is deliberately rejected to protect overrides/baselines.
 
 ## Manual content edits
 
