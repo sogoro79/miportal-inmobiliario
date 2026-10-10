@@ -1,8 +1,45 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
 
 const publicarHtml = fs.readFileSync(new URL("../public/publicar.html", import.meta.url), "utf8");
+
+test("carga de estudio preserva cero en el selector de habitaciones", () => {
+  const assignment = publicarHtml.match(/document\.getElementById\("habitaciones"\)\.value\s*=.*;/)?.[0];
+  assert.ok(assignment);
+  const selector = { value: "" };
+  const document = { getElementById: id => {
+    assert.equal(id, "habitaciones");
+    return { set value(value) { selector.value = String(value); } };
+  } };
+  vm.runInNewContext(assignment, { document, p: { tipoInmueble: "estudio", habitaciones: 0 } });
+  assert.equal(selector.value, "0");
+  for (const habitaciones of [undefined, null]) {
+    vm.runInNewContext(assignment, { document, p: { habitaciones } });
+    assert.equal(selector.value, "");
+  }
+});
+
+for (const [tipo, habitaciones, rejected] of [
+  ["estudio", "0", false],
+  ["piso", "", true],
+  ["piso", "2", false],
+  ["local", "0", false],
+  ["parcela", "0", false]
+]) {
+  test(`validacion habitaciones: ${tipo}, valor ${JSON.stringify(habitaciones)}`, () => {
+    const validation = publicarHtml.match(/\/\/ Habitaciones solo obligatorio para residencial([\s\S]*?)\n  if \(!latSel/)[1];
+    const errors = [];
+    vm.runInNewContext(`(function () { ${validation} })()`, {
+      tipo, titulo: "Anuncio", direccion: "Calle Test", precio: "100000", tipoOperacion: "venta",
+      mensajeEl: {}, document: { getElementById: () => ({ value: habitaciones }) },
+      mostrarErrorPublicacion: message => errors.push(message)
+    });
+    assert.equal(errors.length, rejected ? 1 : 0);
+    if (rejected) assert.equal(errors[0], "Falta el campo obligatorio: habitaciones.");
+  });
+}
 
 test("modo edición carga la propiedad propia autenticada y conserva imágenes existentes", () => {
   assert.match(publicarHtml, /const tokenEdicion = obtenerTokenPublicar\(\)/);

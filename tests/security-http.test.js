@@ -11,6 +11,7 @@ import Notificacion from "../models/Notificacion.js";
 import ImportReconciliation from "../models/ImportReconciliation.js";
 import { recordManualPublicationUncertainty } from "../utils/manualPublicationReconciliation.js";
 import { getSeoZoneContext } from "../utils/seoZones.js";
+import { capturePropertyContent } from "../utils/propertyContent.js";
 
 process.env.NODE_ENV = "production";
 process.env.JWT_SECRET = "test-secret";
@@ -1169,6 +1170,55 @@ test("visitas y estadísticas de redes no incrementan contentRevision", async ()
     assert.doesNotMatch(JSON.stringify(updates), /contentRevision|syncOverrides/);
   } finally { Propiedad.findByIdAndUpdate = previousUpdate; Usuario.findById = previousUser; }
 });
+
+for (const [name, originalRooms, fields, expectedRooms, overrides] of [
+  ["omite habitaciones y conserva valor", 3, { descripcion: "Descripcion editada" }, 3, { descripcion: true }],
+  ["actualiza habitaciones positivas a cero", 3, { habitaciones: "0" }, 0, { habitaciones: true }],
+  ["edita solo descripcion CRM de estudio sin overrides adicionales", 0,
+    { descripcion: "Descripcion editada", habitaciones: "0" }, 0, { descripcion: true }]
+]) {
+  test(`PUT /propiedades/:id ${name}`, async () => {
+    const previousUser = Usuario.findById;
+    const previousProperty = Propiedad.findById;
+    let saves = 0;
+    const propiedad = {
+      _id: "507f1f77bcf86cd799439088", usuarioId: "507f1f77bcf86cd799439099",
+      titulo: "Estudio de prueba", direccion: "Calle Test, Cadiz", precio: 130000,
+      descripcion: "Descripcion original", tipoOperacion: "venta", tipoInmueble: "estudio",
+      habitaciones: originalRooms, banos: 1, superficie: 40, imagenes: [],
+      source: "crm", externalId: "SYNC-DEMO-003", importSourceId: "507f1f77bcf86cd799439077",
+      syncEnabled: true, syncFingerprint: "unchanged-baseline", syncFingerprintVersion: 1,
+      syncOverrides: {}, contentRevision: 4,
+      save: async () => { saves++; return propiedad; }
+    };
+    const before = capturePropertyContent(propiedad);
+    Usuario.findById = () => Promise.resolve({
+      _id: { toString: () => propiedad.usuarioId }, activo: true, plan: "gratis", planActivo: true
+    });
+    Propiedad.findById = () => Promise.resolve(propiedad);
+    const multipart = createMultipartBody({ fields });
+    try {
+      const response = await request(`/propiedades/${propiedad._id}`, {
+        method: "PUT", headers: { ...authHeaderFor(),
+          "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+          "X-Forwarded-For": "203.0.113.210"
+        }, rawBody: multipart.body
+      });
+      assert.equal(response.status, 200, response.text);
+      assert.equal(propiedad.habitaciones, expectedRooms);
+      assert.equal(propiedad.contentRevision, 5);
+      assert.equal(saves, 1);
+      assert.deepEqual(propiedad.syncOverrides, overrides);
+      assert.equal(propiedad.syncFingerprint, "unchanged-baseline");
+      assert.equal(propiedad.syncFingerprintVersion, 1);
+      const after = capturePropertyContent(propiedad);
+      for (const field of Object.keys(before)) if (!Object.hasOwn(overrides, field)) assert.deepEqual(after[field], before[field], field);
+    } finally {
+      Usuario.findById = previousUser;
+      Propiedad.findById = previousProperty;
+    }
+  });
+}
 
 test("PUT /propiedades/:id conserva geografía estructurada cuando se omite", async () => {
   const previousFindByIdUsuario = Usuario.findById;

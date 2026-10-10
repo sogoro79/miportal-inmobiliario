@@ -870,7 +870,7 @@ if (propiedadIdEditar) {
       document.getElementById("precio").value        = p.precio ? Number(p.precio).toLocaleString("es-ES") : "";
       document.getElementById("descripcion").value   = p.descripcion || "";
       document.getElementById("tipoOperacion").value = p.tipoOperacion || "";
-      document.getElementById("habitaciones").value  = p.habitaciones || "";
+      document.getElementById("habitaciones").value  = p.habitaciones ?? "";
       document.getElementById("banos").value         = p.banos || "1";
       document.getElementById("superficie").value    = p.superficie || "";
       document.getElementById("superficieParcela").value = p.superficieParcela || "";

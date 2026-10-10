@@ -792,7 +792,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
       terraza
     } = req.body;
 
-    propiedad.habitaciones = habitaciones ? Number(habitaciones) : propiedad.habitaciones;
+    propiedad.habitaciones = habitaciones !== undefined ? Number(habitaciones) : propiedad.habitaciones;
     propiedad.banos        = banos ? Number(banos) : propiedad.banos;
     propiedad.superficieParcela = req.body.superficieParcela ? Number(req.body.superficieParcela) : propiedad.superficieParcela;
     propiedad.superficie   = superficie ? Number(superficie) : propiedad.superficie;
