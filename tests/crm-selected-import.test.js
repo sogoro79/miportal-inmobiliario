@@ -15,6 +15,9 @@ import { defaultRequestOnce } from "../utils/import/feedFetcher.js";
 import { getLimiteFotosPlan } from "../utils/planLimits.js";
 import { createPublicationPersistence } from "../utils/publicationPersistence.js";
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
+import { buildSyncSnapshot, syncFingerprint, SYNC_FINGERPRINT_VERSION } from "../utils/import/syncSnapshot.js";
+import { createSyncSimulator } from "../utils/import/syncSimulation.js";
+import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { isPrivateOrReservedIp, maskFeedUrl, assertPublicFeedTarget } from "../utils/import/feedSecurity.js";
 
@@ -141,6 +144,61 @@ test("Fase 2 sigue importando URL original tras configurar esa misma fuente lega
   assert.equal(f.sources[0].feedUrlHash, feedHash(URL));
   assert.deepEqual(f.properties.map(item => item.externalId), ["HC24-DEMO-001", "HC24-DEMO-002"]);
   assert.ok(f.properties.every(item => item.importSourceId === sourceId));
+});
+
+test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras", async () => {
+  const v1 = fs.readFileSync(new globalThis.URL("../public/test-sync/homeclick24-sync-simulation.xml", import.meta.url), "utf8");
+  const v2 = fs.readFileSync(new globalThis.URL("../public/test-sync/homeclick24-sync-simulation-v2.xml", import.meta.url), "utf8");
+  const f = fixture({ plan: "vip" });
+  const analyzed = analyzeFeedXml(v1, { maxPhotos: Infinity });
+  const selectedExternalIds = analyzed.properties.map(item => item.externalId);
+  const imported = await f.run({ ...f.input, analyzed, selectedExternalIds });
+  assert.equal(imported.imported, 4);
+  assert.equal(f.downloaded.length, 0);
+  assert.equal(f.uploaded.length, 0);
+  const snapshot = buildSyncSnapshot(v1);
+  // Schema defaults are materialized without a database; enrollment here is test-only.
+  const properties = f.properties.map(item => ({ ...new Propiedad(item).toObject(), importSourceId: item.importSourceId }));
+  assert.ok(properties.every(item => item.source === "crm" && item.importSourceId === f.sources[0]._id));
+  assert.ok(properties.every(item => item.syncEnabled === false));
+  const runs = [];
+  let feed = v1;
+  const env = { CRM_FEED_URL_KEY_VERSION: "1", CRM_FEED_URL_KEY_V1: Buffer.alloc(32, 1).toString("base64") };
+  const { encryptFeedUrl } = await import("../utils/import/feedUrlCrypto.js");
+  const source = { _id: f.sources[0]._id, usuarioId: USER, activo: true, feedType: "generic_xml", ...encryptFeedUrl(URL, env) };
+  const simulate = createSyncSimulator({ env,
+    ImportSourceModel: { findOne: async () => source },
+    ImportSyncRunModel: { create: async row => { runs.push(row); return { _id: "run" }; }, updateOne: async () => {} },
+    PropiedadModel: { find: async () => properties, create: () => assert.fail("no creates"), updateOne: () => assert.fail("no updates"), deleteOne: () => assert.fail("no deletes") },
+    fetchXml: async () => ({ xml: feed })
+  });
+  assert.equal((await simulate({ usuarioId: USER, importSourceId: source._id })).conflictCount, 4);
+  for (const item of properties) {
+    item.syncEnabled = true;
+    item.syncFingerprint = syncFingerprint(snapshot.properties.find(record => record.data.externalId === item.externalId).data);
+    item.syncFingerprintVersion = SYNC_FINGERPRINT_VERSION;
+  }
+  assert.equal((await simulate({ usuarioId: USER, importSourceId: source._id })).unchangedCount, 4);
+  const edited = properties.find(item => item.externalId === "SYNC-DEMO-003");
+  const beforeEdit = capturePropertyContent(edited);
+  edited.descripcion = "Descripcion revisada manualmente para la prueba controlada.";
+  assert.deepEqual(markManualContentChanges(edited, beforeEdit), ["descripcion"]);
+  assert.deepEqual(edited.syncOverrides, { descripcion: true });
+  feed = v2;
+  const beforeSimulation = JSON.stringify(properties);
+  const result = await simulate({ usuarioId: USER, importSourceId: source._id });
+  assert.equal(result.snapshotComplete, true);
+  assert.equal(result.snapshotCount, 4);
+  for (const key of ["unchangedCount", "updateCount", "conflictCount", "missingCount", "newCount"]) assert.equal(result[key], 1, key);
+  assert.equal(result.errorCount, 0);
+  assert.equal(result.totalResults, 5);
+  assert.deepEqual(Object.fromEntries(result.results.map(item => [item.externalId, item.type])), {
+    "SYNC-DEMO-001": "UNCHANGED", "SYNC-DEMO-002": "UPDATE", "SYNC-DEMO-003": "CONFLICT", "SYNC-DEMO-005": "NEW", "SYNC-DEMO-004": "MISSING"
+  });
+  assert.deepEqual(Object.keys(result.results.find(item => item.type === "UPDATE").changes), ["precio"]);
+  assert.equal(result.results.find(item => item.type === "CONFLICT").changes.descripcion.blockedByOverride, true);
+  assert.equal(JSON.stringify(properties), beforeSimulation);
+  assert.equal(f.properties.length, 4);
 });
 
 test("tres fotos fallidas devuelven contadores y logs sin datos sensibles", async () => {

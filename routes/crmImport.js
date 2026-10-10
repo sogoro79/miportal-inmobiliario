@@ -19,6 +19,7 @@ import { z } from "../utils/validation.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES } from "../utils/import/importBudget.js";
 import { createSyncSimulator, safeSimulationCode } from "../utils/import/syncSimulation.js";
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
+import { createSyncDemo, demoAllowed } from "../utils/import/syncDemo.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
@@ -63,6 +64,7 @@ export function createCrmImportRouter({
   ImportSyncRunModel,
   simulateSync,
   syncSourceManager,
+  syncDemo,
   importSelected,
   importRateLimitMiddleware = securityRateLimits.crmImport,
   importUserRateLimitMiddleware = securityRateLimits.crmImportByUser,
@@ -73,6 +75,21 @@ export function createCrmImportRouter({
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
   const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel });
+  const demo = syncDemo || createSyncDemo({ ImportSourceModel, PropiedadModel, ImportSyncRunModel, fetchXml: fetchFeedXml });
+
+  // TEMPORAL: solo cuenta de prueba autorizada; ninguna URL/propietario externo.
+  for (const [path, operation] of [["/sync/test/enroll", "enroll"], ["/sync/test/simulate-v2", "simulateV2"]]) {
+    router.post(path, requireAuth, userRateLimitMiddleware, rateLimitMiddleware, async (req, res) => {
+      if (!demoAllowed(req.user.id)) return res.status(404).json({ error: "Función no disponible." });
+      const parsed = z.object({ importSourceId: z.string().regex(/^[a-fA-F0-9]{24}$/) }).strict().safeParse(req.body || {});
+      if (!parsed.success) return res.status(400).json({ error: "Indica solamente tu fuente de prueba." });
+      try { return res.json(await demo[operation]({ usuarioId: req.user.id, importSourceId: parsed.data.importSourceId })); }
+      catch (error) {
+        console.warn("[CRM Sync Demo]", { code: "SYNC_DEMO_REJECTED" });
+        return res.status(409).json({ code: "SYNC_DEMO_REJECTED", error: "Escenario de prueba no disponible o baseline incompatible. Revisa la fuente y los cuatro anuncios de prueba." });
+      }
+    });
+  }
 
   function sourceError(res, error) {
     const code = ["SYNC_SOURCE_BUSY", "SYNC_SOURCE_URL_MISMATCH"].includes(error?.code) ? error.code : safeSimulationCode(error);
@@ -86,7 +103,7 @@ export function createCrmImportRouter({
 
   router.get("/sync/source", requireAuth, async (req, res) => {
     if (Object.keys(req.query || {}).length) return res.status(400).json({ error: "No se permite indicar una fuente o propietario." });
-    try { return res.json(await sourceManager.get(req.user.id)); }
+    try { return res.json({ ...await sourceManager.get(req.user.id), testScenarioEnabled: demoAllowed(req.user.id) }); }
     catch (error) { return sourceError(res, error); }
   });
 

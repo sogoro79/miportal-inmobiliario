@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- TEMPORAL: solo simulacion CRM Fase 3A. Retirar tras la prueba controlada. -->
+<!-- TEMPORAL: diff de prueba Fase 3A. No importar ni aplicar cambios. -->
 <properties>
   <property>
     <id>SYNC-DEMO-001</id><title>Piso de prueba en Chipiona</title>
@@ -11,22 +11,22 @@
   <property>
     <id>SYNC-DEMO-002</id><title>Casa de prueba en Rota</title>
     <description>Datos ficticios exclusivos para simulacion, no publicar.</description>
-    <operation>rent</operation><price>1650</price><address>Direccion de prueba, Rota</address>
+    <operation>rent</operation><price>1750</price><address>Direccion de prueba, Rota</address>
     <city>Rota</city><province>Cadiz</province><bedrooms>4</bedrooms><bathrooms>3</bathrooms>
     <surface>180</surface><propertyType>casa</propertyType><condition>used</condition><status>active</status><pool>true</pool>
   </property>
   <property>
     <id>SYNC-DEMO-003</id><title>Estudio de prueba en Cadiz</title>
-    <description>Datos ficticios exclusivos para simulacion, no publicar.</description>
+    <description>Descripcion propuesta por el feed variante para comprobar el override manual.</description>
     <operation>sale</operation><price>130000</price><address>Direccion de prueba, Cadiz</address>
     <city>Cadiz</city><province>Cadiz</province><bedrooms>0</bedrooms><bathrooms>1</bathrooms>
     <surface>40</surface><propertyType>estudio</propertyType><condition>used</condition><status>available</status><garage>false</garage>
   </property>
   <property>
-    <id>SYNC-DEMO-004</id><title>Local de prueba en Jerez</title>
-    <description>Datos ficticios exclusivos para simulacion, no publicar.</description>
-    <operation>rent</operation><price>800</price><address>Direccion de prueba, Jerez de la Frontera</address>
-    <city>Jerez de la Frontera</city><province>Cadiz</province><bedrooms>0</bedrooms><bathrooms>0</bathrooms>
-    <surface>70</surface><propertyType>local</propertyType><condition>used</condition><status>available</status>
+    <id>SYNC-DEMO-005</id><title>Vivienda nueva de prueba en Chipiona</title>
+    <description>Referencia nueva exclusiva para simulacion, no crear.</description>
+    <operation>sale</operation><price>210000</price><address>Otra direccion de prueba, Chipiona</address>
+    <city>Chipiona</city><province>Cadiz</province><bedrooms>2</bedrooms><bathrooms>1</bathrooms>
+    <surface>75</surface><propertyType>piso</propertyType><condition>used</condition><status>available</status>
   </property>
 </properties>
