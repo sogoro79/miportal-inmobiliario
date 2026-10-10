@@ -1171,11 +1171,13 @@ test("visitas y estadísticas de redes no incrementan contentRevision", async ()
   } finally { Propiedad.findByIdAndUpdate = previousUpdate; Usuario.findById = previousUser; }
 });
 
-for (const [name, originalRooms, fields, expectedRooms, overrides] of [
+for (const [name, originalRooms, fields, expectedRooms, overrides, certificate = ""] of [
   ["omite habitaciones y conserva valor", 3, { descripcion: "Descripcion editada" }, 3, { descripcion: true }],
   ["actualiza habitaciones positivas a cero", 3, { habitaciones: "0" }, 0, { habitaciones: true }],
   ["edita solo descripcion CRM de estudio sin overrides adicionales", 0,
-    { descripcion: "Descripcion editada", habitaciones: "0" }, 0, { descripcion: true }]
+    { descripcion: "Descripcion editada", habitaciones: "0" }, 0, { descripcion: true }],
+  ["conserva certificado valido omitido al editar descripcion", 0,
+    { descripcion: "Descripcion editada", habitaciones: "0" }, 0, { descripcion: true }, "C"]
 ]) {
   test(`PUT /propiedades/:id ${name}`, async () => {
     const previousUser = Usuario.findById;
@@ -1186,6 +1188,7 @@ for (const [name, originalRooms, fields, expectedRooms, overrides] of [
       titulo: "Estudio de prueba", direccion: "Calle Test, Cadiz", precio: 130000,
       descripcion: "Descripcion original", tipoOperacion: "venta", tipoInmueble: "estudio",
       habitaciones: originalRooms, banos: 1, superficie: 40, imagenes: [],
+      certificadoEnergetico: certificate,
       source: "crm", externalId: "SYNC-DEMO-003", importSourceId: "507f1f77bcf86cd799439077",
       syncEnabled: true, syncFingerprint: "unchanged-baseline", syncFingerprintVersion: 1,
       syncOverrides: {}, contentRevision: 4,
@@ -1206,6 +1209,7 @@ for (const [name, originalRooms, fields, expectedRooms, overrides] of [
       });
       assert.equal(response.status, 200, response.text);
       assert.equal(propiedad.habitaciones, expectedRooms);
+      assert.equal(propiedad.certificadoEnergetico, certificate);
       assert.equal(propiedad.contentRevision, 5);
       assert.equal(saves, 1);
       assert.deepEqual(propiedad.syncOverrides, overrides);

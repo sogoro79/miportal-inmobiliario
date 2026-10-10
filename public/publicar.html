@@ -836,11 +836,13 @@ document.getElementById("grupo-parcela").style.display = tieneParcela ? "" : "no
 
 /* MODO EDICIÓN */
 const propiedadIdEditar = new URLSearchParams(window.location.search).get("editar");
+const textoBotonPublicar = propiedadIdEditar ? "💾 Guardar cambios" : "🚀 Publicar anuncio";
+let certificadoEnergeticoInicial = "";
 
 if (propiedadIdEditar) {
   document.getElementById("titulo-pagina").textContent = "Editar propiedad";
   document.getElementById("subtitulo-pagina").textContent = "Modifica los datos de tu anuncio";
-  document.getElementById("btnPublicar").textContent = "💾 Guardar cambios";
+  document.getElementById("btnPublicar").textContent = textoBotonPublicar;
 
   const tokenEdicion = obtenerTokenPublicar();
   if (!tokenEdicion) {
@@ -879,7 +881,8 @@ if (propiedadIdEditar) {
         : (p.tipoInmueble || "piso");
       document.getElementById("estado").value        = p.estado || "segunda_mano";
       document.getElementById("estadoComercial").value = p.estadoComercial || "Disponible";
-      document.getElementById("certificadoEnergetico").value = p.certificadoEnergetico || "";
+      certificadoEnergeticoInicial = p.certificadoEnergetico ?? "";
+      document.getElementById("certificadoEnergetico").value = certificadoEnergeticoInicial;
       document.getElementById("videoUrl").value      = p.videoUrl || "";
 
       // Campos específicos
@@ -1158,7 +1161,10 @@ async function publicar() {
   fd.append("tipoInmueble", tipo);
   fd.append("estado", document.getElementById("estado").value);
   fd.append("estadoComercial", document.getElementById("estadoComercial").value);
-  fd.append("certificadoEnergetico", document.getElementById("certificadoEnergetico").value);
+  const certificadoEnergetico = document.getElementById("certificadoEnergetico").value;
+  if (certificadoEnergetico && (!propiedadIdEditar || certificadoEnergetico !== certificadoEnergeticoInicial)) {
+    fd.append("certificadoEnergetico", certificadoEnergetico);
+  }
   fd.append("garaje", document.getElementById("garaje").checked);
   fd.append("piscina", document.getElementById("piscina").checked);
   fd.append("terraza", document.getElementById("terraza").checked);
@@ -1188,7 +1194,7 @@ async function publicar() {
  if (res.ok) {
 
   btn.disabled = false;
-  btn.textContent = "🚀 Publicar anuncio";
+  btn.textContent = textoBotonPublicar;
 
   mensajeEl.style.display = "block";
   mensajeEl.style.height = "auto";
@@ -1221,7 +1227,7 @@ async function publicar() {
   mostrarSesionCaducada();
 
   btn.disabled = false;
-  btn.textContent = "🚀 Publicar anuncio";
+  btn.textContent = textoBotonPublicar;
 
   redirigirLoginPublicar();
 
@@ -1233,7 +1239,7 @@ async function publicar() {
   mensajeEl.className = "err";
 
   btn.disabled = false;
-  btn.textContent = "🚀 Publicar anuncio";
+  btn.textContent = textoBotonPublicar;
 
 } else if (res.status === 403) {
 
@@ -1242,7 +1248,7 @@ async function publicar() {
     mostrarSesionCaducada();
 
     btn.disabled = false;
-    btn.textContent = "🚀 Publicar anuncio";
+    btn.textContent = textoBotonPublicar;
 
     redirigirLoginPublicar();
     return;
@@ -1254,7 +1260,7 @@ async function publicar() {
   mensajeEl.className = "err";
 
   btn.disabled = false;
-  btn.textContent = "🚀 Publicar anuncio";
+  btn.textContent = textoBotonPublicar;
 
 } else if (res.status === 413) {
 
@@ -1264,7 +1270,7 @@ async function publicar() {
   mensajeEl.className = "err";
 
   btn.disabled = false;
-  btn.textContent = "🚀 Publicar anuncio";
+  btn.textContent = textoBotonPublicar;
 
 } else if (res.status >= 500) {
 
@@ -1274,7 +1280,7 @@ async function publicar() {
   mensajeEl.className = "err";
 
   btn.disabled = false;
-  btn.textContent = "🚀 Publicar anuncio";
+  btn.textContent = textoBotonPublicar;
 
 } else {
 
@@ -1284,14 +1290,14 @@ async function publicar() {
   mensajeEl.className = "err";
 
   btn.disabled = false;
-  btn.textContent = "🚀 Publicar anuncio";
+  btn.textContent = textoBotonPublicar;
 
   }
   } catch(e) {
     mensajeEl.textContent = "❌ Error de conexión. No se ha podido contactar con el servidor.";
     mensajeEl.className = "err";
     btn.disabled = false;
-    btn.textContent = "🚀 Publicar anuncio";
+    btn.textContent = textoBotonPublicar;
   }
 
 }

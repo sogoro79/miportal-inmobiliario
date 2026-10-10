@@ -2,8 +2,78 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { propiedadUpdateSchema } from "../utils/propertySchemas.js";
 
 const publicarHtml = fs.readFileSync(new URL("../public/publicar.html", import.meta.url), "utf8");
+
+async function submit({ edit = true, certificate = "", originalCertificate = "", networkError = false, status = 400 } = {}) {
+  const nodes = new Map();
+  const values = { titulo: "Estudio de prueba", direccion: "Calle Test", precio: "130000", tipoOperacion: "venta",
+    tipoInmueble: "estudio", habitaciones: "0", banos: "1", superficie: "40",
+    descripcion: "Descripcion editada", certificadoEnergetico: certificate };
+  const requests = [];
+  const document = { getElementById(id) {
+    if (!nodes.has(id)) nodes.set(id, { value: values[id] || "", checked: false, style: {}, textContent: "", disabled: false });
+    return nodes.get(id);
+  } };
+  const mode = publicarHtml.match(/const propiedadIdEditar = .*;\nconst textoBotonPublicar = .*;/)[0];
+  const start = publicarHtml.indexOf("async function publicar() {");
+  const end = publicarHtml.indexOf("</script>", start);
+  await vm.runInNewContext(`${mode}\n${publicarHtml.slice(start, end)}\npublicar();`, {
+    window: { location: { search: edit ? "?editar=test-property" : "" } }, URLSearchParams, document,
+    certificadoEnergeticoInicial: originalCertificate,
+    obtenerTokenPublicar: () => "test-token", usuarioActualPublicar: { _id: "test-user" },
+    refrescarUsuarioPublicar: async () => ({ _id: "test-user" }), usuarioPuedePublicar: () => true,
+    mostrarErrorPublicacion: message => assert.fail(message),
+    geoSeleccionValida: false, direccionSeleccionada: "", latSel: 1, lngSel: 1,
+    imgFiles: edit ? [] : [{}], imagenesExistentes: [], tipoAdmitePlanta: () => true,
+    tipoAdmitePlantasYSotano: () => false,
+    FormData: class extends Map { append(key, value) { this.set(key, String(value)); } },
+    console: { log() {} }, setTimeout() {},
+    limpiarSesionPublicar() {}, mostrarSesionCaducada() {}, redirigirLoginPublicar() {},
+    esErrorAutorizacionSesion: () => false,
+    leerJsonSeguro: async () => ({ error: "Error de prueba" }),
+    fetch: async (url, options) => {
+      requests.push({ url, ...options });
+      if (networkError) throw new Error("mock network failure");
+      return { ok: status < 400, status };
+    }
+  });
+  assert.equal(requests.length, 1);
+  return { request: requests[0], button: document.getElementById("btnPublicar") };
+}
+
+for (const [name, edit, certificate, originalCertificate, expected] of [
+  ["creacion sin seleccion", false, "", "", undefined],
+  ["edicion con certificado vacio", true, "", "", undefined],
+  ["edicion con certificado sin modificar", true, "C", "C", undefined],
+  ["edicion cambiando certificado", true, "B", "C", "B"],
+  ["creacion con certificado", false, "A", "", "A"]
+]) {
+  test(`envio opcional del certificado: ${name}`, async () => {
+    const { request } = await submit({ edit, certificate, originalCertificate });
+    assert.equal(request.body.get("certificadoEnergetico"), expected);
+    assert.equal(request.body.get("habitaciones"), "0");
+    assert.equal(request.url, edit ? "/propiedades/test-property" : "/propiedades");
+    assert.equal(request.method, edit ? "PUT" : "POST");
+  });
+}
+
+test("schema mantiene certificado omitido o permitido y rechaza vacio e invalido explicitos", () => {
+  assert.equal(propiedadUpdateSchema.safeParse({ descripcion: "Nueva descripcion" }).success, true);
+  assert.equal(propiedadUpdateSchema.safeParse({ certificadoEnergetico: "C" }).success, true);
+  for (const value of ["", "INVALID"]) assert.equal(propiedadUpdateSchema.safeParse({ certificadoEnergetico: value }).success, false);
+});
+
+for (const edit of [true, false]) {
+  for (const scenario of [{ status: 400 }, { networkError: true }, { status: 200 }, { status: 401 }, { status: 403 }, { status: 413 }, { status: 500 }, { status: 422 }]) {
+    test(`restaura boton en ${edit ? "edicion" : "creacion"}: ${JSON.stringify(scenario)}`, async () => {
+      const { button } = await submit({ edit, ...scenario });
+      assert.equal(button.textContent, edit ? "💾 Guardar cambios" : "🚀 Publicar anuncio");
+      assert.equal(button.disabled, false);
+    });
+  }
+}
 
 test("carga de estudio preserva cero en el selector de habitaciones", () => {
   const assignment = publicarHtml.match(/document\.getElementById\("habitaciones"\)\.value\s*=.*;/)?.[0];
