@@ -11,7 +11,12 @@ only `req.user.id`'s single source. URL syntax, protocols, credentials and all D
 addresses are validated using the existing SSRF policy before persistence; no HTTP
 download takes place. Simulation revalidates DNS and pins the actual connection.
 The endpoint encrypts the URL and atomically creates/updates the existing source,
-keeping `syncEnabled=false`. A live Phase 2 import lock prevents configuration;
+keeping `syncEnabled=false`. Configuration acquires the same token/lease lock as
+Phase 2 before checking CRM associations. A different hash with linked properties
+returns `SYNC_SOURCE_URL_MISMATCH` without changing identity/ciphertext/settings.
+The original URL can be encrypted; sources without linked properties can explicitly
+change URL. Updates require the owned, unexpired lock and cleanup releases only
+that token, on success or error. A live Phase 2 import lock prevents configuration;
 the unique user index prevents a second source during concurrent requests.
 Phase 2 acquires its lock only if the source still has the analyzed feed hash,
 closing the read/configure/lock race before any image download or property write.
@@ -22,9 +27,9 @@ No property enrollment or property write occurs.
 It returns own `importSourceId`, configured flag, masked URL and safe status/date,
 never plaintext, ciphertext, hash, key/version or foreign IDs. Legacy sources can
 be explicitly configured; deleting imported properties does not delete the source.
-Changing the configured URL replaces the single source: importing from its old URL
-will be rejected by Phase 2 until explicitly configured back. Existing properties
-and import timestamps are retained. GET status describes source metadata; simulation
+Changing the configured URL is only allowed without linked CRM properties; otherwise
+use the original URL or a separate authorized test account (not a second source).
+Existing properties and import timestamps are retained. GET status describes source metadata; simulation
 history continues to live in ImportSyncRun and does not update source success dates.
 
 - `CRM_FEED_URL_KEY_VERSION`: active numeric key version (default `1`).

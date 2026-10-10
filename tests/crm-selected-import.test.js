@@ -14,6 +14,7 @@ import { fetchImportImage, detectImageMime, MAX_IMPORT_IMAGE_BYTES } from "../ut
 import { defaultRequestOnce } from "../utils/import/feedFetcher.js";
 import { getLimiteFotosPlan } from "../utils/planLimits.js";
 import { createPublicationPersistence } from "../utils/publicationPersistence.js";
+import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { isPrivateOrReservedIp, maskFeedUrl, assertPublicFeedTarget } from "../utils/import/feedSecurity.js";
 
@@ -47,6 +48,7 @@ function fixture({ plan = "lanzamiento_2026", count = 0, failCreate = false, fai
     }
   };
   const PropiedadModel = {
+    async exists(filter) { return properties.find(item => Object.entries(filter).every(([key, value]) => String(item[key]) === String(value))) || null; },
     async findById(id) { return properties.find(item => String(item._id) === String(id)) || null; },
     async countDocuments(filter) { return count + properties.filter(item => item.usuarioId === filter.usuarioId).length; },
     async find(filter) { return properties.filter(item => item.usuarioId === filter.usuarioId && item.importSourceId === filter.importSourceId && (!filter.externalId || filter.externalId.$in.includes(item.externalId))); },
@@ -79,7 +81,7 @@ function fixture({ plan = "lanzamiento_2026", count = 0, failCreate = false, fai
     deleteImage: async id => { deleted.push(id); return { ok: true }; }
   });
   const analyzed = analyzeFeedXml(fixtureXml, { maxPhotos: Infinity });
-  return { run, persist, reconciliations, users, sources, properties, downloaded, uploaded, deleted, analyzed, PropiedadModel,
+  return { run, persist, reconciliations, users, sources, properties, downloaded, uploaded, deleted, analyzed, PropiedadModel, ImportSourceModel,
     input: { usuarioId: USER, feedUrl: URL, analyzed, selectedExternalIds: ["HC24-DEMO-001"] } };
 }
 
@@ -105,6 +107,40 @@ test("reconfigurar fuente antes de adquirir lock aborta sin imagenes ni propieda
   assert.equal(f.uploaded.length, 0);
   assert.equal(f.properties.length, 0);
   assert.equal(f.sources[0].importLockToken, undefined);
+});
+
+test("Fase 2 sigue importando URL original tras configurar esa misma fuente legacy", async () => {
+  const f = fixture();
+  await f.run(f.input);
+  const sourceId = f.sources[0]._id;
+  const originalLock = f.ImportSourceModel.findOneAndUpdate;
+  const manager = createSyncSourceManager({
+    ImportSourceModel: { ...f.ImportSourceModel, findOneAndUpdate: async (filter, update) => {
+      if (filter.usuarioId && !filter._id) {
+        const source = f.sources.find(item => item.usuarioId === filter.usuarioId);
+        if (source.importLockUntil > new Date()) return null;
+        Object.assign(source, update.$set);
+        return source;
+      }
+      if (filter.importLockToken) {
+        const source = f.sources.find(item => item._id === filter._id && item.importLockToken === filter.importLockToken);
+        if (!source || !(source.importLockUntil > filter.importLockUntil.$gt)) return null;
+        Object.assign(source, update.$set);
+        return source;
+      }
+      return originalLock(filter, update);
+    } },
+    PropiedadModel: f.PropiedadModel,
+    validateTarget: async () => {},
+    env: { CRM_FEED_URL_KEY_VERSION: "1", CRM_FEED_URL_KEY_V1: Buffer.alloc(32, 1).toString("base64") }
+  });
+  await manager.configure(USER, URL);
+  const result = await f.run({ ...f.input, selectedExternalIds: ["HC24-DEMO-002"] });
+  assert.equal(result.imported, 1);
+  assert.equal(f.sources[0]._id, sourceId);
+  assert.equal(f.sources[0].feedUrlHash, feedHash(URL));
+  assert.deepEqual(f.properties.map(item => item.externalId), ["HC24-DEMO-001", "HC24-DEMO-002"]);
+  assert.ok(f.properties.every(item => item.importSourceId === sourceId));
 });
 
 test("tres fotos fallidas devuelven contadores y logs sin datos sensibles", async () => {

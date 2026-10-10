@@ -72,15 +72,16 @@ export function createCrmImportRouter({
   const router = express.Router();
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
   const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
-  const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel });
+  const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel });
 
   function sourceError(res, error) {
-    const code = error?.code === "SYNC_SOURCE_BUSY" ? "SYNC_SOURCE_BUSY" : safeSimulationCode(error);
+    const code = ["SYNC_SOURCE_BUSY", "SYNC_SOURCE_URL_MISMATCH"].includes(error?.code) ? error.code : safeSimulationCode(error);
     console.warn("[CRM Sync Source]", { code });
     const message = code === "SYNC_SOURCE_NOT_CONFIGURED" ? "La configuración de cifrado CRM no está disponible. La importación manual sigue disponible."
       : code === "SYNC_SOURCE_BUSY" ? "Hay una importación o configuración en curso. Espera y vuelve a intentarlo."
+      : code === "SYNC_SOURCE_URL_MISMATCH" ? "Esta cuenta ya tiene inmuebles vinculados a otra fuente CRM. En esta fase solo puedes configurar la misma fuente."
       : "No se pudo configurar la fuente CRM. Revisa que la URL sea pública y válida.";
-    return res.status(["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY"].includes(code) ? 409 : code === "FEED_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400).json({ code, error: message });
+    return res.status(["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY", "SYNC_SOURCE_URL_MISMATCH"].includes(code) ? 409 : code === "FEED_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400).json({ code, error: message });
   }
 
   router.get("/sync/source", requireAuth, async (req, res) => {

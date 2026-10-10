@@ -1,4 +1,6 @@
 import ImportSource from "../../models/ImportSource.js";
+import Propiedad from "../../models/Propiedad.js";
+import crypto from "node:crypto";
 import { assertPublicFeedTarget, parseAndValidateFeedUrl, maskFeedUrl, DEFAULT_FEED_TIMEOUT_MS } from "./feedSecurity.js";
 import { encryptFeedUrl } from "./feedUrlCrypto.js";
 
@@ -14,7 +16,7 @@ export function safeSourceStatus(source) {
   };
 }
 
-export function createSyncSourceManager({ ImportSourceModel = ImportSource, env = process.env, validateTarget = assertPublicFeedTarget, now = () => new Date() } = {}) {
+export function createSyncSourceManager({ ImportSourceModel = ImportSource, PropiedadModel = Propiedad, env = process.env, validateTarget = assertPublicFeedTarget, now = () => new Date() } = {}) {
   return {
     async get(usuarioId) {
       let query = ImportSourceModel.findOne({ usuarioId });
@@ -33,17 +35,37 @@ export function createSyncSourceManager({ ImportSourceModel = ImportSource, env 
         ]);
       } finally { clearTimeout(timer); }
       await ImportSourceModel.init?.();
+      const lockToken = crypto.randomUUID();
+      const start = now();
+      let lockedSource;
       try {
-        const source = await ImportSourceModel.findOneAndUpdate({ usuarioId,
-          $or: [{ importLockUntil: { $exists: false } }, { importLockUntil: null }, { importLockUntil: { $lte: now() } }]
-        }, { $set: { ...encrypted, syncEnabled: false, activo: true },
-          $setOnInsert: { usuarioId, feedType: "generic_xml" }
+        // Share Phase 2's source lock before checking associations or changing identity.
+        let query = ImportSourceModel.findOneAndUpdate({ usuarioId,
+          $or: [{ importLockUntil: { $exists: false } }, { importLockUntil: null }, { importLockUntil: { $lte: start } }]
+        }, { $set: { importLockToken: lockToken, importLockUntil: new Date(start.getTime() + 15 * 60 * 1000) },
+          $setOnInsert: { usuarioId, feedType: "generic_xml", ...encrypted, activo: true }
         }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+        if (query?.select) query = query.select("+encryptedFeedUrl");
+        lockedSource = await query;
+        if (!lockedSource) throw Object.assign(new Error("Source busy"), { code: "SYNC_SOURCE_BUSY" });
+        if (lockedSource.feedUrlHash !== encrypted.feedUrlHash) {
+          const associated = await PropiedadModel.exists({ usuarioId, importSourceId: lockedSource._id, source: "crm" });
+          if (associated) throw Object.assign(new Error("Source URL mismatch"), { code: "SYNC_SOURCE_URL_MISMATCH" });
+        }
+        query = ImportSourceModel.findOneAndUpdate({ _id: lockedSource._id, usuarioId, importLockToken: lockToken,
+          importLockUntil: { $gt: now() }
+        }, { $set: { ...encrypted, syncEnabled: false, activo: true } }, { new: true, runValidators: true });
+        if (query?.select) query = query.select("+encryptedFeedUrl");
+        const source = await query;
         if (!source) throw Object.assign(new Error("Source busy"), { code: "SYNC_SOURCE_BUSY" });
         return safeSourceStatus(source);
       } catch (error) {
         if (error?.code === 11000) throw Object.assign(new Error("Source busy"), { code: "SYNC_SOURCE_BUSY" });
         throw error;
+      } finally {
+        if (lockedSource) await ImportSourceModel.updateOne({ _id: lockedSource._id, usuarioId, importLockToken: lockToken },
+          { $unset: { importLockToken: "", importLockUntil: "" } }
+        ).catch(() => console.warn("[CRM Sync Source]", { code: "SOURCE_UNLOCK_FAILED" }));
       }
     }
   };

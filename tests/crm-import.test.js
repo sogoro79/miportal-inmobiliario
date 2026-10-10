@@ -271,12 +271,13 @@ test("GET/PUT fuente sync requieren auth y solo permiten el propietario autentic
 });
 
 test("fuente sync sin clave/bloqueada falla de forma controlada sin filtrar errores", async () => {
-  for (const code of ["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY"]) {
+  for (const code of ["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY", "SYNC_SOURCE_URL_MISMATCH"]) {
     const { app, restore } = createApp({ syncSourceManager: { configure: async () => { throw Object.assign(new Error("private-token secret"), { code }); } } });
     try {
       const response = await request(app, "/api/crm-import/sync/source", { method: "PUT", headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml" } });
       assert.equal(response.status, 409);
       assert.equal(response.body.code, code);
+      if (code === "SYNC_SOURCE_URL_MISMATCH") assert.equal(response.body.error, "Esta cuenta ya tiene inmuebles vinculados a otra fuente CRM. En esta fase solo puedes configurar la misma fuente.");
       assert.doesNotMatch(JSON.stringify(response), /private-token|secret/);
     } finally { restore(); }
   }
