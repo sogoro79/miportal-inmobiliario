@@ -98,7 +98,7 @@ export function createSelectedImporter({
       }
       const lockToken = crypto.randomUUID();
       const start = now();
-      const locked = await budget.run(() => ImportSourceModel.findOneAndUpdate({ _id: source._id, activo: true,
+      const locked = await budget.run(() => ImportSourceModel.findOneAndUpdate({ _id: source._id, activo: true, feedUrlHash: hash,
         $or: [{ importLockUntil: { $exists: false } }, { importLockUntil: null }, { importLockUntil: { $lte: start } }]
       }, { $set: { importLockToken: lockToken, importLockUntil: new Date(start.getTime() + 15 * 60 * 1000), lastAnalyzedAt: start } }, { new: true }), {
         onLateResult: () => ImportSourceModel.updateOne({ _id: source._id, importLockToken: lockToken }, { $unset: { importLockToken: "", importLockUntil: "" } })

@@ -6,11 +6,26 @@ The existing selected import remains 10 properties / 100 photos / 120 seconds.
 
 ## Source configuration
 
-`encryptFeedUrl(url, env)` returns configuration fields; it does NOT persist them.
-An authorized, separately approved configuration operation must associate those
-fields with the existing user's ImportSource. Phase 3A does not add an enrollment
-UI/endpoint or silently save URLs during Phase 2. Legacy sources remain usable for
-manual import and return `SYNC_SOURCE_NOT_CONFIGURED` for simulation.
+`PUT /api/crm-import/sync/source`, Bearer auth, strict body `{ feedUrl }`, configures
+only `req.user.id`'s single source. URL syntax, protocols, credentials and all DNS
+addresses are validated using the existing SSRF policy before persistence; no HTTP
+download takes place. Simulation revalidates DNS and pins the actual connection.
+The endpoint encrypts the URL and atomically creates/updates the existing source,
+keeping `syncEnabled=false`. A live Phase 2 import lock prevents configuration;
+the unique user index prevents a second source during concurrent requests.
+Phase 2 acquires its lock only if the source still has the analyzed feed hash,
+closing the read/configure/lock race before any image download or property write.
+The existing 10/hour per-user AND per-IP analyze limits also protect configuration.
+No property enrollment or property write occurs.
+
+`GET /api/crm-import/sync/source` only reads the authenticated user's source.
+It returns own `importSourceId`, configured flag, masked URL and safe status/date,
+never plaintext, ciphertext, hash, key/version or foreign IDs. Legacy sources can
+be explicitly configured; deleting imported properties does not delete the source.
+Changing the configured URL replaces the single source: importing from its old URL
+will be rejected by Phase 2 until explicitly configured back. Existing properties
+and import timestamps are retained. GET status describes source metadata; simulation
+history continues to live in ImportSyncRun and does not update source success dates.
 
 - `CRM_FEED_URL_KEY_VERSION`: active numeric key version (default `1`).
 - `CRM_FEED_URL_KEY_V1`: dedicated random 32-byte key, base64 encoded.
@@ -21,6 +36,42 @@ manual import and return `SYNC_SOURCE_NOT_CONFIGURED` for simulation.
   checked after decryption. Ciphertext is excluded from ordinary Mongoose reads.
 - `syncEnabled` defaults to false on source and properties. Explicit simulation
   is permitted without enabling any future automatic synchronization.
+
+### Render configuration (do not commit the values)
+
+Set `CRM_FEED_URL_KEY_VERSION=1` and `CRM_FEED_URL_KEY_V1` to 32 random bytes encoded
+as canonical Base64 (44 characters, normally ending in `=`). To generate locally:
+
+```sh
+openssl rand -base64 32
+```
+
+This command is documentation only; it was not executed. Transfer the output only
+to Render's secret environment variable, never Git, frontend, logs or API responses.
+Without the key the app still starts; configuration/simulation returns a controlled
+409 and manual Phase 2 remains available. No environment changes in this task.
+
+### Controlled temporary feed and scenarios
+
+Profile includes a separate “Sincronización CRM — Vista previa” section. Saving
+clears the typed URL; only its masked form is subsequently displayed. Simulation
+shows full counters, incomplete-snapshot notice, conflicts/overrides and at most
+100 details. There is no apply button or automatic job.
+
+Temporary public resource (remove after the controlled test):
+`https://www.homeclick24.com/test-sync/homeclick24-sync-simulation.xml`.
+Four fictional `SYNC-DEMO-001..004` records, sale/rent, valid statuses and zero photos.
+It is not added to sitemap and nothing imports it automatically.
+With no matching stored references it yields four NEW simulation entries only.
+Public data contains no customer information, credentials, coordinates or images.
+
+UNCHANGED/UPDATE/CONFLICT need an explicitly enrolled, matching CRM property;
+legacy properties with `syncEnabled=false` intentionally remain CONFLICT. This
+task does not enroll or edit them. Those scenarios are covered with internal mocks:
+equal normalized data -> UNCHANGED; different price -> UPDATE; manual price override
+-> CONFLICT; absent reference in a complete snapshot -> MISSING. To exercise those
+scenarios in production needs separate authorization and suitable existing data;
+never alter MongoDB manually or import fictional public demo records for this test.
 
 ## Endpoint and history
 

@@ -23,7 +23,7 @@ const URL = "https://public.example/feed.xml?token=private";
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZfkAAAAASUVORK5CYII=", "base64");
 const fixtureXml = fs.readFileSync(new globalThis.URL("./fixtures/crm/homeclick24-crm-feed-prueba.xml", import.meta.url), "utf8");
 
-function fixture({ plan = "lanzamiento_2026", count = 0, failCreate = false, failDownload = false, failUpload = false, active = true, downloadHook = async () => {}, persistHook = async () => {} } = {}) {
+function fixture({ plan = "lanzamiento_2026", count = 0, failCreate = false, failDownload = false, failUpload = false, active = true, downloadHook = async () => {}, persistHook = async () => {}, sourceLockHook = async () => {} } = {}) {
   const users = new Map([USER, OTHER].map(id => [id, { _id: id, plan, planActivo: active, trialAccepted: true, activo: true }]));
   const sources = [];
   const properties = [];
@@ -36,6 +36,8 @@ function fixture({ plan = "lanzamiento_2026", count = 0, failCreate = false, fai
     async create(data) { const source = { ...data, _id: String(sources.length + 1), activo: true }; sources.push(source); return source; },
     async findOneAndUpdate(filter, update) {
       const source = sources.find(item => item._id === filter._id);
+      await sourceLockHook(source);
+      if (!source || source.feedUrlHash !== filter.feedUrlHash) return null;
       if (source.importLockUntil && source.importLockUntil > new Date()) return null;
       Object.assign(source, update.$set); return source;
     },
@@ -93,6 +95,15 @@ test("selección crea solo anuncios elegidos y persiste identidad CRM y datos or
   assert.equal(p.tipoInmueble, "casa_campo"); assert.equal(p.visiblePublicamente, true);
   assert.equal(p.imagenes.length, 5); assert.equal(f.downloaded.length, 5);
   assert.equal(f.sources[0].feedUrlHash, feedHash(URL)); assert.ok(!JSON.stringify(f.sources).includes("private"));
+  assert.equal(f.sources[0].importLockToken, undefined);
+});
+
+test("reconfigurar fuente antes de adquirir lock aborta sin imagenes ni propiedades", async () => {
+  const f = fixture({ sourceLockHook: async source => { source.feedUrlHash = feedHash("https://public.example/new-feed.xml"); } });
+  await assert.rejects(() => f.run(f.input), error => error.status === 409);
+  assert.equal(f.downloaded.length, 0);
+  assert.equal(f.uploaded.length, 0);
+  assert.equal(f.properties.length, 0);
   assert.equal(f.sources[0].importLockToken, undefined);
 });
 

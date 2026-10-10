@@ -18,6 +18,7 @@ import { getPlanParaFotos } from "../utils/publishEligibility.js";
 import { z } from "../utils/validation.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES } from "../utils/import/importBudget.js";
 import { createSyncSimulator, safeSimulationCode } from "../utils/import/syncSimulation.js";
+import { createSyncSourceManager } from "../utils/import/syncSource.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
@@ -61,6 +62,7 @@ export function createCrmImportRouter({
   ImportSourceModel = ImportSource,
   ImportSyncRunModel,
   simulateSync,
+  syncSourceManager,
   importSelected,
   importRateLimitMiddleware = securityRateLimits.crmImport,
   importUserRateLimitMiddleware = securityRateLimits.crmImportByUser,
@@ -70,6 +72,29 @@ export function createCrmImportRouter({
   const router = express.Router();
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
   const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
+  const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel });
+
+  function sourceError(res, error) {
+    const code = error?.code === "SYNC_SOURCE_BUSY" ? "SYNC_SOURCE_BUSY" : safeSimulationCode(error);
+    console.warn("[CRM Sync Source]", { code });
+    const message = code === "SYNC_SOURCE_NOT_CONFIGURED" ? "La configuración de cifrado CRM no está disponible. La importación manual sigue disponible."
+      : code === "SYNC_SOURCE_BUSY" ? "Hay una importación o configuración en curso. Espera y vuelve a intentarlo."
+      : "No se pudo configurar la fuente CRM. Revisa que la URL sea pública y válida.";
+    return res.status(["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY"].includes(code) ? 409 : code === "FEED_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400).json({ code, error: message });
+  }
+
+  router.get("/sync/source", requireAuth, async (req, res) => {
+    if (Object.keys(req.query || {}).length) return res.status(400).json({ error: "No se permite indicar una fuente o propietario." });
+    try { return res.json(await sourceManager.get(req.user.id)); }
+    catch (error) { return sourceError(res, error); }
+  });
+
+  router.put("/sync/source", requireAuth, userRateLimitMiddleware, rateLimitMiddleware, async (req, res) => {
+    const parsed = analyzeSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: "Indica solamente una URL pública de feed válida." });
+    try { return res.json(await sourceManager.configure(req.user.id, parsed.data.feedUrl)); }
+    catch (error) { return sourceError(res, error); }
+  });
 
   router.post("/sync/simulate", requireAuth, userRateLimitMiddleware, rateLimitMiddleware, async (req, res) => {
     const parsed = z.object({ importSourceId: z.string().regex(/^[a-fA-F0-9]{24}$/) }).strict().safeParse(req.body || {});

@@ -122,6 +122,7 @@ function createApp({
   fetchFeedXml: fetcher,
   importSelected,
   simulateSync,
+  syncSourceManager,
   ImportSourceModel = { findOne: async () => null },
   importUserRateLimitMiddleware = (req, res, next) => next(),
   userRateLimitMiddleware = (req, res, next) => next()
@@ -140,6 +141,7 @@ function createApp({
     ImportSourceModel,
     importSelected,
     simulateSync,
+    syncSourceManager,
     importRateLimitMiddleware: (req, res, next) => next(),
     importUserRateLimitMiddleware,
     rateLimitMiddleware: (req, res, next) => next(),
@@ -247,6 +249,49 @@ test("POST /api/crm-import/analyze requiere autenticación", async () => {
   } finally {
     restore();
   }
+});
+
+test("GET/PUT fuente sync requieren auth y solo permiten el propietario autenticado", async () => {
+  const calls = [];
+  const { app, restore } = createApp({ syncSourceManager: {
+    get: async id => { calls.push(["get", id]); return { configured: false, syncEnabled: false }; },
+    configure: async (id, url) => { calls.push(["put", id, url]); return { configured: true, syncEnabled: false }; }
+  } });
+  try {
+    for (const method of ["GET", "PUT"]) assert.equal((await request(app, "/api/crm-import/sync/source", { method })).status, 401);
+    for (const extra of [{ ownerId: OTHER_ID }, { usuarioId: OTHER_ID }, { importSourceId: OTHER_ID }]) {
+      assert.equal((await request(app, "/api/crm-import/sync/source", { method: "PUT", headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml", ...extra } })).status, 400);
+    }
+    assert.equal((await request(app, `/api/crm-import/sync/source?usuarioId=${OTHER_ID}`, { method: "GET", headers: authHeaderFor() })).status, 400);
+    assert.deepEqual(calls, []);
+    assert.equal((await request(app, "/api/crm-import/sync/source", { method: "PUT", headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml" } })).status, 200);
+    assert.equal((await request(app, "/api/crm-import/sync/source", { method: "GET", headers: authHeaderFor() })).status, 200);
+    assert.deepEqual(calls, [["put", USER_ID, "https://example.com/feed.xml"], ["get", USER_ID]]);
+  } finally { restore(); }
+});
+
+test("fuente sync sin clave/bloqueada falla de forma controlada sin filtrar errores", async () => {
+  for (const code of ["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY"]) {
+    const { app, restore } = createApp({ syncSourceManager: { configure: async () => { throw Object.assign(new Error("private-token secret"), { code }); } } });
+    try {
+      const response = await request(app, "/api/crm-import/sync/source", { method: "PUT", headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml" } });
+      assert.equal(response.status, 409);
+      assert.equal(response.body.code, code);
+      assert.doesNotMatch(JSON.stringify(response), /private-token|secret/);
+    } finally { restore(); }
+  }
+});
+
+test("configurar fuente comparte rate limit por usuario con analisis/simulacion", async () => {
+  const { app, restore } = createApp({
+    syncSourceManager: { configure: async () => ({ configured: true, syncEnabled: false }) },
+    userRateLimitMiddleware: createUserSecurityRateLimit({ max: 1, windowMs: 60000, keyPrefix: "sync-source-test" })
+  });
+  try {
+    const options = { method: "PUT", headers: authHeaderFor(), body: { feedUrl: "https://example.com/feed.xml" } };
+    assert.equal((await request(app, "/api/crm-import/sync/source", options)).status, 200);
+    assert.equal((await request(app, "/api/crm-import/sync/source", options)).status, 429);
+  } finally { restore(); }
 });
 
 test("simulación requiere auth, body estricto y usa solo req.user.id", async () => {

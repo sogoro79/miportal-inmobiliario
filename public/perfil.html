@@ -458,6 +458,9 @@
     }
 
     .crm-import-muted { color: #999; }
+    .crm-sync-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid #d8edc6; min-width: 0; }
+    .crm-sync-results { max-height: 420px; overflow-y: auto; overflow-wrap: anywhere; margin-top: 16px; font-size: 0.9rem; line-height: 1.6; }
+    .crm-sync-masked { overflow-wrap: anywhere; margin-top: 12px; }
 
     .crm-import-disabled {
       margin-top: 12px;
@@ -764,6 +767,19 @@
     <p id="crmSelectedCount">Seleccionados: 0</p>
     <button class="btn-perfil green" id="btnImportCrm" type="button" onclick="importarSeleccionadosCrm()" disabled>Importar seleccionados</button>
     <div id="crmImportResults" class="crm-import-status" aria-live="polite"></div>
+    <section class="crm-sync-section" aria-labelledby="crmSyncTitle">
+      <h3 id="crmSyncTitle">Sincronización CRM — Vista previa</h3>
+      <p>Esta función solo simula los cambios. No modifica tus anuncios.</p>
+      <p>Guardar una URL sustituye la fuente CRM actual para futuras importaciones y simulaciones. No añade otro feed ni modifica anuncios existentes.</p>
+      <div class="crm-import-form">
+        <input type="url" id="crmSyncFeedUrl" aria-label="URL pública para simulación" placeholder="https://tu-crm.com/feed.xml" autocomplete="off">
+        <button type="button" class="btn-perfil green" id="crmSyncSave">Guardar fuente</button>
+      </div>
+      <p id="crmSyncMasked" class="crm-sync-masked"></p>
+      <button type="button" class="btn-perfil green" id="crmSyncSimulate" disabled>Simular sincronización</button>
+      <div id="crmSyncStatus" class="crm-import-status" aria-live="polite"></div>
+      <div id="crmSyncResults" class="crm-sync-results"></div>
+    </section>
   </div>
 
   <!-- MIS PROPIEDADES -->
@@ -800,6 +816,7 @@
 
 <script src="/js/publish-flow.js"></script>
 <script src="/js/precios.js?v=1"></script>
+<script src="/js/crm-sync-ui.js?v=1"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");
@@ -1004,6 +1021,7 @@ function inicializarImportadorCrm(usuario) {
   const card = document.getElementById("crmImportCard");
   if (!card) return;
   card.style.display = esUsuarioProfesional(usuario) ? "block" : "none";
+  if (esUsuarioProfesional(usuario)) window.HomeClickCrmSync.iniciar(() => token);
 }
 
 function formatearPrecioCrm(precio, tipoOperacion = "") {
