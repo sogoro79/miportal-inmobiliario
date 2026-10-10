@@ -251,11 +251,12 @@ test("POST /api/crm-import/analyze requiere autenticación", async () => {
   }
 });
 
-test("router solo registra configuracion y simulacion normales de sincronizacion", () => {
+test("router registra configuracion, vinculacion y simulacion, pero nunca apply", () => {
   const router = createCrmImportRouter();
   const routes = router.stack.filter(layer => layer.route?.path.startsWith("/sync/"))
     .map(layer => [layer.route.path, Object.keys(layer.route.methods)]);
-  assert.deepEqual(routes, [["/sync/source", ["get"]], ["/sync/source", ["put"]], ["/sync/simulate", ["post"]]]);
+  assert.deepEqual(routes, [["/sync/source", ["get"]], ["/sync/source", ["put"]], ["/sync/simulate", ["post"]],
+    ["/sync/enroll", ["post"]], ["/sync/runs/:id", ["get"]]]);
 });
 
 test("GET/PUT fuente sync requieren auth y solo permiten el propietario autenticado", async () => {

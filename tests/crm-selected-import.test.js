@@ -15,8 +15,8 @@ import { defaultRequestOnce } from "../utils/import/feedFetcher.js";
 import { getLimiteFotosPlan } from "../utils/planLimits.js";
 import { createPublicationPersistence } from "../utils/publicationPersistence.js";
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
-import { buildSyncSnapshot, syncFingerprint, SYNC_FINGERPRINT_VERSION } from "../utils/import/syncSnapshot.js";
 import { createSyncSimulator } from "../utils/import/syncSimulation.js";
+import { createSyncEnroller } from "../utils/import/syncEnroll.js";
 import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { isPrivateOrReservedIp, maskFeedUrl, assertPublicFeedTarget } from "../utils/import/feedSecurity.js";
@@ -162,8 +162,7 @@ test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras"
   assert.equal(imported.imported, 4);
   assert.equal(f.downloaded.length, 0);
   assert.equal(f.uploaded.length, 0);
-  const snapshot = buildSyncSnapshot(v1);
-  // Schema defaults are materialized without a database; enrollment here is test-only.
+  // Materialize schema defaults without a database, then use real enrollment with doubles.
   const properties = f.properties.map(item => ({ ...new Propiedad(item).toObject(), importSourceId: item.importSourceId }));
   assert.ok(properties.every(item => item.source === "crm" && item.importSourceId === f.sources[0]._id));
   assert.ok(properties.every(item => item.syncEnabled === false));
@@ -172,18 +171,38 @@ test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras"
   const env = { CRM_FEED_URL_KEY_VERSION: "1", CRM_FEED_URL_KEY_V1: Buffer.alloc(32, 1).toString("base64") };
   const { encryptFeedUrl } = await import("../utils/import/feedUrlCrypto.js");
   const source = { _id: f.sources[0]._id, usuarioId: USER, activo: true, feedType: "generic_xml", ...encryptFeedUrl(URL, env) };
+  const sourceModel = {
+    findOne: async filter => filter.usuarioId === USER && String(filter._id) === String(source._id) &&
+      (!filter.importLockToken || filter.importLockToken === source.importLockToken) &&
+      (!filter.importLockUntil || source.importLockUntil > filter.importLockUntil.$gt) ? source : null,
+    findOneAndUpdate: async (filter, update) => {
+      if (source.importLockUntil > new Date()) return null;
+      Object.assign(source, update.$set); return source;
+    },
+    updateOne: async (filter, update) => {
+      if (source.importLockToken !== filter.importLockToken) return { matchedCount: 0 };
+      Object.assign(source, update.$set || {});
+      for (const key of Object.keys(update.$unset || {})) delete source[key];
+      return { matchedCount: 1 };
+    }
+  };
   const simulate = createSyncSimulator({ env,
-    ImportSourceModel: { findOne: async () => source },
+    ImportSourceModel: sourceModel,
     ImportSyncRunModel: { create: async row => { runs.push(row); return { _id: "run" }; }, updateOne: async () => {} },
     PropiedadModel: { find: async () => properties, create: () => assert.fail("no creates"), updateOne: () => assert.fail("no updates"), deleteOne: () => assert.fail("no deletes") },
     fetchXml: async () => ({ xml: feed })
   });
   assert.equal((await simulate({ usuarioId: USER, importSourceId: source._id })).conflictCount, 4);
-  for (const item of properties) {
-    item.syncEnabled = true;
-    item.syncFingerprint = syncFingerprint(snapshot.properties.find(record => record.data.externalId === item.externalId).data);
-    item.syncFingerprintVersion = SYNC_FINGERPRINT_VERSION;
-  }
+  const enroll = createSyncEnroller({ env, ImportSourceModel: sourceModel, fetchXml: async () => ({ xml: v1 }),
+    PropiedadModel: { find: async () => properties,
+      startSession: async () => ({ withTransaction: async callback => callback(), endSession: async () => {} }),
+      updateOne: async (filter, update) => {
+        const property = properties.find(p => String(p._id) === String(filter._id));
+        Object.assign(property, update.$set); return { matchedCount: 1 };
+      }
+    }
+  });
+  assert.equal((await enroll({ usuarioId: USER, importSourceId: source._id, externalIds: selectedExternalIds })).enrolled, 4);
   assert.equal((await simulate({ usuarioId: USER, importSourceId: source._id })).unchangedCount, 4);
   const edited = properties.find(item => item.externalId === "REF-003");
   const beforeEdit = capturePropertyContent(edited);
@@ -201,8 +220,8 @@ test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras"
   assert.deepEqual(Object.fromEntries(result.results.map(item => [item.externalId, item.type])), {
     "REF-001": "UNCHANGED", "REF-002": "UPDATE", "REF-003": "CONFLICT", "REF-005": "NEW", "REF-004": "MISSING"
   });
-  assert.deepEqual(Object.keys(result.results.find(item => item.type === "UPDATE").changes), ["precio"]);
-  assert.equal(result.results.find(item => item.type === "CONFLICT").changes.descripcion.blockedByOverride, true);
+  assert.deepEqual(result.results.find(item => item.type === "UPDATE").changedFields, ["precio"]);
+  assert.equal(result.results.find(item => item.type === "CONFLICT").blocked, true);
   assert.equal(JSON.stringify(properties), beforeSimulation);
   assert.equal(f.properties.length, 4);
 });

@@ -1,4 +1,4 @@
-# CRM synchronization: Phase 3A
+# CRM synchronization: Phase 3A and 3B.1A
 
 The normal simulation only simulates. No property insert/update/delete, photo download/upload,
 visibility change, quota reservation, automatic job or scheduled synchronization.
@@ -77,11 +77,12 @@ owner. Existing per-user and per-IP analyze limits also protect simulation.
 The hardened fetcher is reused unchanged, including DNS validation of all records,
 IP pinning, Host/SNI, redirect revalidation, streaming 5 MB limit and timeouts.
 
-ImportSyncRun records only timestamps, simulation status, completeness, counters,
-safe warning/error codes. An index on user/source/start date supports history.
+ImportSyncRun records timestamps, simulation status, completeness, counters,
+safe warning/error codes and the bounded, hashed plan described below.
+An index on user/source/start date supports history.
 No URL, XML, ciphertext or photo URLs are stored in runs. Responses contain up to
-100 results and report full counters and `resultsTruncated`. Photos are represented
-by count/hash; links embedded in other response text are redacted. Failure logs
+100 results and report full counters and `resultsTruncated`. Prepared responses
+omit photo details and full content values. Failure logs
 contain only allowlisted codes, not arbitrary error messages or URLs.
 Runs before URL validation are not created; a fetch/parser failure records a failed
 run where MongoDB permits it. A persistence outage can prevent recording a run.
@@ -110,7 +111,7 @@ photo list. Absence and null are different. A matching fingerprint is only a hin
 actual field differences and manual protections always take precedence.
 
 - UNCHANGED: supplied normalized fields equal persisted fields.
-- UPDATE: non-protected, non-identity fields differ; old/new values are shown.
+- UPDATE: managed V1 fields differ, with valid enrollment baseline; field names are shown.
 - NEW: unknown stable reference, summary and publication-data validity; no quota
   is reserved. Missing required creation fields mean not publishable.
 - MISSING: stored CRM reference absent from a complete snapshot only; no hiding.
@@ -129,11 +130,11 @@ Commercial status mapping:
 | withdrawn / inactive / deleted | CRM withdrawal; review conflict only |
 | unknown / explicit empty or null | INVALID, never Disponible |
 
-Photo source URLs differ from saved Cloudinary URLs: an explicitly enrolled
-property may show a photo UPDATE even for the same visual image. Version 1 does
-not assert image-content equivalence or establish baselines by writing properties.
-Signed photo URL rotation also changes the fingerprint. Neither can cause a real
-update in 3A; a source-photo baseline is needed before implementing real photo sync.
+Photo source URLs differ from saved Cloudinary URLs. The original full-fingerprint
+helper remains available, but the prepared V1 plan excludes photos from change and
+enrollment compatibility checks. It never asserts image-content equivalence.
+Signed photo URL rotation changes the full snapshot digest and will require fresh
+review before a future apply. A source-photo manifest is needed for a later phase.
 
 ## Manual content edits
 
@@ -144,3 +145,86 @@ Visits, contacts, favorites and social statistics do not change this revision.
 System plan/account lifecycle operations remain untouched. Properties are never
 enrolled automatically, and creation transactions/publicationVersion are unchanged.
 Returning a field to CRM and revision-checked/fenced real updates are future work.
+
+## Phase 3B.1A: explicit enrollment, not apply
+
+`POST /api/crm-import/sync/enroll` requires Bearer auth and strict body
+`{ importSourceId, externalIds }`, between 1 and 10 distinct references. No owner,
+feed URL, content or frontend fingerprints are accepted. The owner is `req.user.id`.
+Only own active configured sources are available (foreign/missing source: 404).
+The endpoint uses the existing 10/hour per-IP AND per-user CRM limits.
+
+Enrollment decrypts and securely downloads the source URL, requires a complete
+snapshot and checks exact CRM ownership/source/reference plus normalized content.
+Explicit non-photo differences, withdrawal, overrides or an invalid existing
+baseline reject the whole selection with 409. No automatic baseline repair.
+An absent feed field is not a request to remove the saved value. No geographic
+or publication defaults are invented. Photos are excluded because saved Cloudinary
+URLs cannot be compared to feed image URLs as content equivalence.
+
+Managed V1 fields: precio, titulo, descripcion, habitaciones, banos, superficie,
+garaje, piscina, terraza. The ordered fingerprint uses SHA-256, fields version 1
+and normalization version 1. Undefined has an explicit absence tag, null its own
+tag, empty string remains a string, and zero/false retain their numeric/boolean
+types. Text is trimmed and whitespace normalized. No numeric string coercion is
+performed here; the feed parser already normalizes numbers. Null is allowed only
+for descripcion and superficie; invalid empty numbers, null booleans and negative
+or non-integer room counts cannot enroll or produce an applicable UPDATE.
+
+Propiedad stores `syncApplyFingerprint` and `syncApplyFingerprintVersion=1`, distinct
+from existing `syncFingerprint`/`syncFingerprintVersion`. The baseline captures
+all managed saved fields, including values retained when the feed omits them.
+Enrollment only sets these two fields plus `syncEnabled=true`, in a MongoDB
+transaction. It never changes content, contentRevision, syncOverrides, statistics
+or Usuario.publicationVersion. First enrollment can update the model timestamp;
+repeated identical enrollment never updates/saves Propiedad or its timestamps.
+Shared source lease acquisition/release remains necessary even on this no-op path.
+
+## Shared lease and prepared simulations
+
+Simulation and enrollment now acquire the same ImportSource importLockToken /
+importLockUntil used by Phase 2 and source configuration. There is no second lock.
+Only the owning token is released. Token, identity and lease are checked before
+writes; enrollment writes the same lease document inside its transaction to fence
+concurrent import/configuration, rereads properties and conditionally writes
+metadata by revision. Downloading happens outside the retryable transaction.
+
+Properties with syncEnabled=false remain blocked CONFLICT / PROPERTY_SYNC_DISABLED.
+Only matching, override-free properties get enrollmentEligible=true. Linked
+properties require a valid managed baseline; drift never becomes an applicable
+UPDATE. All overrides block the property in V1, including overrides of excluded
+fields. Unsupported non-photo changes are also conflicts. No automatic clearing.
+Incomplete snapshots produce blocked runs and blocked UPDATE entries, no enrollment
+or MISSING. UNCHANGED never writes property metadata, timestamps or lastSeenAt.
+
+New run states support simulated, applying, applied, blocked, failed, aborted,
+alongside old running/completed/incomplete values. This phase only generates
+blocked (including preparation), simulated or failed. Applying/applied are reserved.
+New runs have a logical 20-minute expiresAt, with no TTL index, sourceIdentityHash,
+snapshotDigest, snapshotVersion=1, normalizationVersion=1 and applyFieldsVersion=1.
+The digest hashes the complete normalized feed records (including excluded fields)
+in stable reference order. Only the digest, not XML or URLs, is stored.
+
+The first 100 safe plan entries are stored, with totalResults/planTruncated for the
+full snapshot. Eligible UPDATE entries store property ID, externalId, expected
+content revision, expected/proposed managed fingerprints and changed field names.
+Conflicts store safe reason codes, field names and blocked=true. No before/after
+content, description, photo URLs or XML is stored. Future apply must reject targets
+outside this stored bounded plan; it must redownload, recompute, check expiration,
+source identity/versions/revision/overrides and compare to the approved run.
+
+`GET /api/crm-import/sync/runs/:id` requires auth, only reads runs of req.user.id,
+returns 404 for foreign runs and a whitelisted summary with at most 100 details.
+Internal hashes/preconditions are not exposed. Legacy runs remain readable but
+have no prepared plan and are treated as expired/non-applicable.
+
+Profile displays linked / requires enrollment / blocked states and offers an
+explicit enrollment button only for compatible unlinked records. It clears that
+preview after enrollment and asks for a fresh simulation. There is no apply button.
+
+**Apply does not exist yet.** No NEW creation, MISSING hiding/removal, photo changes,
+Cloudinary calls, quota changes, worker or cron are introduced by this phase.
+Normal/admin editing still uses existing save + contentRevision increments. Before
+3B.1B, optimistic concurrency for manual saves and future transactional apply must
+be addressed: the source lease does not serialize manual edits. A simulation plan
+is a set of preconditions, not a permission to ignore later changes.

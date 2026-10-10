@@ -770,6 +770,7 @@
     <section class="crm-sync-section" aria-labelledby="crmSyncTitle">
       <h3 id="crmSyncTitle">Sincronización CRM — Vista previa</h3>
       <p>Esta función solo simula los cambios. No modifica tus anuncios.</p>
+      <p>Vincular no modifica el contenido del anuncio. Solo establece el punto de comparación para futuras sincronizaciones.</p>
       <p>Guardar una URL sustituye la fuente CRM actual para futuras importaciones y simulaciones. No añade otro feed ni modifica anuncios existentes.</p>
       <div class="crm-import-form">
         <input type="url" id="crmSyncFeedUrl" aria-label="URL pública para simulación" placeholder="https://tu-crm.com/feed.xml" autocomplete="off">
@@ -816,7 +817,7 @@
 
 <script src="/js/publish-flow.js"></script>
 <script src="/js/precios.js?v=1"></script>
-<script src="/js/crm-sync-ui.js?v=2"></script>
+<script src="/js/crm-sync-ui.js?v=3"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");

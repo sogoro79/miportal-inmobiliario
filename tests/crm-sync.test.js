@@ -269,7 +269,21 @@ function harness({ feed = xml(1), existing = [], fetcher, source: sourceOverride
   const updates = [];
   const lookups = [];
   const simulate = createSyncSimulator({ env,
-    ImportSourceModel: { findOne: async filter => { lookups.push(filter); return filter.usuarioId === userId && filter._id === sourceId ? source : null; } },
+    ImportSourceModel: {
+      findOne: async filter => { lookups.push(filter); return filter.usuarioId === userId && filter._id === sourceId &&
+        (!filter.importLockToken || filter.importLockToken === source.importLockToken) &&
+        (!filter.importLockUntil || source.importLockUntil > filter.importLockUntil.$gt) ? source : null; },
+      findOneAndUpdate: async (filter, update) => {
+        if (source.importLockUntil > new Date()) return null;
+        Object.assign(source, update.$set);
+        return source;
+      },
+      updateOne: async (filter, update) => {
+        if (filter.importLockToken !== source.importLockToken) return { matchedCount: 0 };
+        for (const key of Object.keys(update.$unset || {})) delete source[key];
+        return { matchedCount: 1 };
+      }
+    },
     ImportSyncRunModel: { create: async row => { runs.push(row); return { _id: "run-1" }; }, updateOne: async (...args) => { updates.push(args); } },
     PropiedadModel: { find: async filter => { assert.deepEqual(filter, { usuarioId: userId, importSourceId: sourceId, source: "crm" }); return existing; }, updateOne: () => assert.fail("no property writes"), create: () => assert.fail("no property creation") },
     fetchXml: fetcher || (async received => { assert.equal(received, url); return { xml: feed }; })

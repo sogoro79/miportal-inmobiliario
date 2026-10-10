@@ -2,13 +2,14 @@ import ImportSource from "../../models/ImportSource.js";
 import ImportSyncRun from "../../models/ImportSyncRun.js";
 import Propiedad from "../../models/Propiedad.js";
 import { fetchFeedXml } from "./feedFetcher.js";
-import { decryptFeedUrl } from "./feedUrlCrypto.js";
 import { buildSyncSnapshot, MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
-import { compareSyncSnapshot } from "./syncDiff.js";
 import { createImportBudget } from "./importBudget.js";
+import { acquireSyncLock } from "./syncLock.js";
+import { prepareSyncPlan, snapshotDigest, safeRunSummary, runVersions, RUN_LIFETIME_MS } from "./syncPlan.js";
 
 const safeCodes = new Set([
   "SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_NOT_FOUND", "SYNC_RUN_FAILED", "SYNC_RUN_SAVE_FAILED",
+  "SYNC_SOURCE_BUSY", "SYNC_ENROLL_SELECTION_INVALID", "SYNC_SNAPSHOT_INCOMPLETE", "SYNC_ENROLL_BASELINE_MISMATCH",
   "SYNC_EXISTING_LIMIT_EXCEEDED", "XML_INVALID", "XML_DOCTYPE_BLOCKED", "XML_ENTITY_BLOCKED",
   "FEED_TOO_LARGE", "FEED_UNREACHABLE", "FEED_TIMEOUT", "FEED_TRUNCATED", "IMPORT_TIMEOUT",
   "INVALID_URL", "INVALID_PROTOCOL", "PRIVATE_HOST", "PRIVATE_IP", "DNS_LOOKUP_FAILED",
@@ -24,17 +25,16 @@ export function createSyncSimulator({
   fetchXml = fetchFeedXml, env = process.env, now = () => new Date()
 } = {}) {
   return async ({ usuarioId, importSourceId }) => {
-    let query = ImportSourceModel.findOne({ _id: importSourceId, usuarioId, activo: true });
-    if (query?.select) query = query.select("+encryptedFeedUrl");
-    const source = await query;
-    if (!source) throw Object.assign(new Error("Fuente no encontrada."), { code: "SYNC_SOURCE_NOT_FOUND", status: 404 });
-    const feedUrl = decryptFeedUrl(source, env);
-    if (source.feedType !== "generic_xml") throw Object.assign(new Error("Fuente no configurada."), { code: "SYNC_SOURCE_NOT_CONFIGURED", status: 409 });
     const startedAt = now();
-    const run = await ImportSyncRunModel.create({ usuarioId, importSourceId, status: "running", mode: "simulation", startedAt });
     const budget = createImportBudget();
+    let lock;
+    let run;
     try {
-      const fetched = await fetchXml(feedUrl, { budget });
+      lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now });
+      run = await ImportSyncRunModel.create({ usuarioId, importSourceId, status: "blocked", mode: "simulation", startedAt,
+        expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...runVersions,
+        sourceIdentityHash: lock.source.feedUrlHash, errorCode: "SIMULATION_IN_PROGRESS" });
+      const fetched = await fetchXml(lock.feedUrl, { budget });
       budget.assertActive();
       const snapshot = buildSyncSnapshot(fetched.xml);
       let properties = PropiedadModel.find({ usuarioId, importSourceId, source: "crm" });
@@ -45,23 +45,28 @@ export function createSyncSimulator({
         snapshot.snapshotComplete = false;
         snapshot.warnings.push("SYNC_EXISTING_LIMIT_EXCEEDED", "MISSING_DISABLED_INCOMPLETE_SNAPSHOT");
       }
-      const diff = compareSyncSnapshot(snapshot, existing.slice(0, MAX_SYNC_PROPERTIES));
-      const { results, ...summary } = diff;
+      const { plan, resultsTruncated, ...summary } = prepareSyncPlan(snapshot, existing.slice(0, MAX_SYNC_PROPERTIES));
       const finishedAt = now();
-      const final = { ...summary, status: snapshot.snapshotComplete ? "completed" : "incomplete",
+      const final = { ...summary, plan, planTruncated: resultsTruncated, snapshotDigest: snapshotDigest(snapshot),
+        status: snapshot.snapshotComplete ? "simulated" : "blocked",
+        ...(snapshot.snapshotComplete ? {} : { errorCode: "SYNC_SNAPSHOT_INCOMPLETE" }),
         finishedAt, durationMs: finishedAt.getTime() - startedAt.getTime(),
         snapshotComplete: snapshot.snapshotComplete, snapshotCount: snapshot.snapshotCount, warnings: snapshot.warnings };
       budget.assertActive();
-      await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final });
-      return { runId: String(run._id), mode: "simulation", ...final,
-        totalResults: results.length, resultsTruncated: results.length > 100, results: results.slice(0, 100) };
+      await lock.assert();
+      await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final,
+        ...(snapshot.snapshotComplete ? { $unset: { errorCode: "" } } : {}) });
+      return safeRunSummary({ _id: run._id, createdAt: startedAt, expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...final }, now());
     } catch (error) {
       const code = safeSimulationCode(error);
       const finishedAt = now();
-      await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: {
+      if (run) await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: {
         status: "failed", errorCount: 1, errorCode: code, finishedAt, durationMs: finishedAt.getTime() - startedAt.getTime()
       } }).catch(() => console.warn("[CRM Sync Simulation]", { code: "SYNC_RUN_SAVE_FAILED" }));
       throw Object.assign(new Error("No se pudo completar la simulación CRM."), { code, status: code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : 400 });
-    } finally { budget.dispose(); }
+    } finally {
+      if (lock) await lock.release();
+      budget.dispose();
+    }
   };
 }

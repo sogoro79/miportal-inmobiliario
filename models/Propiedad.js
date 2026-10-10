@@ -13,6 +13,8 @@ const PropiedadSchema = new mongoose.Schema({
   lastSyncedAt: Date,
   syncFingerprint: String,
   syncFingerprintVersion: Number,
+  syncApplyFingerprint: String,
+  syncApplyFingerprintVersion: Number,
   contentRevision: { type: Number, default: 0 },
   syncOverrides: {
     type: new mongoose.Schema(Object.fromEntries(CONTENT_FIELDS.map(field => [field, Boolean])), { _id: false }),
