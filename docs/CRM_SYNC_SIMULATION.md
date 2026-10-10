@@ -175,12 +175,16 @@ Procedure after separately authorized deployment/environment configuration:
    A normal baseline simulation should show four PROPERTY_SYNC_DISABLED conflicts.
 3. Press “Vincular cuatro anuncios de prueba” and explicitly confirm. It rejects
    extra/missing/duplicate records, foreign ownership, different feed, existing
-   overrides, already-enrolled rows or content different from normalized v1.
+   overrides, inconsistent enrollment or content different from normalized v1.
    Under the same Phase 2 source lock, one MongoDB transaction sets ONLY each
    property's syncEnabled=true, fingerprint and fingerprint version. Source
    syncEnabled remains false. No content, revision, quotas or visibility change.
    This flag permits comparison/manual override tracking, not automatic sync.
    Downloads are outside the retryable callback; failures abort all four updates.
+   Repeating with four unchanged enrolled rows and identical fingerprints/version
+   returns `alreadyEnrolled=true` without property writes. Only the shared lock is
+   acquired/released, without changing source timestamps. Any baseline discrepancy
+   returns `SYNC_TEST_BASELINE_MISMATCH`; it never repairs or overwrites a baseline.
 4. Normal v1 simulation now shows four UNCHANGED. From the normal owner edit form,
    edit ONLY description of SYNC-DEMO-003 to a distinct sentence; save it once.
    The existing route/helper records only syncOverrides.descripcion=true and

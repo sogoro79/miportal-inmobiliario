@@ -18,6 +18,7 @@ function fixture({ extra = false, retry = false } = {}) {
   if (extra) rows.push({ externalId: "REAL", usuarioId: USER, importSourceId: SOURCE, source: "crm" });
   const fetched = [];
   const updates = [];
+  const lockWrites = [];
   const matches = (row, filter) => Object.entries(filter).every(([key, value]) => {
     if (key === "$or") return !row.importLockUntil || row.importLockUntil <= new Date();
     if (value?.$gt) return row[key] > value.$gt;
@@ -27,8 +28,8 @@ function fixture({ extra = false, retry = false } = {}) {
   function query(value) { return { select() { return this; }, session() { return this; }, limit() { return this; }, lean() { return Promise.resolve(value); }, then(resolve, reject) { return Promise.resolve(value).then(resolve, reject); } }; }
   const ImportSourceModel = {
     findOne: filter => query(matches(source, filter) ? source : null),
-    findOneAndUpdate: async (filter, update) => { if (!matches(source, filter)) return null; Object.assign(source, update.$set); return source; },
-    updateOne: async (filter, update) => { if (matches(source, filter)) for (const key of Object.keys(update.$unset || {})) delete source[key]; }
+    findOneAndUpdate: async (filter, update, options) => { lockWrites.push({ filter, update, options }); if (!matches(source, filter)) return null; Object.assign(source, update.$set); return source; },
+    updateOne: async (filter, update, options) => { lockWrites.push({ filter, update, options }); if (matches(source, filter)) for (const key of Object.keys(update.$unset || {})) delete source[key]; }
   };
   const PropiedadModel = {
     find: filter => query(rows.filter(row => matches(row, filter))),
@@ -36,7 +37,7 @@ function fixture({ extra = false, retry = false } = {}) {
     create: () => assert.fail("no creation"),
     db: { startSession: async () => ({ endSession: async () => {}, withTransaction: async callback => {
       const before = structuredClone(rows);
-      try { await callback(); if (retry) { rows.splice(0, rows.length, ...structuredClone(before)); await callback(); } }
+      try { let result = await callback(); if (retry) { rows.splice(0, rows.length, ...structuredClone(before)); result = await callback(); } return result; }
       catch (error) { rows.splice(0, rows.length, ...before); throw error; }
     } }) }
   };
@@ -44,7 +45,7 @@ function fixture({ extra = false, retry = false } = {}) {
     ImportSyncRunModel: { create: async () => ({ _id: "run" }), updateOne: async () => {} },
     fetchXml: async url => { fetched.push(url); return { xml: url === DEMO_V1_URL ? v1 : v2 }; }
   });
-  return { demo, rows, source, env, fetched, updates, PropiedadModel, input: { usuarioId: USER, importSourceId: SOURCE } };
+  return { demo, rows, source, env, fetched, updates, lockWrites, PropiedadModel, input: { usuarioId: USER, importSourceId: SOURCE } };
 }
 
 test("demo desactivada por defecto y restringida a un solo ID explicito", () => {
@@ -65,7 +66,8 @@ test("cuenta/fuente ajena o URL distinta no pueden habilitar anuncios", async ()
 test("vinculacion solo metadatos de cuatro anuncios, sin activar fuente automatica", async () => {
   const f = fixture();
   const before = structuredClone(f.rows);
-  await f.demo.enroll(f.input);
+  const result = await f.demo.enroll(f.input);
+  assert.equal(result.alreadyEnrolled, false);
   assert.equal(f.source.syncEnabled, false);
   assert.equal(f.source.importLockToken, undefined);
   for (const update of f.updates) assert.deepEqual(Object.keys(update.$set).sort(), ["syncEnabled", "syncFingerprint", "syncFingerprintVersion"]);
@@ -83,6 +85,67 @@ test("otra propiedad o baseline modificado impiden vinculacion sin writes", asyn
     assert.equal(f.updates.length, 0);
     assert.equal(f.source.importLockToken, undefined);
   }
+});
+
+test("segunda vinculacion identica devuelve exito sin persistir propiedades ni timestamps", async () => {
+  const f = fixture();
+  await f.demo.enroll(f.input);
+  f.rows.forEach(row => { row.updatedAt = new Date("2026-01-01T00:00:00Z"); });
+  f.source.updatedAt = new Date("2026-01-01T00:00:00Z");
+  const before = structuredClone(f.rows);
+  const source = structuredClone(f.source);
+  const writes = f.updates.length;
+  const locks = f.lockWrites.length;
+  f.PropiedadModel.updateOne = () => assert.fail("idempotent path must not update properties");
+  const result = await f.demo.enroll(f.input);
+  assert.equal(result.ok, true);
+  assert.equal(result.alreadyEnrolled, true);
+  assert.equal(f.updates.length, writes);
+  assert.deepEqual(f.rows, before);
+  assert.deepEqual(f.source, source);
+  assert.deepEqual(f.fetched, [DEMO_V1_URL, DEMO_V1_URL]);
+  const coordination = f.lockWrites.slice(locks);
+  assert.equal(coordination.length, 2);
+  assert.ok(coordination.every(write => write.options.timestamps === false));
+  assert.equal(coordination[0].update.$set.importLockToken, coordination[1].filter.importLockToken);
+});
+
+for (const [name, change] of [
+  ["fingerprint distinto", f => { f.rows[0].syncFingerprint = "mismatch"; }],
+  ["override", f => { f.rows[0].syncOverrides.descripcion = true; }],
+  ["override no vacio aunque false", f => { f.rows[0].syncOverrides.descripcion = false; }],
+  ["contenido editado", f => { f.rows[0].descripcion = "Edicion manual"; }],
+  ["version distinta", f => { f.rows[0].syncFingerprintVersion = 2; }],
+  ["anuncio faltante", f => { f.rows.pop(); }],
+  ["externalId distinto", f => { f.rows[0].externalId = "OTHER"; }],
+  ["importSourceId distinto", f => { f.rows[0].importSourceId = "OTHER"; }],
+  ["source no CRM", f => { f.rows[0].source = "manual"; }],
+  ["syncEnabled mixto", f => { f.rows[0].syncEnabled = false; }],
+  ["syncEnabled inconsistente", f => { f.rows[0].syncEnabled = null; }]
+]) {
+  test(`segunda vinculacion rechaza ${name} sin reparar baseline`, async () => {
+    const f = fixture();
+    await f.demo.enroll(f.input);
+    change(f);
+    const before = structuredClone(f.rows);
+    const source = structuredClone(f.source);
+    const writes = f.updates.length;
+    await assert.rejects(() => f.demo.enroll(f.input), { code: "SYNC_TEST_BASELINE_MISMATCH", status: 409 });
+    assert.equal(f.updates.length, writes);
+    assert.deepEqual(f.rows, before);
+    assert.deepEqual(f.source, source);
+  });
+}
+
+test("segunda vinculacion sigue bloqueada por importacion concurrente", async () => {
+  const f = fixture();
+  await f.demo.enroll(f.input);
+  f.source.importLockToken = "import-active";
+  f.source.importLockUntil = new Date(Date.now() + 60000);
+  const writes = f.updates.length;
+  await assert.rejects(() => f.demo.enroll(f.input), { code: "SYNC_DEMO_REJECTED" });
+  assert.equal(f.source.importLockToken, "import-active");
+  assert.equal(f.updates.length, writes);
 });
 
 test("retry transaccional no repite descarga ni cambia contenido", async () => {

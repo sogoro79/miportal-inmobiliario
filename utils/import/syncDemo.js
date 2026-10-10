@@ -16,6 +16,7 @@ export function demoAllowed(userId, env = process.env) {
     && String(userId) === env.CRM_SYNC_TEST_USER_ID;
 }
 function rejected() { return Object.assign(new Error("Escenario de prueba no disponible o baseline incompatible."), { code: "SYNC_DEMO_REJECTED", status: 409 }); }
+function baselineMismatch() { return Object.assign(new Error("El baseline de prueba no coincide."), { code: "SYNC_TEST_BASELINE_MISMATCH", status: 409 }); }
 
 export function createSyncDemo({ ImportSourceModel = ImportSource, PropiedadModel = Propiedad, ImportSyncRunModel,
   fetchXml = fetchFeedXml, env = process.env, now = () => new Date()
@@ -32,38 +33,49 @@ export function createSyncDemo({ ImportSourceModel = ImportSource, PropiedadMode
     async enroll({ usuarioId, importSourceId }) {
       const source = await sourceFor(usuarioId, importSourceId);
       const snapshot = buildSyncSnapshot((await fetchXml(DEMO_V1_URL)).xml);
-      if (!snapshot.snapshotComplete || snapshot.snapshotCount !== 4 || references.some(id => !snapshot.properties.some(item => item.data.externalId === id))) throw rejected();
+      if (!snapshot.snapshotComplete || snapshot.snapshotCount !== 4 || snapshot.properties.some(item => item.errors.length)
+        || references.some(id => !snapshot.properties.some(item => item.data.externalId === id))) throw baselineMismatch();
       const token = crypto.randomUUID();
       const start = now();
       const locked = await ImportSourceModel.findOneAndUpdate({ _id: source._id, usuarioId, feedUrlHash: source.feedUrlHash,
         $or: [{ importLockUntil: { $exists: false } }, { importLockUntil: null }, { importLockUntil: { $lte: start } }]
-      }, { $set: { importLockToken: token, importLockUntil: new Date(start.getTime() + 15 * 60 * 1000) } }, { new: true });
+      }, { $set: { importLockToken: token, importLockUntil: new Date(start.getTime() + 15 * 60 * 1000) } }, { new: true, timestamps: false });
       if (!locked) throw rejected();
       let session;
       try {
         session = await PropiedadModel.db.startSession();
-        await session.withTransaction(async () => {
+        const alreadyEnrolled = await session.withTransaction(async () => {
           const owned = await PropiedadModel.find({ usuarioId, importSourceId, source: "crm" }).limit(5).session(session).lean();
-          if (owned.length !== 4 || new Set(owned.map(item => item.externalId)).size !== 4) throw rejected();
+          if (owned.length !== 4 || new Set(owned.map(item => item.externalId)).size !== 4) throw baselineMismatch();
+          const enrolled = owned.every(item => item.syncEnabled === true);
+          const unEnrolled = owned.every(item => item.syncEnabled === false
+            && item.syncFingerprint == null && item.syncFingerprintVersion == null);
+          if (!enrolled && !unEnrolled) throw baselineMismatch();
           for (const item of owned) {
             const baseline = snapshot.properties.find(record => record.data.externalId === item.externalId)?.data;
-            if (!baseline || item.syncEnabled === true || Object.values(item.syncOverrides || {}).some(Boolean)
-              || Object.entries(baseline).some(([field, value]) => !isDeepStrictEqual(item[field], value))) throw rejected();
+            if (!baseline || Object.keys(item.syncOverrides || {}).length
+              || Object.entries(baseline).some(([field, value]) => !isDeepStrictEqual(item[field], value))
+              || (enrolled && (item.syncFingerprint !== syncFingerprint(baseline)
+                || item.syncFingerprintVersion !== SYNC_FINGERPRINT_VERSION))) throw baselineMismatch();
           }
           const lockCheck = await ImportSourceModel.findOne({ _id: source._id, usuarioId, importLockToken: token, importLockUntil: { $gt: now() } }).session(session);
           if (!lockCheck) throw rejected();
+          if (enrolled) return true;
           for (const item of owned) {
             const baseline = snapshot.properties.find(record => record.data.externalId === item.externalId).data;
             const result = await PropiedadModel.updateOne({ _id: item._id, usuarioId, importSourceId, source: "crm",
-              syncEnabled: { $ne: true }, contentRevision: item.contentRevision ?? 0
+              syncEnabled: false, contentRevision: item.contentRevision ?? 0
             }, { $set: { syncEnabled: true, syncFingerprint: syncFingerprint(baseline), syncFingerprintVersion: SYNC_FINGERPRINT_VERSION } }, { session });
-            if (result.matchedCount !== 1) throw rejected();
+            if (result.matchedCount !== 1) throw baselineMismatch();
           }
+          return false;
         });
-        return { ok: true, enrolled: 4, syncEnabled: false, message: "Cuatro anuncios de prueba vinculados para simulación. La sincronización automática permanece desactivada." };
+        return { ok: true, enrolled: 4, alreadyEnrolled, syncEnabled: false, message: alreadyEnrolled
+          ? "El baseline de los cuatro anuncios de prueba ya es válido. No se han modificado los anuncios."
+          : "Cuatro anuncios de prueba vinculados para simulación. La sincronización automática permanece desactivada." };
       } finally {
         try { if (session) await session.endSession(); }
-        finally { await ImportSourceModel.updateOne({ _id: source._id, usuarioId, importLockToken: token }, { $unset: { importLockToken: "", importLockUntil: "" } })
+        finally { await ImportSourceModel.updateOne({ _id: source._id, usuarioId, importLockToken: token }, { $unset: { importLockToken: "", importLockUntil: "" } }, { timestamps: false })
           .catch(() => console.warn("[CRM Sync Demo]", { code: "SOURCE_UNLOCK_FAILED" })); }
       }
     },

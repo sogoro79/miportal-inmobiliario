@@ -85,8 +85,9 @@ export function createCrmImportRouter({
       if (!parsed.success) return res.status(400).json({ error: "Indica solamente tu fuente de prueba." });
       try { return res.json(await demo[operation]({ usuarioId: req.user.id, importSourceId: parsed.data.importSourceId })); }
       catch (error) {
-        console.warn("[CRM Sync Demo]", { code: "SYNC_DEMO_REJECTED" });
-        return res.status(409).json({ code: "SYNC_DEMO_REJECTED", error: "Escenario de prueba no disponible o baseline incompatible. Revisa la fuente y los cuatro anuncios de prueba." });
+        const code = error?.code === "SYNC_TEST_BASELINE_MISMATCH" ? error.code : "SYNC_DEMO_REJECTED";
+        console.warn("[CRM Sync Demo]", { code });
+        return res.status(409).json({ code, error: "Escenario de prueba no disponible o baseline incompatible. Revisa la fuente y los cuatro anuncios de prueba." });
       }
     });
   }
