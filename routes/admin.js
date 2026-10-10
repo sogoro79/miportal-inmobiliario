@@ -1,4 +1,5 @@
 import express from 'express';
+import { capturePropertyContent, markManualContentChanges } from '../utils/propertyContent.js';
 import Stripe from 'stripe';
 import { v2 as cloudinary } from 'cloudinary';
 import Usuario from '../models/Usuario.js';
@@ -1075,6 +1076,7 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
 
     const propiedad = await Propiedad.findById(req.params.id);
     if (!propiedad) return res.status(404).json({ error: 'Propiedad no encontrada' });
+    const contenidoAnterior = capturePropertyContent(propiedad);
 
     const {
       titulo,
@@ -1161,6 +1163,7 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
       propiedad.visiblePublicamente = visiblePublicamente === true || visiblePublicamente === 'true';
     }
 
+    markManualContentChanges(propiedad, contenidoAnterior);
     await propiedad.save();
     res.json({ ok: true, propiedad });
   } catch (err) {

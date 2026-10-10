@@ -121,6 +121,7 @@ function createApp({
   count = 3,
   fetchFeedXml: fetcher,
   importSelected,
+  simulateSync,
   ImportSourceModel = { findOne: async () => null },
   importUserRateLimitMiddleware = (req, res, next) => next(),
   userRateLimitMiddleware = (req, res, next) => next()
@@ -138,6 +139,7 @@ function createApp({
     PropiedadModel,
     ImportSourceModel,
     importSelected,
+    simulateSync,
     importRateLimitMiddleware: (req, res, next) => next(),
     importUserRateLimitMiddleware,
     rateLimitMiddleware: (req, res, next) => next(),
@@ -244,6 +246,45 @@ test("POST /api/crm-import/analyze requiere autenticación", async () => {
     assert.equal(response.status, 401);
   } finally {
     restore();
+  }
+});
+
+test("simulación requiere auth, body estricto y usa solo req.user.id", async () => {
+  const calls = [];
+  const { app, restore } = createApp({ simulateSync: async input => { calls.push(input); return { mode: "simulation", missingCount: 0 }; } });
+  const importSourceId = "507f1f77bcf86cd799439077";
+  try {
+    assert.equal((await request(app, "/api/crm-import/sync/simulate", { body: { importSourceId } })).status, 401);
+    for (const extra of [{ ownerId: OTHER_ID }, { usuarioId: OTHER_ID }, { feedUrl: "https://secret.example/token" }]) {
+      assert.equal((await request(app, "/api/crm-import/sync/simulate", { headers: authHeaderFor(), body: { importSourceId, ...extra } })).status, 400);
+    }
+    const response = await request(app, "/api/crm-import/sync/simulate", { headers: authHeaderFor(), body: { importSourceId } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls, [{ usuarioId: USER_ID, importSourceId }]);
+  } finally { restore(); }
+});
+
+test("simulación no filtra URL, query ni mensajes técnicos en respuesta/logs", async () => {
+  const logs = [];
+  const previousWarn = console.warn;
+  console.warn = (...args) => logs.push(args);
+  const { app, restore } = createApp({ simulateSync: async () => { throw Object.assign(new Error("https://secret.example/private-token?api=secret-test"), { code: "secret-test" }); } });
+  try {
+    const response = await request(app, "/api/crm-import/sync/simulate", { headers: authHeaderFor(), body: { importSourceId: "507f1f77bcf86cd799439077" } });
+    assert.equal(response.status, 500);
+    assert.equal(response.body.code, "SYNC_RUN_FAILED");
+    assert.doesNotMatch(JSON.stringify({ response, logs }), /secret-test|private-token|secret\.example/);
+  } finally { restore(); console.warn = previousWarn; }
+});
+
+test("simulación legacy y fuente ajena exponen códigos claros", async () => {
+  for (const [code, status] of [["SYNC_SOURCE_NOT_CONFIGURED", 409], ["SYNC_SOURCE_NOT_FOUND", 404]]) {
+    const { app, restore } = createApp({ simulateSync: async () => { throw Object.assign(new Error("internal"), { code }); } });
+    try {
+      const response = await request(app, "/api/crm-import/sync/simulate", { headers: authHeaderFor(), body: { importSourceId: "507f1f77bcf86cd799439077" } });
+      assert.equal(response.status, status);
+      assert.equal(response.body.code, code);
+    } finally { restore(); }
   }
 });
 

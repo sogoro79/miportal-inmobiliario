@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { propiedadCreateSchema, propiedadUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
 import express from "express";
+import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
 import { persistPublication } from "../utils/publicationPersistence.js";
 import mongoose from "mongoose";
 import { recordManualPublicationUncertainty } from "../utils/manualPublicationReconciliation.js";
@@ -755,6 +756,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
   let debeLimpiarSubidas = true;
   try {
     const propiedad = req.propiedadEditable;
+    const contenidoAnterior = capturePropertyContent(propiedad);
     const imagenesOriginales = [...(propiedad.imagenes || [])];
 
     const bodyValido = await validateBodyOrCleanup(propiedadUpdateSchema, req, res, urlsSubidas);
@@ -836,6 +838,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
       ...nuevasImagenes
     ];
 
+    markManualContentChanges(propiedad, contenidoAnterior);
     await propiedad.save();
     debeLimpiarSubidas = false;
     const imagenesConservadas = new Set(imagenesExistentes);

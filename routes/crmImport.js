@@ -17,6 +17,7 @@ import { getLimiteFotosPlan, planTieneLimiteFotos } from "../utils/planLimits.js
 import { getPlanParaFotos } from "../utils/publishEligibility.js";
 import { z } from "../utils/validation.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES } from "../utils/import/importBudget.js";
+import { createSyncSimulator, safeSimulationCode } from "../utils/import/syncSimulation.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
@@ -58,6 +59,8 @@ export function createCrmImportRouter({
   UsuarioModel = Usuario,
   PropiedadModel = Propiedad,
   ImportSourceModel = ImportSource,
+  ImportSyncRunModel,
+  simulateSync,
   importSelected,
   importRateLimitMiddleware = securityRateLimits.crmImport,
   importUserRateLimitMiddleware = securityRateLimits.crmImportByUser,
@@ -66,6 +69,23 @@ export function createCrmImportRouter({
 } = {}) {
   const router = express.Router();
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
+  const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
+
+  router.post("/sync/simulate", requireAuth, userRateLimitMiddleware, rateLimitMiddleware, async (req, res) => {
+    const parsed = z.object({ importSourceId: z.string().regex(/^[a-fA-F0-9]{24}$/) }).strict().safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: "Indica solamente una fuente CRM válida." });
+    try {
+      return res.json(await runSimulation({ usuarioId: req.user.id, importSourceId: parsed.data.importSourceId }));
+    } catch (error) {
+      const code = safeSimulationCode(error);
+      console.warn("[CRM Sync Simulation]", { code });
+      const status = code === "SYNC_SOURCE_NOT_FOUND" ? 404 : code === "SYNC_SOURCE_NOT_CONFIGURED" ? 409
+        : code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400;
+      return res.status(status).json({ code, error: code === "SYNC_SOURCE_NOT_CONFIGURED"
+        ? "La fuente CRM necesita una URL cifrada configurada antes de simular. La importación manual sigue disponible."
+        : "No se pudo completar la simulación CRM." });
+    }
+  });
 
   router.post("/import", requireAuth, importUserRateLimitMiddleware, importRateLimitMiddleware, async (req, res) => {
     if (req.body && ("ownerId" in req.body || "usuarioId" in req.body)) {

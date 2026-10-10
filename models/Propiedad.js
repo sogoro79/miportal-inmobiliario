@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { CONTENT_FIELDS } from "../utils/propertyContent.js";
 
 const PropiedadSchema = new mongoose.Schema({
   source: { type: String, enum: ["manual", "crm"], default: "manual" },
@@ -6,6 +7,18 @@ const PropiedadSchema = new mongoose.Schema({
   importSourceId: { type: mongoose.Schema.Types.ObjectId, ref: "ImportSource" },
   importedAt: { type: Date },
   lastImportedAt: { type: Date },
+  syncEnabled: { type: Boolean, default: false },
+  lastSeenAt: Date,
+  lastSeenRunId: { type: mongoose.Schema.Types.ObjectId, ref: "ImportSyncRun" },
+  lastSyncedAt: Date,
+  syncFingerprint: String,
+  syncFingerprintVersion: Number,
+  contentRevision: { type: Number, default: 0 },
+  syncOverrides: {
+    type: new mongoose.Schema(Object.fromEntries(CONTENT_FIELDS.map(field => [field, Boolean])), { _id: false }),
+    default: () => ({})
+  },
+  removedFromFeedAt: Date,
   titulo:        { type: String, required: true },
   referencia:    { type: String, default: "" },
   direccion:     { type: String, required: true },

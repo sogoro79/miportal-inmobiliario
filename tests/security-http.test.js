@@ -1149,6 +1149,27 @@ test("PUT conserva imágenes si imagenesExistentes está ausente", async () => {
   }
 });
 
+test("visitas y estadísticas de redes no incrementan contentRevision", async () => {
+  const previousUpdate = Propiedad.findByIdAndUpdate;
+  const previousUser = Usuario.findById;
+  const updates = [];
+  const propiedad = { _id: "507f1f77bcf86cd799439088", contentRevision: 7, imagenes: [], visiblePublicamente: true };
+  Propiedad.findByIdAndUpdate = async (id, update) => { updates.push(update); return propiedad; };
+  Usuario.findById = async () => ({ _id: "507f1f77bcf86cd799439012", activo: true, role: "admin" });
+  try {
+    assert.equal((await request("/propiedades/507f1f77bcf86cd799439088")).status, 200);
+    const token = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
+    assert.equal((await request("/admin/propiedades/507f1f77bcf86cd799439088/redes-publicado", {
+      method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: {}
+    })).status, 200);
+    assert.equal(updates.length, 2);
+    assert.equal(updates[0].$inc.visitas, 1);
+    assert.equal(updates[1].$inc.redesPublicadoCount, 1);
+    assert.equal(propiedad.contentRevision, 7);
+    assert.doesNotMatch(JSON.stringify(updates), /contentRevision|syncOverrides/);
+  } finally { Propiedad.findByIdAndUpdate = previousUpdate; Usuario.findById = previousUser; }
+});
+
 test("PUT /propiedades/:id conserva geografía estructurada cuando se omite", async () => {
   const previousFindByIdUsuario = Usuario.findById;
   const previousFindByIdPropiedad = Propiedad.findById;
@@ -1161,6 +1182,9 @@ test("PUT /propiedades/:id conserva geografía estructurada cuando se omite", as
     provincia: "Cádiz",
     codigoPostal: "11550",
     imagenes: [],
+    source: "crm",
+    syncEnabled: true,
+    contentRevision: 4,
     save: async () => propiedad
   };
   Usuario.findById = () => Promise.resolve({
@@ -1195,6 +1219,9 @@ test("PUT /propiedades/:id conserva geografía estructurada cuando se omite", as
     assert.equal(propiedad.localidad, "Chipiona");
     assert.equal(propiedad.provincia, "Cádiz");
     assert.equal(propiedad.codigoPostal, "11550");
+    assert.equal(propiedad.contentRevision, 5);
+    assert.equal(propiedad.syncOverrides.titulo, true);
+    assert.equal(propiedad.syncOverrides.localidad, undefined);
   } finally {
     Usuario.findById = previousFindByIdUsuario;
     Propiedad.findById = previousFindByIdPropiedad;
@@ -1603,6 +1630,9 @@ test("PUT /admin/propiedades/:id conserva geografía estructurada cuando se omit
     provincia: "Cádiz",
     codigoPostal: "11550",
     tipoInmueble: "piso",
+    source: "crm",
+    syncEnabled: true,
+    contentRevision: 2,
     save: async () => propiedad
   };
   Usuario.findById = () => Promise.resolve({
@@ -1631,6 +1661,9 @@ test("PUT /admin/propiedades/:id conserva geografía estructurada cuando se omit
     assert.equal(propiedad.localidad, "Chipiona");
     assert.equal(propiedad.provincia, "Cádiz");
     assert.equal(propiedad.codigoPostal, "11550");
+    assert.equal(propiedad.contentRevision, 3);
+    assert.equal(propiedad.syncOverrides.titulo, true);
+    assert.equal(propiedad.syncOverrides.localidad, undefined);
   } finally {
     Usuario.findById = previousFindByIdUsuario;
     Propiedad.findById = previousFindByIdPropiedad;

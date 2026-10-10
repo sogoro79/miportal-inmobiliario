@@ -112,6 +112,38 @@ function collectPropertyNodes(node, output = []) {
   return output;
 }
 
+export function parseGenericPropertyNodes(xml, limit) {
+  rejectUnsafeXml(xml);
+  if (XMLValidator.validate(xml) !== true) {
+    throw Object.assign(new Error("El XML no tiene un formato válido."), { code: "XML_INVALID" });
+  }
+  const parsed = parser.parse(xml);
+  const nodes = [];
+  const warnings = new Set();
+  function visit(node, explicitRecord = false, depth = 0) {
+    if (nodes.length >= limit) return;
+    if (depth > 64) { warnings.add("SNAPSHOT_STRUCTURE_LIMIT"); return; }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, explicitRecord, depth + 1);
+      return;
+    }
+    if (explicitRecord || looksLikeProperty(node)) { nodes.push(node); return; }
+    if (!node || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node)) {
+      if (/^(next|nextPage|next_page|hasMore|has_more)$/i.test(key) && !["", "false", "0", false, null].includes(value)) warnings.add("SNAPSHOT_PAGINATION_UNSUPPORTED");
+      if (/^(total|totalCount|total_count)$/i.test(key) && Number(value) > nodes.length) {
+        // Check advertised totals after traversal (their position in XML is irrelevant).
+        totals.push(Number(value));
+      }
+      visit(value, /^(property|inmueble|listing|ad|item|estate)$/i.test(key), depth + 1);
+    }
+  }
+  const totals = [];
+  visit(parsed);
+  if (totals.some(total => total > nodes.length)) warnings.add("SNAPSHOT_ADVERTISED_TOTAL_MISMATCH");
+  return { nodes, warnings: [...warnings] };
+}
+
 function buildPreviewId(externalId, index) {
   return crypto
     .createHash("sha256")
