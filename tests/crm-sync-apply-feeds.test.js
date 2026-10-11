@@ -10,11 +10,15 @@ import { feedHash, validateImportProperty } from "../utils/import/selectedImport
 import { buildPropiedadCreateData } from "../utils/propertyCreation.js";
 
 const reference = "SYNC-APPLY-TEST-001";
+const ORIGINAL_BASELINE_PRICE = 210000;
+const SERVED_PRICE = 225000;
 const read = version => fs.readFileSync(new URL(`../public/test-sync-apply/homeclick24-sync-apply-${version}.xml`, import.meta.url), "utf8");
+// Retain the original baseline in memory, without another public feed.
+const originalXml = () => read("v2").replace(`<precio>${SERVED_PRICE}</precio>`, `<precio>${ORIGINAL_BASELINE_PRICE}</precio>`);
 const expectedFields = ["externalId", "titulo", "tipoOperacion", "tipoInmueble", "precio", "localidad", "provincia",
   "codigoPostal", "direccion", "habitaciones", "banos", "superficie", "garaje", "piscina", "terraza", "descripcion"].sort();
 
-for (const [version, price] of [["v1", 210000], ["v2", 225000]]) {
+for (const [version, price] of [["v1", SERVED_PRICE], ["v2", SERVED_PRICE]]) {
   test(`${version}: XML valid, exactly one importable property and complete sync snapshot`, () => {
     const xml = read(version);
     assert.equal(XMLValidator.validate(xml), true);
@@ -43,26 +47,33 @@ for (const [version, price] of [["v1", 210000], ["v2", 225000]]) {
   });
 }
 
-test("v1 and v2 differ in their XML and normalized content only by price", () => {
-  assert.equal(read("v1").replace("<precio>210000</precio>", "<precio>225000</precio>"), read("v2"));
-  const v1 = buildSyncSnapshot(read("v1")).properties[0].data;
-  const v2 = buildSyncSnapshot(read("v2")).properties[0].data;
-  assert.deepEqual({ ...v1, precio: v2.precio }, v2);
-  assert.deepEqual(managedChangedFields(v1, v2), ["precio"]);
-  assert.notEqual(managedFingerprint(v1), managedFingerprint(v2));
+test("stable v1 now serves v2; only price differs from the original internal baseline", () => {
+  assert.equal(read("v1"), read("v2"));
+  assert.equal(originalXml().replace(`<precio>${ORIGINAL_BASELINE_PRICE}</precio>`, `<precio>${SERVED_PRICE}</precio>`), read("v1"));
+  const original = buildSyncSnapshot(originalXml());
+  assert.equal(original.snapshotComplete, true);
+  assert.equal(original.properties.length, 1);
+  const baseline = original.properties[0].data;
+  const served = buildSyncSnapshot(read("v1")).properties[0].data;
+  assert.equal(baseline.precio, ORIGINAL_BASELINE_PRICE);
+  assert.equal(served.precio, SERVED_PRICE);
+  assert.deepEqual({ ...baseline, precio: SERVED_PRICE }, served);
+  assert.deepEqual(managedChangedFields(baseline, served), ["precio"]);
+  assert.notEqual(managedFingerprint(baseline), managedFingerprint(served));
   for (const field of SYNC_APPLY_V1_FIELDS.filter(field => field !== "precio")) {
-    assert.deepEqual(v1[field], v2[field]);
+    assert.deepEqual(baseline[field], served[field]);
   }
 });
 
 test("existing import builder is compatible with enrollment, UPDATE precio and final UNCHANGED", () => {
-  const snapshot1 = buildSyncSnapshot(read("v1")), snapshot2 = buildSyncSnapshot(read("v2"));
-  const validation = validateImportProperty(analyzeGenericXml(read("v1"))[0]);
+  const snapshot1 = buildSyncSnapshot(originalXml()), snapshot2 = buildSyncSnapshot(read("v1"));
+  const validation = validateImportProperty(analyzeGenericXml(originalXml())[0]);
   assert.deepEqual(validation.errors, []);
   const property = { ...buildPropiedadCreateData(validation.data, { usuarioId: "test-owner", plan: "vip", imagenes: [] }),
     _id: "507f1f77bcf86cd799439001", source: "crm", importSourceId: "507f1f77bcf86cd799439002",
     externalId: reference, syncEnabled: true, syncOverrides: {}, contentRevision: 0, syncApplyFingerprintVersion: 1 };
   property.syncApplyFingerprint = managedFingerprint(property);
+  assert.equal(property.precio, ORIGINAL_BASELINE_PRICE);
   assert.equal(prepareSyncPlan(snapshot1, [property]).plan[0].type, "UNCHANGED");
   const planned = prepareSyncPlan(snapshot2, [property]).plan[0];
   assert.equal(planned.type, "UPDATE");
