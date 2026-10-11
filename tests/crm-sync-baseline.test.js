@@ -43,8 +43,9 @@ function matches(doc, filter) {
   });
 }
 
-function harness({ xml = feed(), fetcher, properties = [property()], beforePropertyWrite = () => {} } = {}) {
-  let time = new Date("2026-10-10T10:00:00Z");
+function harness({ xml = feed(), fetcher, properties = [property()], beforePropertyWrite = () => {},
+  startedAt = new Date("2026-10-10T10:00:00Z") } = {}) {
+  let time = new Date(startedAt);
   const store = { source: { _id: S, usuarioId: U, activo: true, feedType: "generic_xml", ...encryptFeedUrl(url, env) },
     properties, runs: [], user: { _id: U, publicationVersion: 7 } };
   const writes = [], reads = [], requests = [];
@@ -347,17 +348,74 @@ function httpRequest(app, path, { method = "POST", body, auth = true } = {}) {
     app.handle(req, res, reject);
   });
 }
-async function withHttp(task) {
+async function withHttp(task, options = {}) {
   const previous = Usuario.findById, secret = process.env.JWT_SECRET;
   process.env.JWT_SECRET = "baseline-test-secret";
   Usuario.findById = async () => ({ _id: U, activo: true, plan: "vip" });
-  const h = harness(); const app = express(); app.use(express.json());
+  const h = harness(options); const app = express(); app.use(express.json());
   const pass = (req, res, next) => next();
   app.use("/api/crm-import", createCrmImportRouter({ ...h.dependencies, fetchFeedXml: h.dependencies.fetchXml,
     enrollSync: h.enroll, simulateSync: h.simulate, rateLimitMiddleware: pass, userRateLimitMiddleware: pass }));
   try { await task(h, app); }
   finally { Usuario.findById = previous; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
 }
+
+const controlledNewXml = fs.readFileSync(new URL("../public/test-sync-new/homeclick24-sync-new-test.xml", import.meta.url), "utf8");
+const newEligibility = data => ({ status: data.status, newImportEligible: data.newImportEligible,
+  newImportBlockedReason: data.newImportBlockedReason, results: data.results.map(entry => ({
+    externalId: entry.externalId, type: entry.type, importNewEligible: entry.importNewEligible,
+    importNewBlockCode: entry.importNewBlockCode })) });
+
+for (const publicable of [true, false]) test(`actual simulate HTTP -> GET -> UI NEW eligibility, publicable=${publicable}`, async () => withHttp(async (h, app) => {
+  const elements = new Map(), calls = [];
+  const element = () => ({ children: [], listeners: {}, textContent: "", disabled: false,
+    classList: { add() {}, remove() {} }, append(value) { this.children.push(value); },
+    replaceChildren() { this.children = []; }, setAttribute() {}, addEventListener(k, v) { this.listeners[k] = v; } });
+  const all = node => [node, ...node.children.flatMap(all)];
+  const clock = new Date(h.store.runs[0]?.startedAt || h.dependencies.now());
+  class Clock extends Date {
+    constructor(...args) { super(...(args.length ? args : [clock])); }
+    static now() { return +clock; }
+  }
+  let post;
+  const context = vm.createContext({ window: {}, Date: Clock,
+    document: { createElement: element, getElementById(id) {
+      if (!elements.has(id)) elements.set(id, element()); return elements.get(id);
+    } }, fetch: async (url, options) => {
+      calls.push({ url, method: options.method });
+      const result = url.endsWith("/source") ? { status: 200, body: { configured: true, importSourceId: S } }
+        : await httpRequest(app, url, { method: options.method, body: options.body ? JSON.parse(options.body) : undefined });
+      if (url.endsWith("/simulate")) post = result;
+      return { ok: result.status < 300, status: result.status, json: async () => result.body };
+    } });
+  vm.runInContext(fs.readFileSync(new URL("../public/js/crm-sync-ui.js", import.meta.url), "utf8"), context);
+  context.window.HomeClickCrmSync.iniciar(() => "test-token");
+  await new Promise(resolve => setImmediate(resolve));
+  await elements.get("crmSyncSimulate").listeners.click();
+  assert.equal(post.status, 200);
+  assert.deepEqual(newEligibility(post.body), { status: "simulated", newImportEligible: true,
+    newImportBlockedReason: null, results: [{ externalId: "SYNC-NEW-TEST-001", type: "NEW",
+      importNewEligible: publicable, importNewBlockCode: publicable ? null : "SYNC_NEW_INVALID_DATA" }] });
+  const nodes = all(elements.get("crmSyncResults"));
+  assert.equal(nodes.filter(node => node.type === "checkbox").length, publicable ? 1 : 0);
+  if (publicable) assert.ok(nodes.some(node => node.textContent === "Importar nuevos"));
+  else assert.match(nodes.map(node => node.textContent).join("\n"), /datos que no permiten publicar/);
+  assert.equal(calls.some(call => call.url.includes("/runs/")), false, "UI eligibility needs no GET refresh");
+  const get = await httpRequest(app, `/api/crm-import/sync/runs/${post.body.runId}`, { method: "GET" });
+  assert.equal(get.status, 200);
+  assert.deepEqual(newEligibility(get.body), newEligibility(post.body));
+  assert.equal(h.store.runs[0].plan[0].importNewEligible, publicable);
+  assert.doesNotMatch(JSON.stringify(post.body), /sourceIdentityHash|snapshotDigest|importSourceId|snapshotVersion|normalizationVersion|applyFieldsVersion|encryptedFeedUrl|never-print/);
+
+  for (const field of ["importSourceId", "sourceIdentityHash", "snapshotVersion", "normalizationVersion", "applyFieldsVersion"]) {
+    const incomplete = { ...h.store.runs[0] }; delete incomplete[field];
+    const safe = safeRunSummary(incomplete, new Clock());
+    assert.equal(safe.newImportEligible, false, field);
+    assert.equal(safe.newImportBlockedReason, "SYNC_NEW_RUN_CHANGED", field);
+  }
+  assert.equal(safeRunSummary(h.store.runs[0], new Date(+clock + 3600000)).newImportBlockedReason, "RUN_EXPIRED");
+}, { xml: publicable ? controlledNewXml : controlledNewXml.replace("<bedrooms>2</bedrooms>", ""),
+  properties: [], startedAt: new Date() }));
 
 test("enroll HTTP requires auth, strict body, own source and bounded selection", async () => withHttp(async (h, app) => {
   const path = "/api/crm-import/sync/enroll", body = { importSourceId: S, externalIds: ["REF-1"] };

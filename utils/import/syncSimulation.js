@@ -56,7 +56,9 @@ export function createSyncSimulator({
       await lock.assert();
       await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final,
         ...(snapshot.snapshotComplete ? { $unset: { errorCode: "" } } : {}) });
-      return safeRunSummary({ _id: run._id, createdAt: startedAt, expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...final }, now());
+      return safeRunSummary({ _id: run._id, usuarioId, importSourceId,
+        sourceIdentityHash: lock.source.feedUrlHash, ...runVersions,
+        createdAt: startedAt, expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...final }, now());
     } catch (error) {
       const code = safeSimulationCode(error);
       const finishedAt = now();
