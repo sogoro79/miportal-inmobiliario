@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import { parseGenericPropertyNodes } from "../importers/genericXmlImporter.js";
 import { normalizeSpanishPrice } from "../prices.js";
-import { tipoInmuebleSchema } from "../propertySchemas.js";
+import { normalizedKey, normalizeCrmPropertyType, normalizeCrmCondition } from "./propertyNormalization.js";
 import { DEFAULT_MAX_XML_BYTES } from "./feedSecurity.js";
+
+export { normalizedKey } from "./propertyNormalization.js";
 
 export const MAX_SYNC_PROPERTIES = 2000;
 export const SYNC_FINGERPRINT_VERSION = 1;
@@ -32,13 +34,7 @@ const aliases = {
   garaje: ["garaje", "garage"], piscina: ["piscina", "pool"], terraza: ["terraza", "terrace"]
 };
 
-const propertyTypes = new Map(Object.entries({ apartment: "apartamento", flat: "piso", house: "casa", country_house: "casa_campo", casa_de_campo: "casa_campo" }));
-const conditions = new Map(Object.entries({ obra_nueva: "obra_nueva", new: "obra_nueva", segunda_mano: "segunda_mano", used: "segunda_mano", resale: "segunda_mano" }));
 const commercialStatuses = new Map(Object.entries({ available: "Disponible", active: "Disponible", disponible: "Disponible", reserved: "Reservado", reservado: "Reservado", sold: "Vendido", vendido: "Vendido", rented: "Alquilado", alquilado: "Alquilado" }));
-
-export function normalizedKey(value) {
-  return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-}
 
 function scalar(raw) {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -100,11 +96,10 @@ export function normalizeSyncProperty(node) {
             : ["alquiler", "rent", "rental", "lease", "for_rent"].includes(op) ? "alquiler" : undefined;
           if (!value) throw new Error("UNKNOWN_OPERATION");
         } else if (field === "tipoInmueble") {
-          const key = normalizedKey(value);
-          value = propertyTypes.get(key) || key;
-          if (!tipoInmuebleSchema.options.includes(value)) throw new Error("UNKNOWN_PROPERTY_TYPE");
+          value = normalizeCrmPropertyType(value);
+          if (!value) throw new Error("UNKNOWN_PROPERTY_TYPE");
         } else if (field === "estado") {
-          value = conditions.get(normalizedKey(value));
+          value = normalizeCrmCondition(value);
           if (!["obra_nueva", "segunda_mano"].includes(value)) throw new Error("UNKNOWN_CONDITION");
         } else if (field === "estadoComercial") {
           const status = normalizedKey(value);

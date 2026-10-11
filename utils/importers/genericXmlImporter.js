@@ -6,7 +6,7 @@ import {
   rejectUnsafeXml
 } from "../import/feedSecurity.js";
 import { normalizeSpanishPrice } from "../prices.js";
-import { tipoInmuebleSchema } from "../propertySchemas.js";
+import { normalizeCrmPropertyType, normalizeCrmCondition } from "../import/propertyNormalization.js";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -48,10 +48,9 @@ function normalizeOperacion(value = "") {
 }
 
 function normalizeTipoInmueble(value = "") {
+  const canonical = normalizeCrmPropertyType(value);
+  if (canonical) return canonical;
   const normalized = value.toLowerCase();
-  const key = normalized.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]+/g, "_");
-  if (tipoInmuebleSchema.options.includes(key)) return key;
-  if (key === "casa_de_campo") return "casa_campo";
   if (/chalet/.test(normalized)) return "chalet";
   if (/casa de campo|country/.test(normalized)) return "casa_campo";
   if (/casa/.test(normalized)) return "casa";
@@ -208,10 +207,15 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   const habitaciones = Number(firstText(item, ["habitaciones", "rooms", "bedrooms"])) || 0;
   const banos = Number(firstText(item, ["banos", "baños", "bathrooms"])) || 0;
   const superficie = Number(firstText(item, ["superficie", "surface", "area", "builtArea"])) || null;
-  const tipoInmueble = normalizeTipoInmueble(firstText(item, ["tipoInmueble", "propertyType", "category", "subtype"]));
+  const keys = new Map(Object.keys(item).map(key => [key.toLowerCase(), key]));
+  const typeKey = ["tipoInmueble", "propertyType", "category", "subtype"].find(key => keys.has(key.toLowerCase()));
+  const tipoInmueble = normalizeTipoInmueble(typeKey ? text(item[keys.get(typeKey.toLowerCase())]) : "");
+  const conditionKey = ["estado", "condition"].find(key => keys.has(key));
+  const estado = conditionKey ? normalizeCrmCondition(text(item[keys.get(conditionKey)])) : undefined;
   const fotos = [...new Set(collectPhotos(item, [], maxPhotos))].slice(0, maxPhotos);
   const errors = [];
   const warnings = [];
+  if (conditionKey && !estado) errors.push("El estado del inmueble no se reconoce; no se publicará.");
   const commercial = firstText(item, ["estadoComercial", "commercialStatus", "status", "availability", "available"]);
   if (commercial && !/^(disponible|available|active|activo|true|1)$/i.test(commercial)) {
     errors.push("El inmueble no está disponible o su estado comercial no se reconoce; no se publicará.");
@@ -244,6 +248,7 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
     banos,
     superficie,
     tipoInmueble,
+    ...(estado ? { estado } : {}),
     garaje: /^(true|1|yes|si|sí)$/i.test(firstText(item, ["garaje", "garage"])),
     piscina: /^(true|1|yes|si|sí)$/i.test(firstText(item, ["piscina", "pool"])),
     terraza: /^(true|1|yes|si|sí)$/i.test(firstText(item, ["terraza", "terrace"])),

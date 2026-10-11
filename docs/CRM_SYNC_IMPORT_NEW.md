@@ -63,3 +63,18 @@ compartido limita el trabajo del lote; finalizar cleanup/reconciliacion o libera
 el lease puede continuar tras agotar ese presupuesto, para no abandonar recursos.
 Un resultado indeterminado requiere comprobacion/reconciliacion, no un reintento
 automatico. No se cambia SSRF, DNS pinning, cifrado ni la politica de imagenes.
+
+## Normalizacion compartida y exito parcial
+
+Simulacion e importacion comparten los alias canonicos de tipo/condicion:
+house -> casa, apartment -> apartamento, flat -> piso, new -> obra_nueva,
+used/resale/second-hand -> segunda_mano. Una condicion explicita desconocida
+se rechaza, sin sustituirla silenciosamente. Si falta la condicion, el snapshot
+y el mapper la omiten; la creacion conserva el valor predeterminado segunda_mano.
+Los tipos desconocidos conservan el fallback historico de Fase 2, mientras que
+la simulacion los marca invalidos y bloquea NEW por snapshot incompleto.
+
+La prueba de fallo del segundo recibo confirma que la primera propiedad y su
+recibo ya confirmado permanecen intactos. Solo se revierte la segunda transaccion
+y se limpian sus imagenes. completed significa lote terminado, no exito global:
+los resultados y contadores indican un importado y un omitido en ese escenario.

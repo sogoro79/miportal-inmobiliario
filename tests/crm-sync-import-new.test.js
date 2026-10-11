@@ -59,18 +59,19 @@ function update(doc, operation) {
   }
   for (const key of Object.keys(operation.$unset || {})) delete doc[key];
 }
-function harness({ count = 1, photos = 0, plan = "vip" } = {}) {
-  let clock = new Date(), feed = xml(count, photos), txn;
+function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
+  let clock = new Date(), feed = feedXml ?? xml(count, photos), txn;
   const snapshot = buildSyncSnapshot(feed);
   const state = { source: { _id: S, usuarioId: U, activo: true, feedType: "generic_xml",
     ...encryptFeedUrl("https://feed.example/catalog.xml?token=secret", env) },
     run: { _id: R, usuarioId: U, importSourceId: S, status: "simulated", expiresAt: new Date(+clock + 1200000),
-      ...runVersions, snapshotDigest: snapshotDigest(snapshot), snapshotComplete: true,
+      ...runVersions, snapshotDigest: snapshotDigest(snapshot), snapshotComplete: snapshot.snapshotComplete,
       ...prepareSyncPlan(snapshot, []) },
     user: { _id: U, plan, planActivo: true, trialAccepted: true, activo: true, publicationVersion: 0 },
     properties: [], reconciliations: [] };
   state.run.sourceIdentityHash = state.source.feedUrlHash;
-  const effects = { fetch: 0, acquire: 0, release: 0, uploads: 0, downloads: 0, deletes: 0, writes: [] };
+  const effects = { fetch: 0, acquire: 0, release: 0, uploads: 0, downloads: 0, deletes: 0, writes: [],
+    uploadedPublicIds: [], deletedPublicIds: [] };
   const faults = {};
   const current = session => session ? txn : state;
   const query = fn => {
@@ -138,7 +139,9 @@ function harness({ count = 1, photos = 0, plan = "vip" } = {}) {
   const runs = {
     findOne(filter) { return query(session => matches(current(session).run, filter) ? current(session).run : null); },
     async updateOne(filter, op, options = {}) {
+      if (op.$push) faults.beforeReceipt?.(op.$push["newImport.results"], state, current(options.session));
       if (faults.receipt && op.$push) throw new Error("receipt failure");
+      if (faults.receiptExternalId && op.$push?.["newImport.results"]?.externalId === faults.receiptExternalId) throw new Error("receipt failure");
       if (faults.finish && op.$set?.["newImport.status"] === "completed") throw new Error("finish failure");
       const doc = current(options.session).run;
       if (!matches(doc, filter)) return { matchedCount: 0 };
@@ -149,8 +152,12 @@ function harness({ count = 1, photos = 0, plan = "vip" } = {}) {
   const selected = createSelectedImporter({ PropiedadModel: properties, UsuarioModel: users, ImportSourceModel: sources,
     ReconciliationModel: reconciliations, now: () => new Date(clock),
     downloadImage: async () => { effects.downloads++; await faults.download?.(state); if (faults.photo) throw new Error("private url"); return Buffer.from("test"); },
-    uploadImage: async () => { effects.uploads++; return { url: "https://cloudinary.example/test.jpg", publicId: "test-resource" }; },
-    deleteImage: async () => { effects.deletes++; return { ok: true }; } });
+    uploadImage: async () => {
+      effects.uploads++; const publicId = `test-resource-${effects.uploads}`;
+      effects.uploadedPublicIds.push(publicId);
+      return { url: `https://cloudinary.example/${publicId}.jpg`, publicId };
+    },
+    deleteImage: async publicId => { effects.deletes++; effects.deletedPublicIds.push(publicId); return { ok: true }; } });
   const dependencies = { PropiedadModel: properties, UsuarioModel: users, ImportSourceModel: sources,
     ImportSyncRunModel: runs, ReconciliationModel: reconciliations, env, now: () => new Date(clock), importSelected: selected,
     fetchXml: async (url, { budget }) => { effects.fetch++; await budget.run(() => faults.fetch?.(state)); return { xml: feed }; },
@@ -256,6 +263,66 @@ test("receipt failure rolls back property and cleans images", async () => {
   assert.equal(result.newImport.counts.imported, 0); assert.equal(h.state.properties.length, 0);
   assert.equal(h.effects.deletes, 1); assert.equal(h.state.run.newImport.results[0].reason, "CREATION_FAILED");
 });
+test("second receipt failure rolls back only its property/resources and keeps first confirmed", async () => {
+  const h = harness({ count: 2, photos: 2 });
+  let firstReceipt, firstProperty, failureReached = false;
+  h.faults.receiptExternalId = "N-1";
+  h.faults.beforeReceipt = (receipt, committed, transaction) => {
+    if (receipt.externalId !== "N-1") return;
+    failureReached = true;
+    assert.equal(committed.properties.length, 1);
+    assert.equal(transaction.properties.length, 2);
+    firstReceipt = structuredClone(committed.run.newImport.results[0]);
+    firstProperty = structuredClone(committed.properties[0]);
+    assert.equal(firstReceipt.status, "imported");
+  };
+  const outcome = await h.run({ ...h.request, externalIds: ["N-0", "N-1"] });
+  assert.equal(failureReached, true);
+  assert.deepEqual(h.state.properties, [firstProperty]);
+  assert.deepEqual(h.state.run.newImport.results[0], firstReceipt);
+  assert.equal(h.state.run.newImport.results[1].status, "skipped");
+  assert.equal(h.state.run.newImport.results[1].reason, "CREATION_FAILED");
+  assert.equal(h.state.run.newImport.results[1].propertyId, undefined);
+  assert.equal(h.state.run.newImport.status, "completed");
+  assert.equal(outcome.newImport.counts.imported, 1); assert.equal(outcome.newImport.counts.skipped, 1);
+  assert.equal(h.state.user.publicationVersion, 1);
+  assert.equal(h.effects.uploads, 4); assert.equal(h.effects.deletes, 2);
+  assert.deepEqual(h.effects.deletedPublicIds, h.effects.uploadedPublicIds.slice(2));
+  assert.equal(firstProperty.imagenes.length, 2);
+  assert.equal(h.state.reconciliations.length, 0);
+  const beforeReplay = structuredClone(h.effects);
+  assert.equal((await h.run({ ...h.request, externalIds: ["N-1", "N-0"] })).alreadyImported, true);
+  assert.deepEqual(h.effects, beforeReplay);
+});
+
+const normalizationFeed = (type, condition) => xml().replace("<propertyType>piso</propertyType>",
+  `<propertyType>${type}</propertyType>${condition === undefined ? "" : `<condition>${condition}</condition>`}`);
+for (const [type, condition, expectedType, expectedCondition] of [
+  ["house", "new", "casa", "obra_nueva"],
+  ["apartment", "used", "apartamento", "segunda_mano"],
+  ["flat", "second-hand", "piso", "segunda_mano"],
+  ["country_house", "resale", "casa_campo", "segunda_mano"],
+  ["Casa de campo", "Obra nueva", "casa_campo", "obra_nueva"],
+  ["chalet", "Segunda mano", "chalet", "segunda_mano"],
+  ["house", undefined, "casa", undefined]
+]) test(`NEW snapshot and final property agree: ${type}/${condition ?? "absent"}`, async () => {
+  const feedXml = normalizationFeed(type, condition), snapshot = buildSyncSnapshot(feedXml);
+  const h = harness({ feedXml });
+  await h.run(h.request);
+  assert.equal(snapshot.snapshotComplete, true);
+  assert.equal(snapshot.properties[0].data.tipoInmueble, expectedType);
+  assert.equal(h.state.properties[0].tipoInmueble, expectedType);
+  assert.equal(snapshot.properties[0].data.estado, expectedCondition);
+  assert.equal(h.state.properties[0].estado, expectedCondition ?? "segunda_mano");
+});
+for (const [type, condition] of [["unknown_type", "used"], ["house", "unknown_condition"]]) {
+  test(`NEW refuses invalid normalization ${type}/${condition} before resources`, async () => {
+    const h = harness({ feedXml: normalizationFeed(type, condition) });
+    await assert.rejects(() => h.run(h.request), { code: "RUN_SNAPSHOT_INCOMPLETE" });
+    assert.equal(h.effects.fetch, 0); assert.equal(h.effects.uploads, 0);
+    assert.equal(h.effects.writes.length, 0); assert.equal(h.state.properties.length, 0);
+  });
+}
 test("unknown commit retains resources and reconciliation and blocks retry", async () => {
   const h = harness({ photos: 1 }); h.faults.unconfirmed = true;
   await assert.rejects(() => h.run(h.request), { code: "SYNC_NEW_UNCONFIRMED" });
