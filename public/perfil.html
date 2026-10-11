@@ -461,6 +461,10 @@
     .crm-sync-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid #d8edc6; min-width: 0; }
     .crm-sync-results { max-height: 420px; overflow-y: auto; overflow-wrap: anywhere; margin-top: 16px; font-size: 0.9rem; line-height: 1.6; }
     .crm-sync-masked { overflow-wrap: anywhere; margin-top: 12px; }
+    .crm-sync-results li { margin-bottom: 12px; }
+    .crm-sync-results input[type="checkbox"] { margin-left: 12px; width: 18px; height: 18px; vertical-align: middle; flex-shrink: 0; }
+    .crm-sync-results .btn-perfil { max-width: 100%; white-space: normal; }
+    .crm-sync-new-result { margin-top: 16px; padding-top: 12px; border-top: 1px solid #d8edc6; min-width: 0; }
 
     .crm-import-disabled {
       margin-top: 12px;
@@ -769,7 +773,7 @@
     <div id="crmImportResults" class="crm-import-status" aria-live="polite"></div>
     <section class="crm-sync-section" aria-labelledby="crmSyncTitle">
       <h3 id="crmSyncTitle">Sincronización CRM — Vista previa</h3>
-      <p>Esta función solo simula los cambios. No modifica tus anuncios.</p>
+      <p>Simular no modifica tus anuncios. Después puedes seleccionar cambios UPDATE para aplicarlos o anuncios NEW para importarlos, con confirmación independiente.</p>
       <p>Vincular no modifica el contenido del anuncio. Solo establece el punto de comparación para futuras sincronizaciones.</p>
       <p>Guardar una URL sustituye la fuente CRM actual para futuras importaciones y simulaciones. No añade otro feed ni modifica anuncios existentes.</p>
       <div class="crm-import-form">
@@ -817,7 +821,7 @@
 
 <script src="/js/publish-flow.js"></script>
 <script src="/js/precios.js?v=1"></script>
-<script src="/js/crm-sync-ui.js?v=6"></script>
+<script src="/js/crm-sync-ui.js?v=7"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");

@@ -1,0 +1,253 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
+
+const script = fs.readFileSync(new URL("../public/js/crm-sync-ui.js", import.meta.url), "utf8");
+const response = (data, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => data });
+const preview = (count = 1) => ({ runId: "own-run", status: "simulated", applyEligible: true,
+  newImportEligible: true, snapshotComplete: true, expired: false,
+  expiresAt: new Date(Date.now() + 60000).toISOString(), newCount: count,
+  results: Array.from({ length: count }, (_, index) => ({ externalId: `NEW-${index + 1}`, type: "NEW",
+    blocked: true, reason: "NEW_REQUIRES_MANUAL_IMPORT" })) });
+const receipt = () => ({ status: "completed", selectedExternalIds: ["NEW-1"],
+  counts: { imported: 1, skipped: 0, alreadyExists: 0, importedImages: 5, skippedImages: 0 },
+  results: [{ externalId: "NEW-1", status: "imported" }] });
+const success = () => response({ ok: true, runId: "own-run", newImport: receipt() });
+function element(tag) {
+  const classes = new Set();
+  return { tag, attributes: {}, children: [], listeners: {}, textContent: "", disabled: false, checked: false, value: "",
+    classList: { add(v) { classes.add(v); }, remove(v) { classes.delete(v); }, contains(v) { return classes.has(v); } },
+    append(v) { this.children.push(v); }, replaceChildren() { this.children = []; },
+    setAttribute(k, v) { this.attributes[k] = v; }, addEventListener(k, v) { this.listeners[k] = v; } };
+}
+const descendants = node => [node, ...node.children.flatMap(descendants)];
+const text = node => descendants(node).map(item => item.textContent).join("\n");
+const checkboxes = output => descendants(output).filter(item => item.type === "checkbox");
+const select = input => { input.checked = true; input.listeners.change(); };
+async function harness({ data = preview(), post = success,
+  get = () => response({ ...preview(), newImportEligible: false, newImport: receipt() }), confirmation = true } = {}) {
+  const elements = new Map(), calls = [], confirmations = [];
+  const document = { createElement: element, getElementById(id) {
+    if (!elements.has(id)) elements.set(id, element("div"));
+    return elements.get(id);
+  } };
+  const context = vm.createContext({ window: {}, document, Date,
+    confirm(message) { confirmations.push(message); return confirmation; },
+    fetch: async (url, options) => {
+      const path = url.split("/").at(-1);
+      calls.push({ path, method: options.method, body: options.body ? JSON.parse(options.body) : undefined });
+      if (path === "source") return response({ configured: true, importSourceId: "own-source" });
+      if (path === "simulate") return response(data);
+      if (path === "import-new") return post();
+      if (path === "own-run") return get();
+      if (path === "apply") return response({ ok: true, appliedCount: 1 });
+      if (path === "enroll") return response({ alreadyEnrolled: false });
+      assert.fail(`Unexpected request: ${path}`);
+    } });
+  vm.runInContext(script, context);
+  context.window.HomeClickCrmSync.iniciar(() => "test-token");
+  await new Promise(resolve => setImmediate(resolve));
+  await elements.get("crmSyncSimulate").listeners.click();
+  const output = elements.get("crmSyncResults"), status = elements.get("crmSyncStatus");
+  const button = descendants(output).find(item => item.textContent === "Importar nuevos");
+  return { output, status, button, calls, confirmations, data, context };
+}
+
+test("eligible NEW has its own checkbox even when blocked for UPDATE", async () => {
+  const h = await harness();
+  assert.equal(checkboxes(h.output).length, 1);
+  assert.match(text(h.output), /NEW-1: NEW · listo para importar/);
+  assert.match(checkboxes(h.output)[0].attributes["aria-label"], /Seleccionar nuevo anuncio/);
+  assert.match(text(h.output), /0 nuevos seleccionados \/ 10/);
+  assert.equal(h.button.disabled, true);
+});
+
+for (const [name, change] of [
+  ["ineligible", { newImportEligible: false }],
+  ["expired", { newImportEligible: false, expired: true, newImportBlockedReason: "RUN_EXPIRED" }],
+  ["truncated", { planTruncated: true, newImportBlockedReason: "RUN_PLAN_TRUNCATED" }],
+  ["incomplete", { snapshotComplete: false, newImportBlockedReason: "RUN_SNAPSHOT_INCOMPLETE" }],
+  ["importing", { newImport: { status: "importing" } }],
+  ["indeterminate", { newImport: { status: "indeterminate" } }]
+]) test(`${name} NEW has no checkbox or execution button`, async () => {
+  const h = await harness({ data: { ...preview(), ...change } });
+  assert.equal(checkboxes(h.output).length, 0);
+  assert.equal(h.button, undefined);
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 0);
+});
+
+test("entry explicitly ineligible or invalid has no NEW checkbox", async () => {
+  for (const flags of [{ newImportEligible: false }, { errors: ["invalid"] }, { reason: "INVALID_RECORD" }]) {
+    const data = preview(); Object.assign(data.results[0], flags);
+    const h = await harness({ data });
+    assert.equal(checkboxes(h.output).length, 0);
+  }
+});
+
+test("NEW and UPDATE selections are independent; UPDATE is never sent to import-new", async () => {
+  const data = preview(); data.results.push({ externalId: "UPDATE-1", type: "UPDATE", blocked: false, changedFields: ["precio"] });
+  const h = await harness({ data });
+  const inputs = checkboxes(h.output);
+  const update = inputs.find(input => input.attributes["aria-label"].startsWith("Seleccionar cambios"));
+  select(update);
+  assert.equal(h.button.disabled, true);
+  assert.match(text(h.output), /0 nuevos seleccionados/);
+  select(inputs.find(input => input !== update));
+  await h.button.listeners.click();
+  assert.deepEqual(h.calls.find(c => c.path === "import-new").body, { runId: "own-run", externalIds: ["NEW-1"] });
+  assert.equal(h.calls.filter(c => c.path === "apply").length, 0);
+});
+
+test("zero selected never confirms or sends POST", async () => {
+  const h = await harness(); await h.button.listeners.click();
+  assert.equal(h.confirmations.length, 0);
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 0);
+});
+
+for (const size of [1, 10]) test(`${size} selected sends the exact contract and explicit confirmation`, async () => {
+  const h = await harness({ data: preview(size) });
+  checkboxes(h.output).forEach(select);
+  await h.button.listeners.click();
+  assert.deepEqual(h.calls.find(c => c.path === "import-new"), { path: "import-new", method: "POST",
+    body: { runId: "own-run", externalIds: Array.from({ length: size }, (_, i) => `NEW-${i + 1}`) } });
+  assert.match(h.confirmations[0], /consumirán cupo de tu plan/);
+  assert.match(h.confirmations[0], /No se modificarán anuncios existentes/);
+});
+
+test("eleventh checkbox cannot extend the selection beyond ten", async () => {
+  const h = await harness({ data: preview(11) });
+  checkboxes(h.output).forEach(select);
+  assert.equal(checkboxes(h.output)[10].checked, false);
+  assert.match(text(h.output), /como máximo 10/);
+  await h.button.listeners.click();
+  assert.equal(h.calls.find(c => c.path === "import-new").body.externalIds.length, 10);
+});
+
+test("cancelled confirmation does not POST and allows selecting again", async () => {
+  const h = await harness({ confirmation: false }); select(checkboxes(h.output)[0]);
+  await h.button.listeners.click();
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 0);
+  assert.equal(h.button.disabled, false);
+});
+
+test("confirmed receipt is visible immediately before GET finishes; double click blocked", async () => {
+  let release, entered;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const h = await harness({ get: async () => { entered(); await waiting; return response({ ...preview(), newImport: receipt() }); } });
+  select(checkboxes(h.output)[0]); const pending = h.button.listeners.click(); await started;
+  assert.match(h.status.textContent, /Importación completada/);
+  assert.match(text(h.output), /1 anuncio importado/);
+  assert.match(text(h.output), /5 imágenes importadas · 0 imágenes omitidas/);
+  assert.match(text(h.output), /NEW-1: Importado/);
+  assert.ok(descendants(h.output).some(item => item.href === "/perfil.html#listaPropiedades"));
+  await h.button.listeners.click(); release(); await pending; await h.button.listeners.click();
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 1);
+});
+
+test("double click while POST is pending sends one request and freezes selection", async () => {
+  let release, entered;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const h = await harness({ post: async () => { entered(); await waiting; return success(); } });
+  const input = checkboxes(h.output)[0]; select(input);
+  const pending = h.button.listeners.click(); await started;
+  assert.equal(h.button.disabled, true); assert.equal(input.disabled, true);
+  await h.button.listeners.click(); release(); await pending;
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 1);
+  assert.equal(h.confirmations.length, 1);
+});
+
+for (const get of [async () => { throw new TypeError("Failed to fetch"); }, () => response({ error: "private error" }, 503)])
+  test("failed GET preserves confirmed import and adds a separate refresh notice", async () => {
+    const h = await harness({ get }); select(checkboxes(h.output)[0]); await h.button.listeners.click();
+    assert.match(h.status.textContent, /Importación completada/);
+    assert.equal(h.status.classList.contains("error"), false);
+    assert.match(text(h.output), /1 anuncio importado/);
+    assert.match(text(h.output), /importación se confirmó correctamente, pero/);
+    assert.doesNotMatch(text(h.output), /private error|Failed to fetch/);
+  });
+
+for (const [code, expected] of [
+  ["ALREADY_EXISTS", /ya existe/], ["PLAN_LIMIT", /cupo suficiente/], ["RUN_EXPIRED", /caducado/],
+  ["SOURCE_BUSY", /ocupada/], ["SYNC_SOURCE_BUSY", /ocupada/],
+  ["RECONCILIATION_PENDING", /pendiente de comprobación/], ["SYNC_NEW_RECONCILIATION_PENDING", /pendiente de comprobación/],
+  ["INDETERMINATE", /No se pudo confirmar/], ["SYNC_NEW_UNCONFIRMED", /No se pudo confirmar/],
+  ["SYNC_NEW_SELECTION_MISMATCH", /selección no coincide/], ["SYNC_NEW_IN_PROGRESS", /en curso/]
+]) test(`${code} produces a safe message without false success`, async () => {
+  const h = await harness({ post: () => response({ code, error: "private internal details" }, 409) });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  assert.match(h.status.textContent, expected);
+  assert.doesNotMatch(h.status.textContent, /completada|private internal/);
+  assert.equal(h.status.classList.contains("error"), true);
+  assert.equal(h.calls.filter(c => c.path === "own-run").length, 0);
+});
+
+for (const post of [async () => { throw new TypeError("Failed to fetch"); }, () => response(null)])
+  test("indeterminate POST never assumes success or retries", async () => {
+    const h = await harness({ post }); select(checkboxes(h.output)[0]); await h.button.listeners.click();
+    assert.match(h.status.textContent, /No se pudo confirmar/);
+    assert.match(h.status.textContent, /antes de volver a intentarlo/);
+    await h.button.listeners.click();
+    assert.equal(h.calls.filter(c => c.path === "import-new").length, 1);
+    assert.equal(descendants(h.output).some(item => item.textContent === "Importar nuevos"), false);
+  });
+
+test("completed operation renders stored receipt without a new execution or selection", async () => {
+  const h = await harness({ data: { ...preview(), newImportEligible: false, newImport: receipt() } });
+  assert.equal(h.button, undefined); assert.equal(checkboxes(h.output).length, 0);
+  assert.match(text(h.output), /1 anuncio importado/);
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 0);
+});
+
+test("stale GET cannot replace the receipt acknowledged by POST", async () => {
+  const stale = receipt(); stale.counts.imported = 0; stale.results = [];
+  const h = await harness({ get: () => response({ ...preview(), newImport: stale }) });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  assert.match(text(h.output), /1 anuncio importado/);
+  assert.match(text(h.output), /NEW-1: Importado/);
+  assert.doesNotMatch(text(h.output), /0 anuncios importados/);
+  assert.equal(descendants(h.output).some(item => item.textContent === "Importar nuevos"), false);
+});
+
+test("failed POST does not present success or retry automatically", async () => {
+  const h = await harness({ post: () => response({ code: "SYNC_NEW_FAILED", error: "internal error" }, 500) });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click(); await h.button.listeners.click();
+  assert.equal(h.status.classList.contains("error"), true);
+  assert.doesNotMatch(h.status.textContent, /Importación completada|internal error/);
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 1);
+});
+
+test("external IDs are rendered as text, never HTML", async () => {
+  const data = preview(); data.results[0].externalId = "<img src=x onerror=alert(1)>";
+  const h = await harness({ data });
+  const row = descendants(h.output).find(item => item.tag === "li");
+  assert.match(row.textContent, /<img src=x/);
+  assert.equal(row.children.some(item => item.tag === "img"), false);
+  assert.doesNotMatch(script, /innerHTML/);
+});
+
+test("run expiring after render cannot execute NEW", async () => {
+  const data = preview(), h = await harness({ data }); select(checkboxes(h.output)[0]);
+  data.expiresAt = new Date(0).toISOString(); await h.button.listeners.click();
+  assert.equal(h.button.disabled, true); assert.match(text(h.output), /caducado/);
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 0);
+});
+
+test("receipt with skips and already-existing references remains truthful", async () => {
+  const operation = receipt(); Object.assign(operation.counts, { imported: 0, skipped: 1, alreadyExists: 1 });
+  operation.results = [{ externalId: "NEW-1", status: "already_exists", reason: "ALREADY_EXISTS" },
+    { externalId: "NEW-2", status: "skipped", reason: "CREATION_FAILED" }];
+  const h = await harness({ post: () => response({ ok: true, newImport: operation }), get: async () => { throw new Error(); } });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  assert.match(text(h.output), /0 anuncios importados · 2 omitidos/);
+  assert.match(text(h.output), /NEW-1: Ya existe/); assert.match(text(h.output), /NEW-2: Omitido/);
+});
+
+test("responsive profile keeps wrapped content, bounded buttons and cache version", () => {
+  const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
+  assert.match(html, /crm-sync-results[^}]*overflow-wrap: anywhere/);
+  assert.match(html, /crm-sync-results \.btn-perfil[^}]*max-width: 100%; white-space: normal/);
+  assert.match(html, /crm-sync-ui\.js\?v=7/);
+});
