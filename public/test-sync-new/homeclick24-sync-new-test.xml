@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <property>
+    <externalId>SYNC-NEW-TEST-001</externalId>
+    <title>Piso de prueba NEW CRM en Chipiona</title>
+    <description>Datos ficticios exclusivos para prueba controlada NEW CRM. No usar como anuncio real.</description>
+    <operation>venta</operation>
+    <price>198000</price>
+    <address>Dirección de prueba</address>
+    <city>Chipiona</city>
+    <province>Cádiz</province>
+    <postalCode>11550</postalCode>
+    <bedrooms>2</bedrooms>
+    <bathrooms>1</bathrooms>
+    <surface>72</surface>
+    <propertyType>piso</propertyType>
+    <condition>used</condition>
+    <garage>false</garage>
+    <pool>false</pool>
+    <terrace>true</terrace>
+  </property>
+</properties>
