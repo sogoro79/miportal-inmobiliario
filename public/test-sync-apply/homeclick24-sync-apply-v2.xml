@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <property>
+    <externalId>SYNC-APPLY-TEST-001</externalId>
+    <titulo>Piso de prueba apply CRM en Chipiona</titulo>
+    <tipoOperacion>venta</tipoOperacion>
+    <tipoInmueble>piso</tipoInmueble>
+    <precio>225000</precio>
+    <localidad>Chipiona</localidad>
+    <provincia>Cádiz</provincia>
+    <codigoPostal>11550</codigoPostal>
+    <direccion>Dirección de prueba apply CRM</direccion>
+    <habitaciones>2</habitaciones>
+    <banos>1</banos>
+    <superficie>75</superficie>
+    <garaje>false</garaje>
+    <piscina>false</piscina>
+    <terraza>true</terraza>
+    <descripcion>Datos ficticios exclusivos para prueba controlada de apply CRM.</descripcion>
+  </property>
+</properties>
