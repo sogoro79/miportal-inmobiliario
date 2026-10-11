@@ -53,7 +53,7 @@ export async function inspect({ db, userId, sourceId, env, session, now = new Da
   if (properties.length !== 1) fail("EXACTLY_ONE_SOURCE_PROPERTY_REQUIRED");
   const property = properties[0];
   if (!same(property.usuarioId, userId) || property.source !== "crm" || property.externalId !== EXTERNAL_ID ||
-      property.referencia !== EXTERNAL_ID) fail("PROPERTY_IDENTITY_MISMATCH");
+      property.referencia !== "") fail("PROPERTY_IDENTITY_MISMATCH");
   const mediaPresent = !Array.isArray(property.imagenes) || property.imagenes.length > 0 || Boolean(property.videoUrl);
   const reconciliationCount = await db.ImportReconciliation.countDocuments({ $or: [
     { importSourceId: sourceId }, { propiedadId: property._id }, { usuarioId: userId, externalId: EXTERNAL_ID }

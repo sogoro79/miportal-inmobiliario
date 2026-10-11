@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { cleanup, parseArgs, EXPECTED_URL, EXTERNAL_ID, CONFIRMATION } from "../scripts/cleanup-crm-sync-apply.js";
 import { encryptFeedUrl } from "../utils/import/feedUrlCrypto.js";
+import { analyzeGenericXml } from "../utils/importers/genericXmlImporter.js";
+import { validateImportProperty } from "../utils/import/selectedImport.js";
+import { buildPropiedadCreateData } from "../utils/propertyCreation.js";
 
 const env = { CRM_FEED_URL_KEY_V1: Buffer.alloc(32, 7).toString("base64") };
 function values(doc, path) {
@@ -31,7 +35,7 @@ function fixture() {
     Usuario: [{ _id: "u", nombre: "Alberto", plan: "lanzamiento_2026", favoritos: [] }],
     ImportSource: [{ _id: "s", usuarioId: "u", feedType: "generic_xml", activo: true, ...encryptFeedUrl(EXPECTED_URL, env) }],
     Propiedad: [{ _id: "p", usuarioId: "u", importSourceId: "s", source: "crm", externalId: EXTERNAL_ID,
-      referencia: EXTERNAL_ID, imagenes: [], videoUrl: "", precio: 225000 }],
+      referencia: "", imagenes: [], videoUrl: "", precio: 225000 }],
     ImportSyncRun: [{ _id: "r", usuarioId: "u", importSourceId: "s", status: "applied" }],
     ImportReconciliation: [], Conversacion: [], Notificacion: [], EstadisticaAnuncio: []
   };
@@ -85,6 +89,23 @@ test("dry-run validates identity, counts, and never writes", async () => {
   assert.equal(result.plan, "lanzamiento_2026");
   assert.deepEqual(f.writes, []);
 });
+test("real XML parser, validation and creation produce an empty reference accepted by cleanup", async () => {
+  const xml = fs.readFileSync(new URL("../public/test-sync-apply/homeclick24-sync-apply-v1.xml", import.meta.url), "utf8");
+  const parsed = analyzeGenericXml(xml);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].externalId, EXTERNAL_ID);
+  assert.equal(Object.hasOwn(parsed[0], "referencia"), false);
+  const validation = validateImportProperty(parsed[0]);
+  assert.deepEqual(validation.errors, []);
+  const property = { ...buildPropiedadCreateData(validation.data, { usuarioId: "u", plan: "lanzamiento_2026", imagenes: [] }),
+    _id: "p", usuarioId: "u", importSourceId: "s", source: "crm", externalId: parsed[0].externalId };
+  assert.equal(property.referencia, "");
+  const f = fixture();
+  f.data.Propiedad[0] = property;
+  assert.equal((await cleanup(f)).resultado, "APTO PARA LIMPIEZA");
+  assert.deepEqual(f.writes, []);
+  assert.equal((await cleanup({ ...f, apply: true, confirm: CONFIRMATION })).resultado, "LIMPIEZA CONFIRMADA");
+});
 for (const [name, change, code] of [
   ["user missing", d => { d.Usuario = []; }, "USER_NOT_FOUND"],
   ["source owner", d => { d.ImportSource[0].usuarioId = "other"; }, "SOURCE_IDENTITY_MISMATCH"],
@@ -92,6 +113,9 @@ for (const [name, change, code] of [
   ["encrypted URL", d => { d.ImportSource[0].encryptedFeedUrl = "bad"; }, "SYNC_SOURCE_NOT_CONFIGURED"],
   ["property owner", d => { d.Propiedad[0].usuarioId = "other"; }, "PROPERTY_IDENTITY_MISMATCH"],
   ["externalId", d => { d.Propiedad[0].externalId = "other"; }, "PROPERTY_IDENTITY_MISMATCH"],
+  ["unexpected reference", d => { d.Propiedad[0].referencia = EXTERNAL_ID; }, "PROPERTY_IDENTITY_MISMATCH"],
+  ["missing reference", d => { delete d.Propiedad[0].referencia; }, "PROPERTY_IDENTITY_MISMATCH"],
+  ["wrong importSourceId", d => { d.Propiedad[0].importSourceId = "other"; }, "EXACTLY_ONE_SOURCE_PROPERTY_REQUIRED"],
   ["non CRM", d => { d.Propiedad[0].source = "manual"; }, "PROPERTY_IDENTITY_MISMATCH"],
   ["missing property", d => { d.Propiedad = []; }, "EXACTLY_ONE_SOURCE_PROPERTY_REQUIRED"],
   ["extra property", d => { d.Propiedad.push({ _id: "other", importSourceId: "s" }); }, "EXACTLY_ONE_SOURCE_PROPERTY_REQUIRED"],
