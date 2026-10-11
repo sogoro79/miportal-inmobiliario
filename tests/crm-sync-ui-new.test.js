@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { buildSyncSnapshot } from "../utils/import/syncSnapshot.js";
+import { prepareSyncPlan, safeRunSummary, snapshotDigest, runVersions } from "../utils/import/syncPlan.js";
 
 const script = fs.readFileSync(new URL("../public/js/crm-sync-ui.js", import.meta.url), "utf8");
 const response = (data, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => data });
@@ -9,7 +11,7 @@ const preview = (count = 1) => ({ runId: "own-run", status: "simulated", applyEl
   newImportEligible: true, snapshotComplete: true, expired: false,
   expiresAt: new Date(Date.now() + 60000).toISOString(), newCount: count,
   results: Array.from({ length: count }, (_, index) => ({ externalId: `NEW-${index + 1}`, type: "NEW",
-    blocked: true, reason: "NEW_REQUIRES_MANUAL_IMPORT" })) });
+    blocked: true, importNewEligible: true, importNewBlockCode: null, reason: "NEW_REQUIRES_MANUAL_IMPORT" })) });
 const receipt = () => ({ status: "completed", selectedExternalIds: ["NEW-1"],
   counts: { imported: 1, skipped: 0, alreadyExists: 0, importedImages: 5, skippedImages: 0 },
   results: [{ externalId: "NEW-1", status: "imported" }] });
@@ -78,7 +80,7 @@ for (const [name, change] of [
 });
 
 test("entry explicitly ineligible or invalid has no NEW checkbox", async () => {
-  for (const flags of [{ newImportEligible: false }, { errors: ["invalid"] }, { reason: "INVALID_RECORD" }]) {
+  for (const flags of [{ importNewEligible: false }, { errors: ["invalid"] }, { reason: "INVALID_RECORD" }]) {
     const data = preview(); Object.assign(data.results[0], flags);
     const h = await harness({ data });
     assert.equal(checkboxes(h.output).length, 0);
@@ -170,7 +172,7 @@ for (const get of [async () => { throw new TypeError("Failed to fetch"); }, () =
   });
 
 for (const [code, expected] of [
-  ["ALREADY_EXISTS", /ya existe/], ["PLAN_LIMIT", /cupo suficiente/], ["RUN_EXPIRED", /caducado/],
+  ["ALREADY_EXISTS", /ya existe/], ["PLAN_LIMIT", /cupo suficiente/], ["SYNC_NEW_PLAN_LIMIT", /cupo suficiente/], ["RUN_EXPIRED", /caducado/],
   ["SOURCE_BUSY", /ocupada/], ["SYNC_SOURCE_BUSY", /ocupada/],
   ["RECONCILIATION_PENDING", /pendiente de comprobación/], ["SYNC_NEW_RECONCILIATION_PENDING", /pendiente de comprobación/],
   ["INDETERMINATE", /No se pudo confirmar/], ["SYNC_NEW_UNCONFIRMED", /No se pudo confirmar/],
@@ -249,5 +251,85 @@ test("responsive profile keeps wrapped content, bounded buttons and cache versio
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
   assert.match(html, /crm-sync-results[^}]*overflow-wrap: anywhere/);
   assert.match(html, /crm-sync-results \.btn-perfil[^}]*max-width: 100%; white-space: normal/);
-  assert.match(html, /crm-sync-ui\.js\?v=7/);
+  assert.match(html, /crm-sync-ui\.js\?v=8/);
+});
+
+for (const publicable of [true, false]) test(`real snapshot -> safe summary -> UI: publicable=${publicable}`, async () => {
+  const xml = `<properties><property><id>REAL-NEW</id><title>Casa de prueba</title><operation>venta</operation><price>210000</price><address>Direccion de prueba</address>${publicable ? "<bedrooms>2</bedrooms>" : ""}</property></properties>`;
+  const snapshot = buildSyncSnapshot(xml);
+  const data = safeRunSummary({ _id: "507f1f77bcf86cd799439011", importSourceId: "507f1f77bcf86cd799439012",
+    status: "simulated", snapshotComplete: snapshot.snapshotComplete, sourceIdentityHash: "a".repeat(64),
+    snapshotDigest: snapshotDigest(snapshot), expiresAt: new Date(Date.now() + 600000),
+    ...runVersions, ...prepareSyncPlan(snapshot, []) });
+  assert.equal(data.newImportEligible, true);
+  assert.equal(data.results[0].importNewEligible, publicable);
+  assert.equal(data.results[0].importNewBlockCode, publicable ? null : "SYNC_NEW_INVALID_DATA");
+  const h = await harness({ data });
+  assert.equal(checkboxes(h.output).length, publicable ? 1 : 0);
+  if (!publicable) assert.match(text(h.output), /datos que no permiten publicar/);
+  assert.doesNotMatch(JSON.stringify(data.results), /Direccion de prueba|210000|Casa de prueba/);
+});
+
+test("legacy plan without individual eligibility requires resimulation", async () => {
+  const data = preview(); delete data.results[0].importNewEligible;
+  const h = await harness({ data });
+  assert.equal(h.button, undefined);
+  assert.equal(checkboxes(h.output).length, 0);
+});
+
+for (const status of [502, 503, 504]) for (const json of [false, true])
+  test(`gateway ${status}, JSON body=${json}: indeterminate, GET recovery only`, async () => {
+    const post = () => json ? response({ error: "gateway private error", code: "UNKNOWN_GATEWAY" }, status)
+      : { ok: false, status, json: async () => { throw new SyntaxError("HTML"); } };
+    const h = await harness({ post }); select(checkboxes(h.output)[0]); await h.button.listeners.click();
+    assert.match(h.status.textContent, /No se pudo confirmar/);
+    assert.doesNotMatch(h.status.textContent, /completada|gateway private/);
+    await h.button.listeners.click();
+    const consult = descendants(h.output).find(item => item.textContent === "Consultar estado");
+    assert.ok(consult); await consult.listeners.click();
+    assert.match(h.status.textContent, /Importación confirmada/);
+    assert.match(text(h.output), /1 anuncio importado/);
+    assert.equal(h.calls.filter(c => c.path === "import-new").length, 1);
+    const calls = h.calls.filter(c => c.path === "own-run");
+    assert.equal(calls.length, 1); assert.equal(calls[0].method, "GET"); assert.equal(calls[0].body, undefined);
+  });
+
+for (const state of ["importing", "indeterminate", "failed"]) test(`consult ${state} keeps NEW blocked and safe`, async () => {
+  const operation = { status: state, results: [], failureCode: "SYNC_NEW_PLAN_LIMIT" };
+  const h = await harness({ post: async () => { throw new TypeError(); },
+    get: () => response({ ...preview(), newImportEligible: false, newImport: operation }) });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  const consult = descendants(h.output).find(item => item.textContent === "Consultar estado");
+  await consult.listeners.click();
+  assert.match(h.status.textContent, state === "importing" ? /en curso/ : state === "indeterminate" ? /No se pudo confirmar/ : /cupo suficiente/);
+  assert.equal(descendants(h.output).some(item => item.textContent === "Importar nuevos"), false);
+  assert.ok(descendants(h.output).some(item => item.textContent === "Consultar estado"));
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 1);
+});
+
+test("failed state GET keeps manual consult and never sends POST again", async () => {
+  const h = await harness({ post: async () => { throw new TypeError(); }, get: async () => { throw new Error("private URL"); } });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  const consult = descendants(h.output).find(item => item.textContent === "Consultar estado");
+  await consult.listeners.click(); await consult.listeners.click();
+  assert.match(h.status.textContent, /No se pudo consultar el estado/);
+  assert.doesNotMatch(h.status.textContent, /private URL/);
+  assert.equal(h.calls.filter(c => c.path === "own-run").length, 2);
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 1);
+});
+
+test("recalculating selection after expiry disables NEW immediately", async () => {
+  const data = preview(), h = await harness({ data });
+  data.expiresAt = new Date(0).toISOString(); select(checkboxes(h.output)[0]);
+  assert.equal(h.button.disabled, true);
+  assert.equal(checkboxes(h.output)[0].disabled, true);
+  assert.match(text(h.output), /La simulación|simulación ha caducado/);
+  assert.equal(h.calls.filter(c => c.path === "import-new").length, 0);
+});
+
+test("recognized gateway error retains its existing safe semantics", async () => {
+  const h = await harness({ post: () => response({ code: "FEED_TIMEOUT" }, 504) });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  assert.doesNotMatch(h.status.textContent, /No se pudo confirmar/);
+  assert.equal(descendants(h.output).some(item => item.textContent === "Consultar estado"), false);
 });

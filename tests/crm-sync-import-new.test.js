@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import vm from "node:vm";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { Readable, Writable, PassThrough } from "node:stream";
@@ -242,8 +244,58 @@ for (const [status, code] of [["importing", "SYNC_NEW_IN_PROGRESS"], ["indetermi
 test("plan full uses Phase 2 checks and produces no images", async () => {
   const h = harness({ plan: "gratis" });
   h.state.properties.push({ usuarioId: U }, { usuarioId: U });
-  await assert.rejects(() => h.run(h.request)); assert.equal(h.effects.uploads, 0);
+  await assert.rejects(() => h.run(h.request), { code: "SYNC_NEW_PLAN_LIMIT" }); assert.equal(h.effects.uploads, 0);
   assert.equal(h.state.run.newImport.status, "failed");
+});
+
+test("inactive plan retains a safe code without changing Phase 2 eligibility", async () => {
+  const h = harness(); h.state.user.planActivo = false;
+  await assert.rejects(() => h.run(h.request), { code: "SYNC_NEW_PLAN_REQUIRED" });
+  assert.equal(h.effects.uploads, 0); assert.equal(h.effects.downloads, 0);
+  assert.equal(h.state.run.newImport.failureCode, "SYNC_NEW_PLAN_REQUIRED");
+});
+
+test("actual Phase 2 quota rejection -> HTTP safe code -> UI message and stored failed run", async () => {
+  const old = Usuario.findById, secret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = "test"; Usuario.findById = async () => ({ _id: U, activo: true });
+  const h = harness({ plan: "gratis" }); h.state.properties.push({ usuarioId: U }, { usuarioId: U });
+  const data = safeRunSummary(h.state.run);
+  const app = express(), pass = (req, res, next) => next(); app.use(express.json());
+  app.use("/api/crm-import", createCrmImportRouter({ ...h.dependencies, importNewSync: h.run,
+    newImportRateLimitMiddleware: pass, newImportUserRateLimitMiddleware: pass }));
+  const elements = new Map(), calls = [];
+  const element = () => ({ children: [], listeners: {}, textContent: "", disabled: false, checked: false,
+    classList: { add() {}, remove() {} }, append(value) { this.children.push(value); },
+    replaceChildren() { this.children = []; }, setAttribute() {}, addEventListener(k, v) { this.listeners[k] = v; } });
+  const all = node => [node, ...node.children.flatMap(all)];
+  const context = vm.createContext({ window: {}, Date, confirm: () => true,
+    document: { createElement: element, getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); } },
+    fetch: async (url, options) => {
+      calls.push({ url, method: options.method, body: options.body ? JSON.parse(options.body) : undefined });
+      const result = url.endsWith("source") ? { status: 200, body: { configured: true, importSourceId: S } }
+        : url.endsWith("simulate") ? { status: 200, body: data }
+        : await http(app, options.method, url, options.body ? JSON.parse(options.body) : {});
+      if (url.endsWith("import-new")) {
+        assert.equal(result.body.code, "SYNC_NEW_PLAN_LIMIT");
+        assert.doesNotMatch(JSON.stringify(result.body), /stack|feed.example|secret/);
+      }
+      return { ok: result.status < 300, status: result.status, json: async () => result.body };
+    } });
+  try {
+    vm.runInContext(fs.readFileSync(new URL("../public/js/crm-sync-ui.js", import.meta.url), "utf8"), context);
+    context.window.HomeClickCrmSync.iniciar(() => "mock-token"); await new Promise(resolve => setImmediate(resolve));
+    await elements.get("crmSyncSimulate").listeners.click();
+    const output = elements.get("crmSyncResults"), input = all(output).find(node => node.type === "checkbox");
+    input.checked = true; input.listeners.change();
+    await all(output).find(node => node.textContent === "Importar nuevos").listeners.click();
+    assert.equal(elements.get("crmSyncStatus").textContent, "No hay cupo suficiente en tu plan para importar estos anuncios.");
+    assert.equal(h.state.run.newImport.failureCode, "SYNC_NEW_PLAN_LIMIT");
+    assert.equal(h.effects.uploads, 0); assert.equal(h.effects.downloads, 0);
+    await all(output).find(node => node.textContent === "Consultar estado").listeners.click();
+    assert.equal(elements.get("crmSyncStatus").textContent, "No hay cupo suficiente en tu plan para importar estos anuncios.");
+    assert.equal(calls.filter(c => c.url.endsWith("import-new")).length, 1);
+    assert.deepEqual(calls.find(c => c.url.endsWith("import-new")).body, { runId: R, externalIds: ["N-0"] });
+  } finally { Usuario.findById = old; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
 });
 test("photo failure retains Phase 2 warnings/counts and allows publication", async () => {
   const h = harness({ photos: 2 }); h.faults.photo = true;

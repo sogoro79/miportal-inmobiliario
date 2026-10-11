@@ -9,8 +9,10 @@
     const messages = {
       ALREADY_EXISTS: "Este anuncio ya existe. No se ha creado un duplicado.",
       SYNC_NEW_NOT_NEW: "Alguna referencia ya no es nueva. Vuelve a simular.",
-      PLAN_LIMIT: "No tienes cupo suficiente en tu plan para crear estos anuncios.",
-      RUN_EXPIRED: "Esta simulación ha caducado. Vuelve a simular.",
+      PLAN_LIMIT: "No hay cupo suficiente en tu plan para importar estos anuncios.",
+      SYNC_NEW_PLAN_LIMIT: "No hay cupo suficiente en tu plan para importar estos anuncios.",
+      SYNC_NEW_PLAN_REQUIRED: "Necesitas activar un plan para importar estos anuncios.",
+      RUN_EXPIRED: "La simulación ha caducado. Vuelve a simular.",
       SOURCE_BUSY: "La fuente CRM está ocupada. Consulta su estado antes de continuar.",
       SYNC_SOURCE_BUSY: "La fuente CRM está ocupada. Consulta su estado antes de continuar.",
       RECONCILIATION_PENDING: "Hay una importación pendiente de comprobación. Consulta su estado antes de continuar.",
@@ -23,6 +25,8 @@
       RUN_PLAN_TRUNCATED: "El resultado está truncado. Vuelve a simular con un conjunto más pequeño.",
       RUN_SNAPSHOT_INCOMPLETE: "El feed no está completo. Vuelve a simular antes de importar.",
       SYNC_NEW_FEED_CHANGED: "El feed ha cambiado. Vuelve a simular antes de importar.",
+      SYNC_NEW_RUN_CHANGED: "Vuelve a simular para obtener un resultado vigente con elegibilidad de importación.",
+      SYNC_NEW_SELECTION_INVALID: "Selecciona entre 1 y 10 referencias NEW elegibles de esta simulación.",
       SYNC_NEW_INVALID_DATA: "Hay datos que no permiten publicar alguno de los anuncios. Revisa el feed y vuelve a simular."
     };
     return messages[code] || "No se pueden importar nuevos anuncios desde este resultado. Revisa el estado, el feed y el cupo de tu plan y vuelve a simular.";
@@ -56,7 +60,7 @@
     output.append(block);
   }
 
-  function renderizar(data, output, onEnroll, onApply, onImportNew) {
+  function renderizar(data, output, onEnroll, onApply, onImportNew, onConsult) {
     output.replaceChildren();
     const summary = document.createElement("p");
     summary.textContent = resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
@@ -89,8 +93,9 @@
     const selectionNotice = canApply ? document.createElement("p") : null;
     const newSelected = new Set();
     const newInputs = [];
+    const expiredNow = data.expired || !(Date.parse(data.expiresAt) > Date.now());
     const canImportNew = onImportNew && data.newImportEligible === true && data.status === "simulated" &&
-      !data.expired && !data.planTruncated && data.snapshotComplete === true &&
+      !expiredNow && !data.planTruncated && data.snapshotComplete === true &&
       (!data.newImport?.status || data.newImport.status === "idle");
     const newButton = canImportNew ? document.createElement("button") : null;
     const newNotice = canImportNew ? document.createElement("p") : null;
@@ -101,9 +106,9 @@
       row.textContent = `${item.externalId || "Sin referencia"}: ${item.type}${state !== item.type ? " · " + state : ""}${fields.length ? " · " + fields.join(", ") : ""}${item.reason && item.reason !== "PROPERTY_SYNC_DISABLED" ? " · Requiere revisión" : ""}${item.errors?.length ? " · Datos inválidos" : ""}`;
       if (item.type === "NEW") {
         // NEW is blocked for UPDATE by design; only the server's NEW eligibility applies here.
-        const eligible = canImportNew && item.newImportEligible !== false && !item.errors?.length &&
+        const eligible = canImportNew && item.importNewEligible === true && !item.errors?.length &&
           (!item.reason || item.reason === "NEW_REQUIRES_MANUAL_IMPORT");
-        row.textContent = `${item.externalId || "Sin referencia"}: NEW · ${eligible ? "listo para importar" : data.newImport?.status === "completed" ? "Consulta el resultado de importación" : newMessage(data.newImportBlockedReason || item.reason)}`;
+        row.textContent = `${item.externalId || "Sin referencia"}: NEW · ${eligible ? "listo para importar" : data.newImport?.status === "completed" ? "Consulta el resultado de importación" : newMessage(expiredNow ? "RUN_EXPIRED" : data.newImportBlockedReason || item.importNewBlockCode || item.reason)}`;
         if (eligible) {
           const checkbox = document.createElement("input");
           checkbox.type = "checkbox";
@@ -111,6 +116,12 @@
           newInputs.push(checkbox);
           checkbox.addEventListener("change", () => {
             if (checkbox.disabled) return;
+            if (Date.parse(data.expiresAt) <= Date.now()) {
+              newNotice.textContent = newMessage("RUN_EXPIRED");
+              newButton.disabled = true;
+              newInputs.forEach(input => { input.disabled = true; });
+              return;
+            }
             if (checkbox.checked && newSelected.size >= 10) {
               checkbox.checked = false;
               newNotice.textContent = "Selecciona como máximo 10 nuevos anuncios por lote.";
@@ -200,7 +211,20 @@
       const notice = document.createElement("p");
       notice.textContent = newMessage(data.newImport.status === "importing" ? "SYNC_NEW_IN_PROGRESS" : data.newImport.status === "indeterminate" ? "INDETERMINATE" : "SYNC_NEW_ALREADY_ATTEMPTED");
       output.append(notice);
-      importResult(data.newImport, output);
+      if (data.newImport.results?.length) importResult(data.newImport, output);
+    }
+    if (onConsult && ["importing", "indeterminate", "failed"].includes(data.newImport?.status)) {
+      const consultButton = document.createElement("button");
+      consultButton.type = "button";
+      consultButton.className = "btn-perfil green";
+      consultButton.textContent = "Consultar estado";
+      consultButton.addEventListener("click", async () => {
+        if (consultButton.disabled) return;
+        consultButton.disabled = true;
+        try { await onConsult(); }
+        finally { consultButton.disabled = false; }
+      });
+      output.append(consultButton);
     }
     if (data.resultsTruncated) {
       const notice = document.createElement("p");
@@ -225,6 +249,17 @@
       const data = await api("POST", "simulate", { importSourceId: sourceId });
       let applyClosed = false;
       let newClosed = false;
+      const consult = () => action(async () => {
+        let state;
+        try { state = await api("GET", `runs/${data.runId}`); }
+        catch { throw new Error("No se pudo consultar el estado. Mantén esta página abierta y vuelve a pulsar Consultar estado. No se ha repetido la importación."); }
+        renderizar(state, output, null, null, null, consult);
+        const operation = state.newImport;
+        status.textContent = operation?.status === "completed" ? "Importación confirmada. Se muestra el resultado guardado."
+          : operation?.status === "importing" ? newMessage("SYNC_NEW_IN_PROGRESS")
+          : operation?.status === "indeterminate" ? newMessage("INDETERMINATE")
+          : newMessage(operation?.failureCode || state.newImportBlockedReason);
+      });
       renderizar(data, output, externalId => action(async () => {
         if (!sourceId) throw new Error("Configura primero tu fuente CRM.");
         const result = await api("POST", "enroll", { importSourceId: sourceId, externalIds: [externalId] });
@@ -267,9 +302,11 @@
           let result;
           try { result = await api("POST", "import-new", { runId: data.runId, externalIds }); }
           catch (error) {
-            if (error.newUnconfirmed || ["SYNC_NEW_IN_PROGRESS", "SYNC_NEW_RECONCILIATION_PENDING", "RECONCILIATION_PENDING", "RUN_EXPIRED", "SYNC_NEW_ALREADY_ATTEMPTED", "SYNC_NEW_FAILED"].includes(error.code)) {
+            if (error.newUnconfirmed || ["SYNC_NEW_IN_PROGRESS", "SYNC_NEW_RECONCILIATION_PENDING", "RECONCILIATION_PENDING", "RUN_EXPIRED", "SYNC_NEW_ALREADY_ATTEMPTED", "SYNC_NEW_FAILED", "SYNC_NEW_PLAN_LIMIT", "SYNC_NEW_PLAN_REQUIRED"].includes(error.code)) {
               newClosed = true;
-              renderizar({ ...data, newImportEligible: false, newImportBlockedReason: error.code }, output);
+              renderizar({ ...data, newImportEligible: false, newImportBlockedReason: error.code,
+                newImport: { status: error.code === "SYNC_NEW_IN_PROGRESS" ? "importing" : error.newUnconfirmed ? "indeterminate" : "failed" }
+              }, output, null, null, null, consult);
             }
             throw error;
           }
@@ -288,7 +325,7 @@
             output.append(notice);
           }
         });
-      });
+      }, consult);
       status.textContent = "Simulación completada. No se ha modificado ningún anuncio.";
     }
     async function api(method, path, body) {
@@ -307,6 +344,15 @@
         throw error;
       }
       const data = await response.json().catch(() => ({})) || {};
+      const recognizedNewCodes = new Set([
+        "SYNC_NEW_PLAN_LIMIT", "SYNC_NEW_PLAN_REQUIRED", "SYNC_NEW_SELECTION_INVALID", "SYNC_NEW_SELECTION_MISMATCH",
+        "SYNC_NEW_SOURCE_CHANGED", "SYNC_NEW_RUN_CHANGED", "SYNC_NEW_FEED_CHANGED", "SYNC_NEW_NOT_NEW",
+        "SYNC_NEW_INVALID_DATA", "SYNC_NEW_RECONCILIATION_PENDING", "SYNC_NEW_IN_PROGRESS", "SYNC_NEW_UNCONFIRMED",
+        "SYNC_NEW_ALREADY_ATTEMPTED", "SYNC_NEW_FAILED", "SYNC_RUN_NOT_FOUND", "SYNC_SOURCE_NOT_FOUND",
+        "SYNC_SOURCE_BUSY", "SYNC_SOURCE_NOT_CONFIGURED", "RUN_EXPIRED", "RUN_PLAN_TRUNCATED",
+        "RUN_SNAPSHOT_INCOMPLETE", "RUN_STATUS_NOT_APPLICABLE", "RUN_BLOCKED", "IMPORT_TIMEOUT", "FEED_TIMEOUT"
+      ]);
+      if (path === "import-new" && [502, 503, 504].includes(response.status) && !recognizedNewCodes.has(data.code)) throw unconfirmedNew();
       if (path === "apply" && (data.code === "SYNC_APPLY_UNCONFIRMED" ||
         response.ok && (data.ok !== true || !Number.isSafeInteger(data.appliedCount) || data.appliedCount < 1 || data.appliedCount > 10))) {
         throw unconfirmedApply();

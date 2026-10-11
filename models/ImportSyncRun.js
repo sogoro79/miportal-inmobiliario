@@ -62,6 +62,8 @@ const schema = new mongoose.Schema({
       blocked: Boolean,
       safeReasonCode: String,
       enrollmentEligible: Boolean,
+      importNewEligible: Boolean,
+      importNewBlockCode: { type: String, enum: ["SYNC_NEW_INVALID_DATA", null] },
       linked: Boolean
     }, { _id: false, strict: "throw" })],
     default: undefined,

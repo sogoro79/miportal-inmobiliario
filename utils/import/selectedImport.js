@@ -15,9 +15,10 @@ import { fetchImportImage } from "./imageFetcher.js";
 import { maskFeedUrl, parseAndValidateFeedUrl } from "./feedSecurity.js";
 
 export class ImportError extends Error {
-  constructor(message, status = 400) {
+  constructor(message, status = 400, code) {
     super(message);
     this.status = status;
+    if (code) this.code = code;
   }
 }
 
@@ -69,7 +70,7 @@ export function createSelectedImporter({
       const user = await budget.run(() => UsuarioModel.findById(usuarioId));
       if (!user || user.activo === false) throw new ImportError("Usuario no disponible.", 403);
       const initial = await budget.run(() => getPublicationAvailability(user, { usuarioId, PropiedadModel }));
-      if (!initial.planActivoParaPublicar) throw new ImportError("Necesitas activar un plan para importar.", 403);
+      if (!initial.planActivoParaPublicar) throw new ImportError("Necesitas activar un plan para importar.", 403, "SYNC_NEW_PLAN_REQUIRED");
       const selected = [...new Set(selectedExternalIds)];
       if (selected.length > MAX_BATCH_PROPERTIES) throw new ImportError(`Selecciona como máximo ${MAX_BATCH_PROPERTIES} inmuebles por lote.`);
       const matches = new Map();
@@ -128,7 +129,7 @@ export function createSelectedImporter({
         const toCreate = selected.filter(id => !duplicateIds.has(id));
         const availability = await budget.run(() => getPublicationAvailability(user, { usuarioId, PropiedadModel }));
         if (toCreate.length > availability.cupoDisponible) {
-          throw new ImportError(`Tu plan permite importar ${availability.cupoDisponible} inmuebles más. Has seleccionado ${toCreate.length}.`);
+          throw new ImportError(`Tu plan permite importar ${availability.cupoDisponible} inmuebles más. Has seleccionado ${toCreate.length}.`, 400, "SYNC_NEW_PLAN_LIMIT");
         }
         for (const externalId of selected) {
           await internalContext?.assert?.();

@@ -39,7 +39,9 @@ export function prepareSyncPlan(snapshot, existing) {
       enrollmentEligible: false, linked: Boolean(property?.syncEnabled),
       ...(property ? { propiedadId: property._id } : {}) };
     if (item.type === "INVALID") return { ...base, safeReasonCode: "INVALID_RECORD" };
-    if (item.type === "NEW") return { ...base, safeReasonCode: "NEW_REQUIRES_MANUAL_IMPORT" };
+    if (item.type === "NEW") return { ...base, safeReasonCode: "NEW_REQUIRES_MANUAL_IMPORT",
+      importNewEligible: item.publishableByData === true,
+      importNewBlockCode: item.publishableByData === true ? null : "SYNC_NEW_INVALID_DATA" };
     if (item.type === "MISSING") return { ...base, safeReasonCode: "MISSING_REQUIRES_REVIEW" };
     if (!property || !data) return { ...base, type: "CONFLICT", safeReasonCode: item.reason === "SUSPICIOUS_REFERENCE_CHANGE" ? item.reason : "AMBIGUOUS_IDENTITY" };
     const differences = suppliedNonPhotoDifferences(property, data);
@@ -122,6 +124,9 @@ export function safeRunSummary(run, now = new Date()) {
       changedFields: (entry.changedFields || []).filter(field => detailFields.has(field)),
       blocked: entry.blocked !== false, linked: entry.linked === true,
       enrollmentEligible: entry.enrollmentEligible === true && entry.safeReasonCode === "PROPERTY_SYNC_DISABLED",
+      ...(entry.type === "NEW" ? { importNewEligible: entry.importNewEligible === true,
+        importNewBlockCode: entry.importNewEligible === true ? null
+          : entry.importNewBlockCode === "SYNC_NEW_INVALID_DATA" ? "SYNC_NEW_INVALID_DATA" : "SYNC_NEW_RUN_CHANGED" } : {}),
       ...(RUN_REASON_CODES.has(entry.safeReasonCode) ? { reason: entry.safeReasonCode } : {}) });
   }
   return summary;
