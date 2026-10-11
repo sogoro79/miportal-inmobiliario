@@ -61,7 +61,7 @@ export function createSelectedImporter({
   deleteImage = destroyByPublicId,
   now = () => new Date()
 } = {}) {
-  return async ({ usuarioId, feedUrl, analyzed, selectedExternalIds, budget: suppliedBudget }) => {
+  return async ({ usuarioId, feedUrl, analyzed, selectedExternalIds, budget: suppliedBudget, internalContext }) => {
     const budget = suppliedBudget || createImportBudget({ now: () => now().getTime() });
     try {
       budget.assertActive();
@@ -84,7 +84,11 @@ export function createSelectedImporter({
       if (importablePhotos > MAX_BATCH_PHOTOS) throw new ImportError("El lote supera 100 fotos importables. Reduce la selección.");
       // Esperar a los índices antes de permitir escrituras CRM en producción.
       await budget.run(() => Promise.all([PropiedadModel.init?.(), ImportSourceModel.init?.(), ReconciliationModel.init?.()]));
-      let source = await budget.run(() => ImportSourceModel.findOne({ usuarioId }));
+      let source = internalContext?.source || await budget.run(() => ImportSourceModel.findOne({ usuarioId }));
+      if (internalContext && (!suppliedBudget || String(source?.usuarioId) !== String(usuarioId) ||
+          source?.feedUrlHash !== hash || source?.activo !== true || !internalContext.lock?.token)) {
+        throw new ImportError("Contexto interno de importación inválido.", 409);
+      }
       if (source && source.feedUrlHash !== hash) throw new ImportError("Solo se admite una fuente CRM por usuario en esta fase.");
       if (!source) {
         try {
@@ -96,9 +100,10 @@ export function createSelectedImporter({
           if (!source || source.feedUrlHash !== hash) throw new ImportError("Ya existe otra fuente CRM para este usuario.", 409);
         }
       }
-      const lockToken = crypto.randomUUID();
+      const lockToken = internalContext?.lock.token || crypto.randomUUID();
       const start = now();
-      const locked = await budget.run(() => ImportSourceModel.findOneAndUpdate({ _id: source._id, activo: true, feedUrlHash: hash,
+      const locked = internalContext ? (await budget.run(() => internalContext.lock.assert()), source)
+        : await budget.run(() => ImportSourceModel.findOneAndUpdate({ _id: source._id, activo: true, feedUrlHash: hash,
         $or: [{ importLockUntil: { $exists: false } }, { importLockUntil: null }, { importLockUntil: { $lte: start } }]
       }, { $set: { importLockToken: lockToken, importLockUntil: new Date(start.getTime() + 15 * 60 * 1000), lastAnalyzedAt: start } }, { new: true }), {
         onLateResult: () => ImportSourceModel.updateOne({ _id: source._id, importLockToken: lockToken }, { $unset: { importLockToken: "", importLockUntil: "" } })
@@ -126,6 +131,7 @@ export function createSelectedImporter({
           throw new ImportError(`Tu plan permite importar ${availability.cupoDisponible} inmuebles más. Has seleccionado ${toCreate.length}.`);
         }
         for (const externalId of selected) {
+          await internalContext?.assert?.();
           if (duplicateIds.has(externalId)) { results.push({ externalId, status: "skipped", reason: "duplicate" }); continue; }
           const properties = matches.get(externalId);
           const validation = validateImportProperty(properties[0]);
@@ -184,7 +190,14 @@ export function createSelectedImporter({
             if (images.length > getLimiteFotosPlan(getPlanParaFotos(finalUser))) throw new ImportError("El límite de fotos del plan ha cambiado.");
             const date = now();
             const created = await persist({ usuarioId, body: validation.data, propertyId, budget,
-              imagenes: images.map(image => image.url), extra: { ...identity(externalId), visiblePublicamente: true, importedAt: date, lastImportedAt: date } });
+              imagenes: images.map(image => image.url), extra: { ...identity(externalId), visiblePublicamente: true, importedAt: date, lastImportedAt: date },
+              ...(internalContext ? { transactionHooks: {
+                before: session => internalContext.beforePersist(session, externalId),
+                after: (session, property) => internalContext.afterPersist(session, {
+                  externalId, status: "imported", propertyId: String(property._id), attemptedImages,
+                  importedImages: images.length, skippedImages, imageWarnings: warnings.length
+                })
+              } } : {}) });
             persisted = true;
             results.push({ externalId, status: "imported", propertyId: String(created._id), warnings,
               attemptedImages, importedImages: images.length, skippedImages });
@@ -217,7 +230,7 @@ export function createSelectedImporter({
         }, { attemptedImages: 0, importedImages: 0, skippedImages: 0 });
         return { requested: selected.length, imported, skipped: results.length - imported, ...imageTotals, results };
       } finally {
-        await ImportSourceModel.updateOne({ _id: source._id, importLockToken: lockToken }, { $unset: { importLockToken: "", importLockUntil: "" } }).catch(() => console.warn("[CRM Import]", { code: "SOURCE_UNLOCK_FAILED" }));
+        if (!internalContext) await ImportSourceModel.updateOne({ _id: source._id, importLockToken: lockToken }, { $unset: { importLockToken: "", importLockUntil: "" } }).catch(() => console.warn("[CRM Import]", { code: "SOURCE_UNLOCK_FAILED" }));
       }
     } finally {
       if (!suppliedBudget) budget.dispose();

@@ -1,4 +1,22 @@
 import mongoose from "mongoose";
+import { NEW_IMPORT_STATUSES, NEW_IMPORT_RESULT_STATUSES, NEW_IMPORT_FAILURE_CODES } from "../utils/import/newImportState.js";
+
+const newResultSchema = new mongoose.Schema({
+  externalId: { type: String, required: true, maxlength: 200 },
+  status: { type: String, enum: NEW_IMPORT_RESULT_STATUSES, required: true },
+  propertyId: mongoose.Schema.Types.ObjectId,
+  reason: { type: String, enum: ["ALREADY_EXISTS", "INVALID_DATA", "CREATION_FAILED", "RECONCILIATION_REQUIRED", "NOT_STARTED"] },
+  attemptedImages: Number, importedImages: Number, skippedImages: Number, imageWarnings: Number
+}, { _id: false, strict: "throw" });
+const newImportSchema = new mongoose.Schema({
+  status: { type: String, enum: NEW_IMPORT_STATUSES, required: true },
+  selectedExternalIds: { type: [String], required: true,
+    validate: value => value.length >= 1 && value.length <= 10 && new Set(value).size === value.length },
+  startedAt: Date, completedAt: Date,
+  results: { type: [newResultSchema], default: [], validate: value => value.length <= 10 },
+  counts: { imported: Number, alreadyExists: Number, skipped: Number, attemptedImages: Number, importedImages: Number, skippedImages: Number },
+  failureCode: { type: String, enum: [...NEW_IMPORT_FAILURE_CODES] }
+}, { _id: false, strict: "throw" });
 
 const schema = new mongoose.Schema({
   usuarioId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true },
@@ -31,6 +49,7 @@ const schema = new mongoose.Schema({
   blockedCount: Number,
   appliedAt: Date,
   resultCodes: { type: [String], default: undefined, enum: ["UPDATE_APPLIED"] },
+  newImport: { type: newImportSchema, default: undefined },
   plan: {
     type: [new mongoose.Schema({
       propiedadId: mongoose.Schema.Types.ObjectId,

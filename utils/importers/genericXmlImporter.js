@@ -253,6 +253,11 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   };
 }
 
+// Reuse the Phase 2 mapping on nodes from a separately validated complete snapshot.
+export function analyzeGenericPropertyNodes(nodes, { maxPhotos = DEFAULT_MAX_PHOTOS_PER_PROPERTY } = {}) {
+  return nodes.map((item, index) => mapProperty(item, index, maxPhotos));
+}
+
 export function analyzeGenericXml(xml, {
   maxProperties = DEFAULT_MAX_PREVIEW_PROPERTIES,
   maxPhotos = DEFAULT_MAX_PHOTOS_PER_PROPERTY

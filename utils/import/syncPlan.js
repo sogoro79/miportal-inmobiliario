@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { safeNewImportSummary } from "./newImportState.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { syncFingerprint, SYNC_FIELDS } from "./syncSnapshot.js";
 import { SYNC_APPLY_V1_FIELDS, SYNC_APPLY_FIELDS_VERSION, SYNC_NORMALIZATION_VERSION, SYNC_SNAPSHOT_VERSION,
@@ -78,8 +79,24 @@ export function evaluateRunApplyEligibility(run, now = new Date()) {
     : isRunPlanTruncated(run) ? "RUN_PLAN_TRUNCATED"
     : run.snapshotComplete !== true ? "RUN_SNAPSHOT_INCOMPLETE"
     : run.status !== "simulated" ? "RUN_STATUS_NOT_APPLICABLE"
-    : run.blocked === true || Boolean(run.errorCode) || !Array.isArray(run.plan) ? "RUN_BLOCKED" : null;
+    : run.blocked === true || Boolean(run.errorCode) || !Array.isArray(run.plan) ||
+      (run.newImport?.status && run.newImport.status !== "idle") ? "RUN_BLOCKED" : null;
   return { expired, applyEligible: applyBlockedReason === null, applyBlockedReason };
+}
+
+export function evaluateRunNewImportEligibility(run, now = new Date(), usuarioId) {
+  const expires = new Date(run.expiresAt || "invalid").getTime();
+  const newImportBlockedReason = usuarioId && String(run.usuarioId) !== String(usuarioId) ? "SYNC_RUN_NOT_FOUND"
+    : !Number.isFinite(expires) || !Number.isFinite(new Date(now).getTime()) || expires <= new Date(now).getTime() ? "RUN_EXPIRED"
+    : isRunPlanTruncated(run) ? "RUN_PLAN_TRUNCATED"
+    : run.snapshotComplete !== true ? "RUN_SNAPSHOT_INCOMPLETE"
+    : run.status !== "simulated" ? "RUN_STATUS_NOT_APPLICABLE"
+    : run.blocked === true || run.errorCode || !Array.isArray(run.plan) ? "RUN_BLOCKED"
+    : !/^[a-f0-9]{64}$/.test(run.sourceIdentityHash || "") ||
+      !/^[a-f0-9]{64}$/.test(run.snapshotDigest || "") || !/^[a-fA-F0-9]{24}$/.test(String(run.importSourceId || "")) ||
+      Object.entries(runVersions).some(([key, version]) => run[key] !== version) ? "SYNC_NEW_RUN_CHANGED"
+    : run.newImport?.status && run.newImport.status !== "idle" ? "SYNC_NEW_ALREADY_ATTEMPTED" : null;
+  return { newImportEligible: newImportBlockedReason === null, newImportBlockedReason };
 }
 
 // Read responses are deliberately independent of arbitrary/legacy document fields.
@@ -88,6 +105,8 @@ export function safeRunSummary(run, now = new Date()) {
   const summary = { runId: String(run._id), mode: "simulation", status: statuses.has(run.status) ? run.status : "blocked",
     createdAt: run.createdAt || run.startedAt, expiresAt: run.expiresAt || null,
     ...evaluateRunApplyEligibility(run, now), snapshotComplete: run.snapshotComplete === true,
+    ...evaluateRunNewImportEligibility(run, now),
+    ...(run.newImport ? { newImport: safeNewImportSummary(run.newImport) } : {}),
     snapshotCount: Number.isSafeInteger(run.snapshotCount) ? run.snapshotCount : 0,
     totalResults: Number.isSafeInteger(run.totalResults) ? run.totalResults : 0,
     planTruncated: isRunPlanTruncated(run), resultsTruncated: isRunPlanTruncated(run),

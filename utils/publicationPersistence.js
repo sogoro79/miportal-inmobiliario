@@ -14,7 +14,7 @@ export class PublicationError extends Error {
 }
 
 export function createPublicationPersistence({ UsuarioModel = Usuario, PropiedadModel = Propiedad } = {}) {
-  const persist = async ({ usuarioId, body, imagenes = [], extra = {}, propertyId = new mongoose.Types.ObjectId(), budget }) => {
+  const persist = async ({ usuarioId, body, imagenes = [], extra = {}, propertyId = new mongoose.Types.ObjectId(), budget, transactionHooks }) => {
     let created;
     let session;
     try {
@@ -22,6 +22,7 @@ export function createPublicationPersistence({ UsuarioModel = Usuario, Propiedad
       session = await UsuarioModel.startSession();
       await session.withTransaction(async () => {
         budget?.assertActive();
+        await transactionHooks?.before?.(session);
         // All publishers write this same document before counting, serializing per user.
         const lock = await UsuarioModel.updateOne({ _id: usuarioId, activo: { $ne: false } },
           { $inc: { publicationVersion: 1 } }, { session, ...(budget ? { maxTimeMS: Math.max(1, budget.remainingMs()) } : {}) });
@@ -37,6 +38,7 @@ export function createPublicationPersistence({ UsuarioModel = Usuario, Propiedad
         const data = buildPropiedadCreateData(body, { usuarioId, plan: availability.plan, imagenes });
         if (extra.source === "crm") data.banos = body.banos ?? 0;
         [created] = await PropiedadModel.create([{ ...data, ...extra, _id: propertyId }], { session });
+        await transactionHooks?.after?.(session, created);
         budget?.assertActive();
       }, { readConcern: { level: "snapshot" }, writeConcern: { w: "majority" },
         maxCommitTimeMS: budget ? Math.max(1, budget.remainingMs()) : 10000 });
