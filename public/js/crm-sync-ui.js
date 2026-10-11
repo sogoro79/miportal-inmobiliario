@@ -19,7 +19,9 @@
         RUN_STATUS_NOT_APPLICABLE: "El estado de esta simulación no permite una futura aplicación. Vuelve a simular.",
         RUN_BLOCKED: "La simulación está bloqueada para una futura aplicación. Revisa el resultado y vuelve a simular."
       };
-      eligibility.textContent = data.applyEligible
+      eligibility.textContent = data.status === "applied"
+        ? "Los cambios seleccionados ya se han aplicado. Para preparar otros cambios, vuelve a simular."
+        : data.applyEligible
         ? "Simulación vigente: plan completo preparado para una futura aplicación. Los conflictos individuales siguen bloqueados. No se ha modificado ningún anuncio."
         : messages[data.applyBlockedReason] || messages.RUN_BLOCKED;
       output.append(eligibility);
@@ -77,7 +79,7 @@
           applyButton.disabled = true;
           return;
         }
-        onApply([...selected]);
+        return onApply([...selected]);
       });
       selectionNotice.textContent = "Seleccionados: 0 / 10";
       output.append(selectionNotice);
@@ -104,6 +106,7 @@
     let busy = false;
     async function simulation() {
       const data = await api("POST", "simulate", { importSourceId: sourceId });
+      let applyClosed = false;
       renderizar(data, output, externalId => action(async () => {
         if (!sourceId) throw new Error("Configura primero tu fuente CRM.");
         const result = await api("POST", "enroll", { importSourceId: sourceId, externalIds: [externalId] });
@@ -112,13 +115,32 @@
         status.textContent = result.alreadyEnrolled ? "El anuncio ya estaba vinculado. No se ha modificado su contenido."
           : "Anuncio vinculado. No se ha modificado su contenido. Vuelve a simular para ver su estado.";
       }), externalIds => {
+        if (busy || applyClosed) return;
         if (!confirm(`Se actualizarán ${externalIds.length} anuncios con los cambios mostrados. No se crearán ni eliminarán anuncios y no se modificarán fotos.`)) return;
         return action(async () => {
-          const result = await api("POST", "apply", { runId: data.runId, externalIds });
-          output.replaceChildren();
-          const state = await api("GET", `runs/${data.runId}`);
-          renderizar(state, output);
+          let result;
+          try {
+            result = await api("POST", "apply", { runId: data.runId, externalIds });
+          } catch (error) {
+            if (error.applyUnconfirmed) {
+              applyClosed = true;
+              output.replaceChildren();
+            }
+            throw error;
+          }
+          applyClosed = true;
           status.textContent = `${result.appliedCount} anuncios actualizados. No se han creado ni eliminado anuncios y no se han modificado fotos.`;
+          output.replaceChildren();
+          // A refresh failure cannot undo or obscure an acknowledged apply.
+          try {
+            const state = await api("GET", `runs/${data.runId}`);
+            renderizar(state, output);
+          } catch {
+            const notice = document.createElement("p");
+            notice.setAttribute("role", "status");
+            notice.textContent = "Los cambios se aplicaron correctamente, pero no se pudo actualizar el estado visual. Recarga la página para comprobar el resultado.";
+            output.append(notice);
+          }
         });
       });
       status.textContent = "Simulación completada. No se ha modificado ningún anuncio.";
@@ -126,10 +148,21 @@
     async function api(method, path, body) {
       const token = getToken();
       if (!token) throw new Error("Inicia sesión de nuevo para continuar.");
-      const response = await fetch(`/api/crm-import/sync/${path}`, { method,
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        ...(body ? { body: JSON.stringify(body) } : {}) });
-      const data = await response.json().catch(() => ({}));
+      const unconfirmedApply = () => Object.assign(new Error("No se pudo confirmar el resultado de la aplicación. Consulta o refresca el estado de la simulación antes de volver a intentarlo."), { applyUnconfirmed: true });
+      let response;
+      try {
+        response = await fetch(`/api/crm-import/sync/${path}`, { method,
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          ...(body ? { body: JSON.stringify(body) } : {}) });
+      } catch (error) {
+        if (path === "apply") throw unconfirmedApply();
+        throw error;
+      }
+      const data = await response.json().catch(() => ({})) || {};
+      if (path === "apply" && (data.code === "SYNC_APPLY_UNCONFIRMED" ||
+        response.ok && (data.ok !== true || !Number.isSafeInteger(data.appliedCount) || data.appliedCount < 1 || data.appliedCount > 10))) {
+        throw unconfirmedApply();
+      }
       if (!response.ok) throw new Error(response.status === 401 ? "Inicia sesión de nuevo para continuar." : data.error || "No se pudo completar la operación CRM.");
       return data;
     }
@@ -144,7 +177,7 @@
       save.disabled = simulate.disabled = input.disabled = true;
       status.textContent = "Procesando...";
       status.classList.remove("error");
-      try { await task(); }
+      try { return await task(); }
       catch (error) { status.classList.add("error"); status.textContent = error.message; }
       finally { busy = false; save.disabled = input.disabled = false; simulate.disabled = !sourceId; }
     }
