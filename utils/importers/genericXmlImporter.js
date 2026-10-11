@@ -134,7 +134,10 @@ export function parseGenericPropertyNodes(xml, limit) {
           warnings.add("SNAPSHOT_AMBIGUOUS_STRUCTURE");
           visit(value, key, depth + 1);
         } else {
-          if (value && typeof value === "object" && !/^(imagenes|fotos|images|photos|image|photo|gallery|pictures|picture|url|src|href|link|descripcion|description|desc)$/i.test(key)) {
+          const scalarNil = /^(superficie|surface|area|builtArea)$/i.test(key) && value && typeof value === "object" &&
+            !Array.isArray(value) && Object.keys(value).every(attribute => ["xsi:nil", "nil"].includes(attribute)) &&
+            (value["xsi:nil"] === "true" || value.nil === "true");
+          if (value && typeof value === "object" && !scalarNil && !/^(imagenes|fotos|images|photos|image|photo|gallery|pictures|picture|url|src|href|link|descripcion|description|desc)$/i.test(key)) {
             warnings.add("SNAPSHOT_UNRECOGNIZED_STRUCTURE");
           }
           inspectRecordChildren(value, depth + 1);

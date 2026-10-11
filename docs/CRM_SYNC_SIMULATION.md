@@ -1,4 +1,4 @@
-# CRM synchronization: Phase 3A and 3B.1A
+# CRM synchronization: Phase 3A, 3B.1A and 3B.1B
 
 The normal simulation only simulates. No property insert/update/delete, photo download/upload,
 visibility change, quota reservation, automatic job or scheduled synchronization.
@@ -61,7 +61,8 @@ Without the key the app still starts; configuration/simulation returns a control
 Profile includes a separate “Sincronización CRM — Vista previa” section. Saving
 clears the typed URL; only its masked form is subsequently displayed. Simulation
 shows full counters, incomplete-snapshot notice, conflicts/overrides and at most
-100 details. There is no apply button or automatic job.
+100 details. Eligible UPDATE entries can be explicitly selected for manual apply;
+see [CRM_SYNC_APPLY.md](CRM_SYNC_APPLY.md). There is no automatic job.
 
 UNCHANGED/UPDATE/CONFLICT require a matching CRM property enabled for comparison;
 legacy properties with `syncEnabled=false` intentionally remain CONFLICT.
@@ -134,7 +135,7 @@ Photo source URLs differ from saved Cloudinary URLs. The original full-fingerpri
 helper remains available, but the prepared V1 plan excludes photos from change and
 enrollment compatibility checks. It never asserts image-content equivalence.
 Signed photo URL rotation changes the full snapshot digest and will require fresh
-review before a future apply. A source-photo manifest is needed for a later phase.
+review before apply. A source-photo manifest is needed for a later phase.
 
 ## Manual content edits
 
@@ -144,7 +145,8 @@ names in `syncOverrides` only for CRM properties with `syncEnabled === true`.
 Visits, contacts, favorites and social statistics do not change this revision.
 System plan/account lifecycle operations remain untouched. Properties are never
 enrolled automatically, and creation transactions/publicationVersion are unchanged.
-Returning a field to CRM and revision-checked/fenced real updates are future work.
+Returning a field to CRM remains future work. Owner/admin saves now condition their
+write on contentRevision; new forms send expectedContentRevision explicitly.
 
 ## Phase 3B.1A: explicit enrollment, not apply
 
@@ -199,7 +201,8 @@ or MISSING. UNCHANGED never writes property metadata, timestamps or lastSeenAt.
 
 New run states support simulated, applying, applied, blocked, failed, aborted,
 alongside old running/completed/incomplete values. This phase only generates
-blocked (including preparation), simulated or failed. Applying/applied are reserved.
+blocked (including preparation), simulated or failed. Manual apply transitions
+simulated -> applying -> applied atomically with property updates.
 New runs have a logical 20-minute expiresAt, with no TTL index, sourceIdentityHash,
 snapshotDigest, snapshotVersion=1, normalizationVersion=1 and applyFieldsVersion=1.
 The digest hashes the complete normalized feed records (including excluded fields)
@@ -209,17 +212,17 @@ The first 100 safe plan entries are stored, with totalResults/planTruncated for 
 full snapshot. Eligible UPDATE entries store property ID, externalId, expected
 content revision, expected/proposed managed fingerprints and changed field names.
 Conflicts store safe reason codes, field names and blocked=true. No before/after
-content, description, photo URLs or XML is stored. Future apply must reject the whole
+content, description, photo URLs or XML is stored. Manual apply rejects the whole
 run if its plan is truncated, as well as targets outside the stored plan;
-it must redownload, recompute, check expiration,
-source identity/versions/revision/overrides and compare to the approved run.
+it redownloads, recomputes, checks expiration and source identity/versions/revision/
+overrides, and compares the result to the approved run.
 
 `GET /api/crm-import/sync/runs/:id` requires auth, only reads runs of req.user.id,
 returns 404 for foreign runs and a whitelisted summary with at most 100 details.
 Internal hashes/preconditions are not exposed. Legacy runs remain readable but
 have no prepared plan and are treated as expired/non-applicable.
 
-### Global run eligibility (preparation only)
+### Global run eligibility
 
 `evaluateRunApplyEligibility(run, now)` is the single backend definition used by
 simulation responses and GET run. It derives `expired`, `applyEligible` and
@@ -239,21 +242,21 @@ Only when none applies is applyEligible=true, with applyBlockedReason=null.
 Entry-level blocked/conflict flags remain independent: a globally eligible run
 does not authorize those entries, any property writes, or automatic synchronization.
 An expired run can still have status simulated and an entry with blocked=false;
-the global applyEligible=false always takes precedence. Future apply must evaluate
-this helper again on the server and revalidate all preconditions, never trust UI.
+the global applyEligible=false always takes precedence. Manual apply evaluates
+this helper again on the server and revalidates all preconditions, never trusting UI.
 
 GET also exposes planTruncated/resultsTruncated explicitly, without hashes or
 sensitive content. Profile explains valid, expired, truncated and blocked runs;
-it has no Apply button. Truncated runs require a new, smaller simulation rather
-than applying a hidden subset. The source feed selection mechanism is unchanged.
+it offers Apply only for eligible UPDATE selections. Truncated runs require a new,
+smaller simulation rather than applying a hidden subset. The source feed selection
+mechanism is unchanged.
 
 Profile displays linked / requires enrollment / blocked states and offers an
 explicit enrollment button only for compatible unlinked records. It clears that
-preview after enrollment and asks for a fresh simulation. There is no apply button.
+preview after enrollment and asks for a fresh simulation.
 
-**Apply does not exist yet.** No NEW creation, MISSING hiding/removal, photo changes,
-Cloudinary calls, quota changes, worker or cron are introduced by this phase.
-Normal/admin editing still uses existing save + contentRevision increments. Before
-3B.1B, optimistic concurrency for manual saves and future transactional apply must
-be addressed: the source lease does not serialize manual edits. A simulation plan
-is a set of preconditions, not a permission to ignore later changes.
+**Apply is manual and limited to V1 UPDATE.** No NEW creation, MISSING hiding/removal,
+photo changes, Cloudinary calls, quota changes, worker or cron are introduced.
+Normal/admin editing retains save + contentRevision increments, now with a revision
+compare-and-swap filter. The source lease alone does not serialize manual edits.
+A simulation plan is a set of preconditions, not permission to ignore later changes.

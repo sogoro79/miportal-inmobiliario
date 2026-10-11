@@ -26,6 +26,11 @@ const schema = new mongoose.Schema({
   sourceIdentityHash: String,
   totalResults: Number,
   planTruncated: Boolean,
+  selectedExternalIds: { type: [String], default: undefined, validate: value => !value || value.length <= 10 },
+  appliedCount: Number,
+  blockedCount: Number,
+  appliedAt: Date,
+  resultCodes: { type: [String], default: undefined, enum: ["UPDATE_APPLIED"] },
   plan: {
     type: [new mongoose.Schema({
       propiedadId: mongoose.Schema.Types.ObjectId,

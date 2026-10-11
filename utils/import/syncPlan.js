@@ -92,6 +92,8 @@ export function safeRunSummary(run, now = new Date()) {
     totalResults: Number.isSafeInteger(run.totalResults) ? run.totalResults : 0,
     planTruncated: isRunPlanTruncated(run), resultsTruncated: isRunPlanTruncated(run),
     warnings: (run.warnings || []).filter(code => warningCodes.has(code)),
+    appliedCount: Number.isSafeInteger(run.appliedCount) ? run.appliedCount : 0,
+    appliedAt: run.appliedAt || null,
     results: [] };
   for (const key of Object.values(counters)) summary[key] = Number.isSafeInteger(run[key]) ? run[key] : 0;
   for (const entry of (run.plan || []).slice(0, MAX_RUN_DETAILS)) {

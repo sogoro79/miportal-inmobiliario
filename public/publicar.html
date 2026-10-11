@@ -838,6 +838,7 @@ document.getElementById("grupo-parcela").style.display = tieneParcela ? "" : "no
 const propiedadIdEditar = new URLSearchParams(window.location.search).get("editar");
 const textoBotonPublicar = propiedadIdEditar ? "💾 Guardar cambios" : "🚀 Publicar anuncio";
 let certificadoEnergeticoInicial = "";
+let revisionPropiedadInicial;
 
 if (propiedadIdEditar) {
   document.getElementById("titulo-pagina").textContent = "Editar propiedad";
@@ -859,6 +860,7 @@ if (propiedadIdEditar) {
       return data;
     })
     .then(p => {
+      revisionPropiedadInicial = p.contentRevision ?? 0;
       document.getElementById("titulo").value        = p.titulo || "";
       document.getElementById("referencia").value    = p.referencia || "";
       document.getElementById("direccion").value     = p.direccion || "";
@@ -1140,6 +1142,15 @@ async function publicar() {
   btn.textContent = "⏳ Publicando...";
 
   const fd = new FormData();
+  if (propiedadIdEditar) {
+    if (revisionPropiedadInicial === undefined) {
+      mostrarErrorPublicacion("Espera a que se cargue el anuncio o recarga la página antes de guardar.");
+      btn.disabled = false;
+      btn.textContent = textoBotonPublicar;
+      return;
+    }
+    fd.append("expectedContentRevision", String(revisionPropiedadInicial));
+  }
   fd.append("titulo", titulo);
   fd.append("referencia", document.getElementById("referencia").value.trim());
   fd.append("direccion", direccion);

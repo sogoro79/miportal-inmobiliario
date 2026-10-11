@@ -22,6 +22,7 @@ import { createSyncSimulator, safeSimulationCode } from "../utils/import/syncSim
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { createSyncEnroller } from "../utils/import/syncEnroll.js";
 import { safeRunSummary } from "../utils/import/syncPlan.js";
+import { createSyncApplier } from "../utils/import/syncApply.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
@@ -66,6 +67,9 @@ export function createCrmImportRouter({
   ImportSyncRunModel = ImportSyncRun,
   simulateSync,
   enrollSync,
+  applySync,
+  applyRateLimitMiddleware = securityRateLimits.crmSyncApply,
+  applyUserRateLimitMiddleware = securityRateLimits.crmSyncApplyByUser,
   syncSourceManager,
   importSelected,
   importRateLimitMiddleware = securityRateLimits.crmImport,
@@ -77,6 +81,7 @@ export function createCrmImportRouter({
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
   const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runEnrollment = enrollSync || createSyncEnroller({ ImportSourceModel, PropiedadModel, fetchXml: fetchFeedXml });
+  const runApply = applySync || createSyncApplier({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel });
 
   function sourceError(res, error) {
@@ -116,6 +121,30 @@ export function createCrmImportRouter({
         ? "La fuente CRM necesita una URL cifrada configurada antes de simular. La importación manual sigue disponible."
         : code === "SYNC_SOURCE_BUSY" ? "Hay otra operación CRM en curso. Espera y vuelve a intentarlo."
         : "No se pudo completar la simulación CRM." });
+    }
+  });
+
+  router.post("/sync/apply", requireAuth, applyUserRateLimitMiddleware, applyRateLimitMiddleware, async (req, res) => {
+    const parsed = z.object({ runId: z.string().regex(/^[a-fA-F0-9]{24}$/),
+      externalIds: z.array(z.string().trim().min(1).max(200)).min(1).max(10)
+        .refine(values => new Set(values).size === values.length)
+    }).strict().safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: "Indica una simulación y entre 1 y 10 referencias distintas, sin otros datos." });
+    try { return res.json(await runApply({ usuarioId: req.user.id, ...parsed.data })); }
+    catch (error) {
+      const codes = new Set(["RUN_EXPIRED", "RUN_PLAN_TRUNCATED", "RUN_SNAPSHOT_INCOMPLETE", "RUN_STATUS_NOT_APPLICABLE", "RUN_BLOCKED",
+        "SYNC_RUN_NOT_FOUND", "SYNC_SOURCE_NOT_FOUND", "SYNC_SOURCE_BUSY", "SYNC_SOURCE_NOT_CONFIGURED", "SYNC_APPLY_SELECTION_INVALID",
+        "SYNC_APPLY_SELECTION_MISMATCH", "SYNC_APPLY_SOURCE_CHANGED", "SYNC_APPLY_RUN_CHANGED", "SYNC_APPLY_FEED_CHANGED",
+        "SYNC_APPLY_PROPERTY_CHANGED", "SYNC_APPLY_UNCONFIRMED", "IMPORT_TIMEOUT", "FEED_TIMEOUT"]);
+      const code = codes.has(error?.code) ? error.code : "SYNC_APPLY_FAILED";
+      const status = ["SYNC_RUN_NOT_FOUND", "SYNC_SOURCE_NOT_FOUND"].includes(code) ? 404 : code === "SYNC_APPLY_FAILED" ? 500
+        : code === "SYNC_APPLY_UNCONFIRMED" ? 503 : ["IMPORT_TIMEOUT", "FEED_TIMEOUT"].includes(code) ? 504
+        : code === "SYNC_APPLY_SELECTION_INVALID" ? 400 : 409;
+      console.warn("[CRM Sync Apply]", { code });
+      return res.status(status).json({ code, error: code === "RUN_EXPIRED" ? "Esta simulación ha caducado. Vuelve a simular."
+        : code === "SYNC_APPLY_UNCONFIRMED" ? "No se pudo confirmar el resultado. Consulta el estado de la simulación antes de volver a intentarlo."
+        : code === "SYNC_SOURCE_BUSY" ? "Hay otra operación CRM en curso. Espera y vuelve a intentarlo."
+        : "No se pudieron aplicar los cambios. Revisa el estado y vuelve a simular." });
     }
   });
 

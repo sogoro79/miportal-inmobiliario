@@ -1,5 +1,6 @@
 import express from 'express';
 import { capturePropertyContent, markManualContentChanges } from '../utils/propertyContent.js';
+import { guardManualPropertyRevision, isPropertyRevisionConflict } from '../utils/propertyRevision.js';
 import Stripe from 'stripe';
 import { v2 as cloudinary } from 'cloudinary';
 import Usuario from '../models/Usuario.js';
@@ -1077,6 +1078,7 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
     const propiedad = await Propiedad.findById(req.params.id);
     if (!propiedad) return res.status(404).json({ error: 'Propiedad no encontrada' });
     const contenidoAnterior = capturePropertyContent(propiedad);
+    guardManualPropertyRevision(propiedad, req.body.expectedContentRevision);
 
     const {
       titulo,
@@ -1171,6 +1173,9 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
       propiedadId: req.params.id,
       error: err.message
     });
+    if (isPropertyRevisionConflict(err)) {
+      return res.status(err.status || 409).json({ error: "El anuncio ha cambiado. Recarga la ficha antes de guardar." });
+    }
     res.status(500).json({ error: err.message });
   }
 });

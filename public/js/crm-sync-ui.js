@@ -5,7 +5,7 @@
       ["Conflictos", data.conflictCount], ["Inválidos", data.errorCount]];
   }
 
-  function renderizar(data, output, onEnroll) {
+  function renderizar(data, output, onEnroll, onApply) {
     output.replaceChildren();
     const summary = document.createElement("p");
     summary.textContent = resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
@@ -30,11 +30,31 @@
       output.append(warning);
     }
     const list = document.createElement("ul");
+    const selected = new Set();
+    const canApply = onApply && data.applyEligible === true && data.status === "simulated" && !data.expired;
+    const applyButton = canApply ? document.createElement("button") : null;
+    const selectionNotice = canApply ? document.createElement("p") : null;
     for (const item of (data.results || []).slice(0, 100)) {
       const row = document.createElement("li");
       const fields = item.changedFields || Object.entries(item.changes || {}).map(([field, change]) => `${field}${change.blockedByOverride ? " (protegido por edición manual)" : ""}`);
       const state = item.reason === "PROPERTY_SYNC_DISABLED" ? "Requiere vinculación" : item.blocked === true ? "Bloqueado / requiere revisión" : item.linked ? "Vinculado" : item.type;
       row.textContent = `${item.externalId || "Sin referencia"}: ${item.type}${state !== item.type ? " · " + state : ""}${fields.length ? " · " + fields.join(", ") : ""}${item.reason && item.reason !== "PROPERTY_SYNC_DISABLED" ? " · Requiere revisión" : ""}${item.errors?.length ? " · Datos inválidos" : ""}`;
+      if (canApply && item.type === "UPDATE" && item.blocked === false) {
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.setAttribute("aria-label", `Seleccionar cambios de ${item.externalId}`);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked && selected.size >= 10) {
+            checkbox.checked = false;
+            selectionNotice.textContent = "Selecciona como máximo 10 anuncios por aplicación.";
+            return;
+          }
+          if (checkbox.checked) selected.add(item.externalId); else selected.delete(item.externalId);
+          selectionNotice.textContent = `Seleccionados: ${selected.size} / 10`;
+          applyButton.disabled = selected.size === 0;
+        });
+        row.append(checkbox);
+      }
       if (onEnroll && item.enrollmentEligible === true && item.reason === "PROPERTY_SYNC_DISABLED" && data.snapshotComplete) {
         const button = document.createElement("button");
         button.type = "button";
@@ -46,6 +66,23 @@
       list.append(row);
     }
     output.append(list);
+    if (canApply && (data.results || []).some(item => item.type === "UPDATE" && item.blocked === false)) {
+      applyButton.type = "button";
+      applyButton.className = "btn-perfil green";
+      applyButton.textContent = "Aplicar cambios";
+      applyButton.disabled = true;
+      applyButton.addEventListener("click", () => {
+        if (Date.parse(data.expiresAt) <= Date.now()) {
+          selectionNotice.textContent = "Esta simulación ha caducado. Vuelve a simular.";
+          applyButton.disabled = true;
+          return;
+        }
+        onApply([...selected]);
+      });
+      selectionNotice.textContent = "Seleccionados: 0 / 10";
+      output.append(selectionNotice);
+      output.append(applyButton);
+    }
     if (data.resultsTruncated) {
       const notice = document.createElement("p");
       notice.textContent = `Se muestran hasta 100 detalles de ${data.totalResults}. Los contadores incluyen todos los resultados.`;
@@ -74,7 +111,16 @@
         output.replaceChildren();
         status.textContent = result.alreadyEnrolled ? "El anuncio ya estaba vinculado. No se ha modificado su contenido."
           : "Anuncio vinculado. No se ha modificado su contenido. Vuelve a simular para ver su estado.";
-      }));
+      }), externalIds => {
+        if (!confirm(`Se actualizarán ${externalIds.length} anuncios con los cambios mostrados. No se crearán ni eliminarán anuncios y no se modificarán fotos.`)) return;
+        return action(async () => {
+          const result = await api("POST", "apply", { runId: data.runId, externalIds });
+          output.replaceChildren();
+          const state = await api("GET", `runs/${data.runId}`);
+          renderizar(state, output);
+          status.textContent = `${result.appliedCount} anuncios actualizados. No se han creado ni eliminado anuncios y no se han modificado fotos.`;
+        });
+      });
       status.textContent = "Simulación completada. No se ha modificado ningún anuncio.";
     }
     async function api(method, path, body) {

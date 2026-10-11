@@ -22,6 +22,7 @@ async function submit({ edit = true, certificate = "", originalCertificate = "",
   await vm.runInNewContext(`${mode}\n${publicarHtml.slice(start, end)}\npublicar();`, {
     window: { location: { search: edit ? "?editar=test-property" : "" } }, URLSearchParams, document,
     certificadoEnergeticoInicial: originalCertificate,
+    revisionPropiedadInicial: 2,
     obtenerTokenPublicar: () => "test-token", usuarioActualPublicar: { _id: "test-user" },
     refrescarUsuarioPublicar: async () => ({ _id: "test-user" }), usuarioPuedePublicar: () => true,
     mostrarErrorPublicacion: message => assert.fail(message),
@@ -56,6 +57,7 @@ for (const [name, edit, certificate, originalCertificate, expected] of [
     assert.equal(request.body.get("habitaciones"), "0");
     assert.equal(request.url, edit ? "/propiedades/test-property" : "/propiedades");
     assert.equal(request.method, edit ? "PUT" : "POST");
+    assert.equal(request.body.get("expectedContentRevision"), edit ? "2" : undefined);
   });
 }
 

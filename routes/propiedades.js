@@ -2,6 +2,7 @@ import "dotenv/config";
 import { propiedadCreateSchema, propiedadUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
 import express from "express";
 import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
+import { guardManualPropertyRevision, isPropertyRevisionConflict } from "../utils/propertyRevision.js";
 import { persistPublication } from "../utils/publicationPersistence.js";
 import mongoose from "mongoose";
 import { recordManualPublicationUncertainty } from "../utils/manualPublicationReconciliation.js";
@@ -761,6 +762,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
 
     const bodyValido = await validateBodyOrCleanup(propiedadUpdateSchema, req, res, urlsSubidas);
     if (!bodyValido) return;
+    guardManualPropertyRevision(propiedad, req.body.expectedContentRevision);
 
     const {
       titulo, direccion, localidad, provincia, codigoPostal, precio, descripcion,
@@ -852,6 +854,9 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     }
     if (err instanceof InvalidExistingImagesError) {
       return res.status(err.statusCode).json({ error: "Imágenes existentes no válidas" });
+    }
+    if (isPropertyRevisionConflict(err)) {
+      return res.status(err.status || 409).json({ error: "El anuncio ha cambiado. Recarga la ficha antes de guardar." });
     }
     console.error("Error al editar propiedad:", {
       name: err.name,

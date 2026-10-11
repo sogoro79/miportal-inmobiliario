@@ -5331,6 +5331,7 @@ function editarPropiedadAdmin(id) {
   if (!propiedad) return alert('No se encontró la propiedad');
 
   document.getElementById('editPropiedadId').value = propiedad._id;
+  document.getElementById('editPropiedadId').dataset.contentRevision = String(propiedad.contentRevision ?? 0);
   document.getElementById('editTitulo').value = propiedad.titulo || '';
   document.getElementById('editPrecio').value = propiedad.precio ? formatoPrecioAdmin(propiedad.precio) : '';
   document.getElementById('editTipoOperacion').value = propiedad.tipoOperacion || 'venta';
@@ -5358,6 +5359,7 @@ function cerrarModalPropiedad(event) {
 async function guardarPropiedadAdmin() {
   const id = document.getElementById('editPropiedadId').value;
   const payload = {
+    expectedContentRevision: Number(document.getElementById('editPropiedadId').dataset.contentRevision),
     titulo: document.getElementById('editTitulo').value,
     precio: document.getElementById('editPrecio').value,
     tipoOperacion: document.getElementById('editTipoOperacion').value,

@@ -62,6 +62,8 @@ const propiedadBaseSchema = {
 
 export const propiedadCreateSchema = z.object(propiedadBaseSchema);
 export const propiedadUpdateSchema = z.object({
+  expectedContentRevision: z.preprocess(value => typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value,
+    z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)).optional(),
   ...propiedadBaseSchema,
   titulo: propiedadBaseSchema.titulo.optional(),
   direccion: propiedadBaseSchema.direccion.optional(),
