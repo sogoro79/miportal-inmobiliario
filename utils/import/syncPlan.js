@@ -64,14 +64,33 @@ export function prepareSyncPlan(snapshot, existing) {
     plan: results.slice(0, MAX_RUN_DETAILS) };
 }
 
+function isRunPlanTruncated(run) {
+  return run.planTruncated === true || (Number.isSafeInteger(run.totalResults) && run.totalResults > MAX_RUN_DETAILS) ||
+    (Array.isArray(run.plan) && run.plan.length > MAX_RUN_DETAILS);
+}
+
+// Global eligibility does not override entry-level conflicts or authorize any writes.
+export function evaluateRunApplyEligibility(run, now = new Date()) {
+  const expiresAt = run.expiresAt == null ? NaN : new Date(run.expiresAt).getTime();
+  const currentTime = new Date(now).getTime();
+  const expired = !Number.isFinite(expiresAt) || !Number.isFinite(currentTime) || expiresAt <= currentTime;
+  const applyBlockedReason = expired ? "RUN_EXPIRED"
+    : isRunPlanTruncated(run) ? "RUN_PLAN_TRUNCATED"
+    : run.snapshotComplete !== true ? "RUN_SNAPSHOT_INCOMPLETE"
+    : run.status !== "simulated" ? "RUN_STATUS_NOT_APPLICABLE"
+    : run.blocked === true || Boolean(run.errorCode) || !Array.isArray(run.plan) ? "RUN_BLOCKED" : null;
+  return { expired, applyEligible: applyBlockedReason === null, applyBlockedReason };
+}
+
 // Read responses are deliberately independent of arbitrary/legacy document fields.
 export function safeRunSummary(run, now = new Date()) {
   const statuses = new Set(["running", "completed", "incomplete", "simulated", "applying", "applied", "blocked", "failed", "aborted"]);
   const summary = { runId: String(run._id), mode: "simulation", status: statuses.has(run.status) ? run.status : "blocked",
     createdAt: run.createdAt || run.startedAt, expiresAt: run.expiresAt || null,
-    expired: !run.expiresAt || new Date(run.expiresAt) <= now, snapshotComplete: run.snapshotComplete === true,
+    ...evaluateRunApplyEligibility(run, now), snapshotComplete: run.snapshotComplete === true,
     snapshotCount: Number.isSafeInteger(run.snapshotCount) ? run.snapshotCount : 0,
-    totalResults: Number.isSafeInteger(run.totalResults) ? run.totalResults : 0, resultsTruncated: run.planTruncated === true,
+    totalResults: Number.isSafeInteger(run.totalResults) ? run.totalResults : 0,
+    planTruncated: isRunPlanTruncated(run), resultsTruncated: isRunPlanTruncated(run),
     warnings: (run.warnings || []).filter(code => warningCodes.has(code)),
     results: [] };
   for (const key of Object.values(counters)) summary[key] = Number.isSafeInteger(run[key]) ? run[key] : 0;

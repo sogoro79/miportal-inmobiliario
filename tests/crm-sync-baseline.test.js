@@ -15,7 +15,7 @@ import { createSyncEnroller } from "../utils/import/syncEnroll.js";
 import { createSyncSimulator } from "../utils/import/syncSimulation.js";
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { managedFingerprint, SYNC_APPLY_V1_FIELDS, validManagedData } from "../utils/import/syncBaseline.js";
-import { snapshotDigest, safeRunSummary } from "../utils/import/syncPlan.js";
+import { snapshotDigest, safeRunSummary, evaluateRunApplyEligibility } from "../utils/import/syncPlan.js";
 import { buildSyncSnapshot } from "../utils/import/syncSnapshot.js";
 
 const U = "507f1f77bcf86cd799439099", S = "507f1f77bcf86cd799439098", P = "507f1f77bcf86cd799439097";
@@ -43,9 +43,10 @@ function matches(doc, filter) {
   });
 }
 
-function harness({ xml = feed(), fetcher, properties = [property()] } = {}) {
+function harness({ xml = feed(), fetcher, properties = [property()], beforePropertyWrite = () => {} } = {}) {
   let time = new Date("2026-10-10T10:00:00Z");
-  const store = { source: { _id: S, usuarioId: U, activo: true, feedType: "generic_xml", ...encryptFeedUrl(url, env) }, properties, runs: [] };
+  const store = { source: { _id: S, usuarioId: U, activo: true, feedType: "generic_xml", ...encryptFeedUrl(url, env) },
+    properties, runs: [], user: { _id: U, publicationVersion: 7 } };
   const writes = [], reads = [], requests = [];
   let transaction;
   let beforeTransaction = () => {};
@@ -80,6 +81,7 @@ function harness({ xml = feed(), fetcher, properties = [property()] } = {}) {
       assert.deepEqual(Object.keys(update.$set).sort(), ["syncApplyFingerprint", "syncApplyFingerprintVersion", "syncEnabled"]);
       const found = current(options.session).properties.find(p => matches(p, filter));
       if (!found) return { matchedCount: 0 };
+      await beforePropertyWrite(found, current(options.session));
       Object.assign(found, update.$set);
       return { matchedCount: 1 };
     },
@@ -404,4 +406,175 @@ test("UI shows enrollment only for matching unlinked property, never NEW/MISSING
   assert.equal(rows[0].children.length, 1); rows[0].children[0].listeners.click();
   assert.deepEqual(chosen, ["REF"]);
   assert.ok(rows.slice(1).every(row => row.children.length === 0));
+});
+
+const eligibilityNow = new Date("2026-10-10T10:00:00Z");
+const eligibleRun = () => ({ status: "simulated", snapshotComplete: true, planTruncated: false,
+  expiresAt: new Date("2026-10-10T10:20:00Z"), totalResults: 0, plan: [] });
+
+test("global eligibility is deterministic and independent of entry-level conflicts", () => {
+  const run = eligibleRun();
+  run.plan = [{ type: "CONFLICT", blocked: true, safeReasonCode: "MANUAL_OVERRIDE" }];
+  assert.deepEqual(evaluateRunApplyEligibility(run, eligibilityNow), {
+    expired: false, applyEligible: true, applyBlockedReason: null
+  });
+  assert.deepEqual(evaluateRunApplyEligibility(run, eligibilityNow), evaluateRunApplyEligibility(run, eligibilityNow));
+});
+
+for (const [name, changes, reason] of [
+  ["legacy without expiry", { expiresAt: undefined }, "RUN_EXPIRED"],
+  ["invalid expiry", { expiresAt: "invalid" }, "RUN_EXPIRED"],
+  ["expiry boundary", { expiresAt: eligibilityNow }, "RUN_EXPIRED"],
+  ["truncated plan", { planTruncated: true }, "RUN_PLAN_TRUNCATED"],
+  ["incomplete snapshot", { snapshotComplete: false }, "RUN_SNAPSHOT_INCOMPLETE"],
+  ["failed status", { status: "failed" }, "RUN_STATUS_NOT_APPLICABLE"],
+  ["explicit global block", { blocked: true }, "RUN_BLOCKED"],
+  ["global error", { errorCode: "arbitrary-sensitive-error" }, "RUN_BLOCKED"],
+  ["missing prepared plan", { plan: undefined }, "RUN_BLOCKED"]
+]) test(`global eligibility rejects ${name} with a safe reason`, () => {
+  const result = evaluateRunApplyEligibility({ ...eligibleRun(), ...changes }, eligibilityNow);
+  assert.equal(result.applyEligible, false);
+  assert.equal(result.applyBlockedReason, reason);
+  assert.equal(result.expired, reason === "RUN_EXPIRED");
+  assert.doesNotMatch(JSON.stringify(result), /arbitrary-sensitive-error/);
+});
+
+test("global block reasons have stable priority even when several conditions fail", () => {
+  const run = { ...eligibleRun(), expiresAt: new Date(0), planTruncated: true,
+    snapshotComplete: false, status: "blocked", errorCode: "error" };
+  assert.equal(evaluateRunApplyEligibility(run, eligibilityNow).applyBlockedReason, "RUN_EXPIRED");
+  run.expiresAt = eligibleRun().expiresAt;
+  assert.equal(evaluateRunApplyEligibility(run, eligibilityNow).applyBlockedReason, "RUN_PLAN_TRUNCATED");
+  run.planTruncated = false;
+  assert.equal(evaluateRunApplyEligibility(run, eligibilityNow).applyBlockedReason, "RUN_SNAPSHOT_INCOMPLETE");
+  run.snapshotComplete = true;
+  assert.equal(evaluateRunApplyEligibility(run, eligibilityNow).applyBlockedReason, "RUN_STATUS_NOT_APPLICABLE");
+  run.status = "simulated";
+  assert.equal(evaluateRunApplyEligibility(run, eligibilityNow).applyBlockedReason, "RUN_BLOCKED");
+  delete run.errorCode;
+  assert.equal(evaluateRunApplyEligibility(run, eligibilityNow).applyEligible, true);
+});
+
+test("two enrollments roll back the first baseline when the second write fails", async () => {
+  let attempts = 0, firstWasWritten = false;
+  const h = harness({ xml: feed(2), properties: [property(), property({ _id: S, externalId: "REF-2" })],
+    beforePropertyWrite(found, transaction) {
+      assert.equal(found.syncEnabled, false);
+      if (++attempts === 2) {
+        firstWasWritten = transaction.properties[0].syncEnabled === true &&
+          transaction.properties[0].syncApplyFingerprint === managedFingerprint(transaction.properties[0]);
+        throw Object.assign(new Error("Controlled second write failure"), { code: "TEST_SECOND_WRITE" });
+      }
+    } });
+  const before = structuredClone({ properties: h.store.properties, user: h.store.user });
+  await assert.rejects(() => h.enroll({ ...call, externalIds: ["REF-1", "REF-2"] }), { code: "TEST_SECOND_WRITE" });
+  assert.equal(firstWasWritten, true);
+  assert.equal(attempts, 2);
+  assert.deepEqual(h.store.properties, before.properties);
+  assert.deepEqual(h.store.user, before.user);
+  assert.ok(h.store.properties.every(p => !p.syncEnabled && p.syncApplyFingerprint === undefined));
+  assert.equal(h.store.source.importLockToken, undefined);
+});
+
+test("override on excluded direccion blocks enrollment and prepared UPDATE", async () => {
+  const h = harness();
+  h.store.properties[0].syncOverrides.direccion = true;
+  await assert.rejects(() => h.enroll(call), { code: "SYNC_ENROLL_BASELINE_MISMATCH" });
+  assert.equal(h.propertyWrites().length, 0);
+  const p = h.store.properties[0];
+  p.syncEnabled = true; p.syncApplyFingerprint = managedFingerprint(p); p.syncApplyFingerprintVersion = 1;
+  const before = structuredClone(p);
+  const result = (await h.simulate(call)).results[0];
+  assert.equal(result.type, "CONFLICT"); assert.equal(result.blocked, true);
+  assert.equal(result.reason, "MANUAL_OVERRIDE");
+  assert.deepEqual(h.store.properties[0], before);
+});
+
+test("GET invalid ObjectId returns controlled HTTP 400 without an internal error", async () => withHttp(async (h, app) => {
+  const result = await httpRequest(app, "/api/crm-import/sync/runs/not-an-object-id", { method: "GET" });
+  assert.equal(result.status, 400);
+  assert.deepEqual(Object.keys(result.body), ["error"]);
+  assert.doesNotMatch(JSON.stringify(result.body), /stack|CastError|Mongo|BSON/i);
+}));
+
+test("GET legacy run remains readable but globally expired and ineligible", async () => withHttp(async (h, app) => {
+  h.store.runs.push({ _id: P, usuarioId: U, importSourceId: S, status: "completed", startedAt: eligibilityNow });
+  const result = await httpRequest(app, `/api/crm-import/sync/runs/${P}`, { method: "GET" });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.expired, true); assert.equal(result.body.applyEligible, false);
+  assert.equal(result.body.applyBlockedReason, "RUN_EXPIRED");
+  assert.equal(result.body.expiresAt, null); assert.deepEqual(result.body.results, []);
+}));
+
+test("101 UPDATE keeps full counters but blocks the whole stored and HTTP run", async () => withHttp(async (h, app) => {
+  h.store.properties = Array.from({ length: 101 }, (_, i) => {
+    const p = property({ _id: `${i}`.padStart(24, "0"), externalId: `REF-${i + 1}`, syncEnabled: true,
+      syncApplyFingerprintVersion: 1 });
+    p.syncApplyFingerprint = managedFingerprint(p);
+    return p;
+  });
+  const simulate = createSyncSimulator({ ...h.dependencies, fetchXml: async () => ({ xml: feed(101).replaceAll("245000", "239000") }) });
+  const response = await simulate(call);
+  const run = h.store.runs[0];
+  assert.equal(run.updateCount, 101); assert.equal(run.totalResults, 101);
+  assert.equal(run.plan.length, 100); assert.equal(run.planTruncated, true);
+  assert.ok(run.plan.every(entry => entry.blocked === false));
+  assert.equal(response.applyEligible, false); assert.equal(response.applyBlockedReason, "RUN_PLAN_TRUNCATED");
+  // Use the same logical clock as simulation to test truncation rather than expiry.
+  run.expiresAt = new Date(Date.now() + 1200000);
+  const result = await httpRequest(app, `/api/crm-import/sync/runs/${P}`, { method: "GET" });
+  assert.equal(result.status, 200); assert.equal(result.body.updateCount, 101);
+  assert.equal(result.body.results.length, 100); assert.equal(result.body.resultsTruncated, true);
+  assert.equal(result.body.planTruncated, true); assert.equal(result.body.applyEligible, false);
+  assert.equal(result.body.applyBlockedReason, "RUN_PLAN_TRUNCATED");
+  assert.equal(h.propertyWrites().length, 0);
+}));
+
+test("price baseline 100 remains stored when feed proposes 120", async () => {
+  const h = harness({ xml: feed().replace("245000", "100"), properties: [property({ precio: 100 })] });
+  await h.enroll(call);
+  const baseline = h.store.properties[0].syncApplyFingerprint;
+  const before = structuredClone(h.store.properties);
+  h.writes.length = 0;
+  const simulate = createSyncSimulator({ ...h.dependencies, fetchXml: async () => ({ xml: feed().replace("245000", "120") }) });
+  const result = await simulate(call);
+  assert.equal(result.results[0].type, "UPDATE");
+  assert.deepEqual(result.results[0].changedFields, ["precio"]);
+  assert.equal(h.store.runs[0].plan[0].expectedBaselineFingerprint, baseline);
+  assert.equal(h.store.runs[0].plan[0].proposedBaselineFingerprint, managedFingerprint({ ...before[0], precio: 120 }));
+  assert.deepEqual(h.store.properties, before); assert.equal(h.propertyWrites().length, 0);
+});
+
+test("lease expiry through passage of time during fetch aborts before property writes", async () => {
+  let h;
+  h = harness({ fetcher: async () => { h.advance(16 * 60 * 1000); return { xml: feed() }; } });
+  const before = structuredClone(h.store.properties);
+  await assert.rejects(() => h.enroll(call), { code: "SYNC_SOURCE_BUSY" });
+  assert.deepEqual(h.store.properties, before); assert.equal(h.propertyWrites().length, 0);
+  assert.equal(h.store.source.importLockToken, undefined);
+});
+
+test("idempotent enrollment uses no property update/save and preserves existing timestamps", async () => {
+  const stamp = new Date("2026-10-01T00:00:00Z");
+  const h = harness({ properties: [property({ createdAt: stamp, updatedAt: stamp })] });
+  await h.enroll(call);
+  const before = structuredClone(h.store.properties[0]); h.writes.length = 0; h.advance(1000);
+  assert.equal((await h.enroll(call)).alreadyEnrolled, true);
+  assert.deepEqual(h.propertyWrites(), []);
+  assert.deepEqual(h.store.properties[0], before);
+  assert.equal(h.store.properties[0].updatedAt.getTime(), stamp.getTime());
+});
+
+test("UI explains global truncation and expiry without adding any Apply button", () => {
+  function element() { return { children: [], textContent: "", append(value) { this.children.push(value); }, replaceChildren() { this.children = []; } }; }
+  const context = vm.createContext({ window: {}, document: { createElement: element } });
+  vm.runInContext(fs.readFileSync(new URL("../public/js/crm-sync-ui.js", import.meta.url), "utf8"), context);
+  for (const [reason, text] of [["RUN_PLAN_TRUNCATED", "Vuelve a simular con un conjunto más pequeño"],
+    ["RUN_EXPIRED", "La simulación ha caducado"], [null, "Simulación vigente"]]) {
+    const output = element();
+    context.window.HomeClickCrmSync.renderizar({ snapshotComplete: true, results: [], applyEligible: reason === null,
+      applyBlockedReason: reason }, output);
+    assert.ok(output.children.some(child => child.textContent.includes(text)));
+    assert.ok(output.children.every(child => !child.listeners));
+  }
 });

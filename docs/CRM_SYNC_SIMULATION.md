@@ -209,14 +209,43 @@ The first 100 safe plan entries are stored, with totalResults/planTruncated for 
 full snapshot. Eligible UPDATE entries store property ID, externalId, expected
 content revision, expected/proposed managed fingerprints and changed field names.
 Conflicts store safe reason codes, field names and blocked=true. No before/after
-content, description, photo URLs or XML is stored. Future apply must reject targets
-outside this stored bounded plan; it must redownload, recompute, check expiration,
+content, description, photo URLs or XML is stored. Future apply must reject the whole
+run if its plan is truncated, as well as targets outside the stored plan;
+it must redownload, recompute, check expiration,
 source identity/versions/revision/overrides and compare to the approved run.
 
 `GET /api/crm-import/sync/runs/:id` requires auth, only reads runs of req.user.id,
 returns 404 for foreign runs and a whitelisted summary with at most 100 details.
 Internal hashes/preconditions are not exposed. Legacy runs remain readable but
 have no prepared plan and are treated as expired/non-applicable.
+
+### Global run eligibility (preparation only)
+
+`evaluateRunApplyEligibility(run, now)` is the single backend definition used by
+simulation responses and GET run. It derives `expired`, `applyEligible` and
+`applyBlockedReason` from persisted run data and the server clock. No migration,
+TTL/index or cached eligibility flag is required. Expiration remains 20 minutes.
+
+Reasons have this stable priority:
+
+1. `RUN_EXPIRED`: missing/invalid expiresAt, invalid clock, or now >= expiresAt.
+2. `RUN_PLAN_TRUNCATED`: planTruncated=true, more than 100 total results, or an
+   oversized stored plan. Full counters do not authorize the omitted entries.
+3. `RUN_SNAPSHOT_INCOMPLETE`: snapshotComplete is not true.
+4. `RUN_STATUS_NOT_APPLICABLE`: status is not exactly simulated.
+5. `RUN_BLOCKED`: explicit global block, nonempty errorCode or missing prepared plan.
+
+Only when none applies is applyEligible=true, with applyBlockedReason=null.
+Entry-level blocked/conflict flags remain independent: a globally eligible run
+does not authorize those entries, any property writes, or automatic synchronization.
+An expired run can still have status simulated and an entry with blocked=false;
+the global applyEligible=false always takes precedence. Future apply must evaluate
+this helper again on the server and revalidate all preconditions, never trust UI.
+
+GET also exposes planTruncated/resultsTruncated explicitly, without hashes or
+sensitive content. Profile explains valid, expired, truncated and blocked runs;
+it has no Apply button. Truncated runs require a new, smaller simulation rather
+than applying a hidden subset. The source feed selection mechanism is unchanged.
 
 Profile displays linked / requires enrollment / blocked states and offers an
 explicit enrollment button only for compatible unlinked records. It clears that

@@ -10,6 +10,20 @@
     const summary = document.createElement("p");
     summary.textContent = resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
     output.append(summary);
+    if (typeof data.applyEligible === "boolean") {
+      const eligibility = document.createElement("p");
+      const messages = {
+        RUN_EXPIRED: "La simulación ha caducado. Vuelve a simular para preparar un resultado vigente.",
+        RUN_PLAN_TRUNCATED: "La simulación contiene más cambios de los que pueden prepararse de forma segura. Vuelve a simular con un conjunto más pequeño.",
+        RUN_SNAPSHOT_INCOMPLETE: "La simulación no está completa y no puede prepararse para una futura aplicación.",
+        RUN_STATUS_NOT_APPLICABLE: "El estado de esta simulación no permite una futura aplicación. Vuelve a simular.",
+        RUN_BLOCKED: "La simulación está bloqueada para una futura aplicación. Revisa el resultado y vuelve a simular."
+      };
+      eligibility.textContent = data.applyEligible
+        ? "Simulación vigente: plan completo preparado para una futura aplicación. Los conflictos individuales siguen bloqueados. No se ha modificado ningún anuncio."
+        : messages[data.applyBlockedReason] || messages.RUN_BLOCKED;
+      output.append(eligibility);
+    }
     if (!data.snapshotComplete) {
       const warning = document.createElement("p");
       warning.textContent = "Snapshot incompleto: no se calculan anuncios que faltan del feed.";
