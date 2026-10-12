@@ -17,6 +17,9 @@ import { prepareSyncPlan, snapshotDigest, runVersions, safeRunSummary, evaluateR
 import { encryptFeedUrl } from "../utils/import/feedUrlCrypto.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { securityRateLimits } from "../utils/security.js";
+import { createMissingHider } from "../utils/import/syncHideMissing.js";
+import { createSyncApplier } from "../utils/import/syncApply.js";
+import { managedFingerprint } from "../utils/import/syncBaseline.js";
 
 const U = "507f1f77bcf86cd799439099", S = "507f1f77bcf86cd799439098", R = "507f1f77bcf86cd799439096";
 const env = { CRM_FEED_URL_KEY_V1: crypto.randomBytes(32).toString("base64") };
@@ -24,6 +27,67 @@ const xml = (count = 1, photos = 0) => `<properties>${Array.from({ length: count
   `<property><id>N-${i}</id><title>Casa ${i}</title><description>Texto</description><price>120</price><operation>sale</operation>
   <address>Chipiona ${i}</address><city>Chipiona</city><bedrooms>2</bedrooms><bathrooms>1</bathrooms><propertyType>piso</propertyType>
   <photos>${Array.from({ length: photos }, (_, n) => `<photo>https://images.example/${i}-${n}.jpg</photo>`).join("")}</photos></property>`).join("")}</properties>`;
+
+function mixedOperationHarness() {
+  const updateRecord = xml(1).replaceAll("N-0", "UPDATE-1").replaceAll("120", "200")
+    .replace("Casa 0", "Vivienda existente").replace("Chipiona 0", "Direccion existente");
+  const feedXml = xml(1).replace("</properties>", updateRecord.replace("<properties>", ""));
+  const h = harness({ feedXml });
+  const incoming = buildSyncSnapshot(updateRecord).properties[0].data;
+  const updated = { ...incoming, _id: "000000000000000000000010", usuarioId: U, importSourceId: S, source: "crm",
+    precio: 100, imagenes: [], visiblePublicamente: true, syncEnabled: true, syncOverrides: {}, contentRevision: 2,
+    syncApplyFingerprintVersion: 1 };
+  updated.syncApplyFingerprint = managedFingerprint(updated);
+  const absent = { ...updated, _id: "000000000000000000000011", externalId: "MISSING-1", contentRevision: 3 };
+  h.state.properties.push(updated, absent);
+  const snapshot = buildSyncSnapshot(feedXml);
+  Object.assign(h.state.run, prepareSyncPlan(snapshot, h.state.properties, { usuarioId: U, importSourceId: S, reconciliations: [] }));
+  const hide = createMissingHider(h.dependencies), apply = createSyncApplier(h.dependencies);
+  return { ...h, hide, apply, hideRequest: { usuarioId: U, runId: R, externalIds: ["MISSING-1"] },
+    applyRequest: { usuarioId: U, runId: R, externalIds: ["UPDATE-1"] } };
+}
+
+for (const opponent of ["UPDATE", "NEW"]) for (const winner of ["MISSING", "opponent"])
+  test(`real services ${opponent} vs MISSING: ${winner} wins shared lock/run without mixed receipts`, async () => {
+    const h = mixedOperationHarness();
+    assert.equal(h.state.run.plan.find(e => e.externalId === "MISSING-1").hideMissingEligible, true);
+    assert.equal(h.state.run.plan.find(e => e.externalId === "UPDATE-1").type, "UPDATE");
+    assert.equal(h.state.run.plan.find(e => e.externalId === "N-0").type, "NEW");
+    const before = structuredClone(h.state.properties);
+    let unlock, signal;
+    const paused = new Promise(resolve => { unlock = resolve; }), started = new Promise(resolve => { signal = resolve; });
+    h.faults.fetch = async () => { signal(); await paused; };
+    const competing = () => opponent === "UPDATE" ? h.apply(h.applyRequest) : h.run(h.request);
+    const winning = () => winner === "MISSING" ? h.hide(h.hideRequest) : competing();
+    const losing = () => winner === "MISSING" ? competing() : h.hide(h.hideRequest);
+    const pending = winning(); await started;
+    await assert.rejects(losing, { code: "SYNC_SOURCE_BUSY" });
+    unlock(); const receipt = await pending;
+    assert.equal(h.state.source.importLockToken, undefined);
+    assert.equal(h.effects.fetch, 1);
+    assert.equal(h.effects.uploads, 0); assert.equal(h.effects.downloads, 0); assert.equal(h.effects.deletes, 0);
+    if (winner === "MISSING") {
+      assert.equal(receipt.status, "completed"); assert.equal(h.state.run.missingHide.status, "completed");
+      assert.equal(h.state.run.newImport, undefined); assert.equal(h.state.run.appliedCount, undefined);
+      assert.deepEqual(h.state.properties[0], before[0]);
+      assert.equal(h.state.properties[1].visiblePublicamente, false); assert.equal(h.state.properties[1].contentRevision, 4);
+      assert.equal(h.state.properties.length, 2);
+      await assert.rejects(losing, { code: "RUN_BLOCKED" });
+    } else {
+      assert.equal(h.state.run.missingHide, undefined); assert.deepEqual(h.state.properties[1], before[1]);
+      if (opponent === "UPDATE") {
+        assert.equal(h.state.run.status, "applied"); assert.equal(receipt.appliedCount, 1);
+        assert.equal(h.state.properties[0].precio, 200); assert.equal(h.state.properties[0].contentRevision, 3);
+        assert.equal(h.state.run.newImport, undefined);
+      } else {
+        assert.equal(h.state.run.newImport.status, "completed"); assert.equal(receipt.newImport.counts.imported, 1);
+        assert.equal(h.state.properties.filter(p => p.externalId === "N-0").length, 1);
+        assert.deepEqual(h.state.properties[0], before[0]); assert.equal(h.state.user.publicationVersion, 1);
+        assert.equal(h.state.run.appliedCount, undefined);
+      }
+      await assert.rejects(losing, { code: "MISSING_OPERATION_BLOCKED" });
+    }
+  });
 function values(doc, path) {
   if (!path.length) return [doc];
   if (Array.isArray(doc)) return doc.flatMap(d => values(d, path));
@@ -98,6 +162,7 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
     }
   };
   const users = {
+    findOne(filter) { return query(session => matches(current(session).user, filter) ? current(session).user : null); },
     findById(id) { return query(session => String(id) === U ? current(session).user : null); },
     async updateOne(filter, op, options) {
       const doc = current(options.session).user;
@@ -116,6 +181,14 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
     }, async endSession() {} }; }
   };
   const properties = {
+    startSession: () => users.startSession(),
+    async updateOne(filter, op, options) {
+      assert.ok(options.session);
+      const p = current(options.session).properties.find(p => matches(p, filter));
+      if (!p) return { matchedCount: 0, modifiedCount: 0 };
+      effects.writes.push({ op, session: true, model: "property" }); update(p, op);
+      return { matchedCount: 1, modifiedCount: 1 };
+    },
     init: async () => {},
     find(filter) { return query(session => current(session).properties.filter(p => matches(p, filter))); },
     findById(id) {
@@ -132,6 +205,7 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
     }
   };
   const reconciliations = {
+    find(filter) { return query(session => current(session).reconciliations.filter(p => matches(p, filter))); },
     init: async () => {},
     findOne: async filter => structuredClone(state.reconciliations.find(p => matches(p, filter)) || null),
     async create(data) { state.reconciliations.push({ ...data, propiedadId: String(data.propiedadId) }); },
@@ -148,7 +222,7 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
       const doc = current(options.session).run;
       if (!matches(doc, filter)) return { matchedCount: 0 };
       if (op.$push) { assert.ok(options.session); assert.equal(current(options.session).properties.length > 0, true); }
-      effects.writes.push({ op, session: Boolean(options.session) }); update(doc, op); return { matchedCount: 1 };
+      effects.writes.push({ op, session: Boolean(options.session) }); update(doc, op); return { matchedCount: 1, modifiedCount: 1 };
     }
   };
   const selected = createSelectedImporter({ PropiedadModel: properties, UsuarioModel: users, ImportSourceModel: sources,
