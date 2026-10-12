@@ -1,6 +1,7 @@
 import ImportSource from "../../models/ImportSource.js";
 import ImportSyncRun from "../../models/ImportSyncRun.js";
 import Propiedad from "../../models/Propiedad.js";
+import ImportReconciliation from "../../models/ImportReconciliation.js";
 import { fetchFeedXml } from "./feedFetcher.js";
 import { buildSyncSnapshot, MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
 import { createImportBudget } from "./importBudget.js";
@@ -22,6 +23,7 @@ export function safeSimulationCode(error) {
 
 export function createSyncSimulator({
   ImportSourceModel = ImportSource, ImportSyncRunModel = ImportSyncRun, PropiedadModel = Propiedad,
+  ReconciliationModel = ImportReconciliation,
   fetchXml = fetchFeedXml, env = process.env, now = () => new Date()
 } = {}) {
   return async ({ usuarioId, importSourceId }) => {
@@ -45,7 +47,19 @@ export function createSyncSimulator({
         snapshot.snapshotComplete = false;
         snapshot.warnings.push("SYNC_EXISTING_LIMIT_EXCEEDED", "MISSING_DISABLED_INCOMPLETE_SNAPSHOT");
       }
-      const { plan, resultsTruncated, ...summary } = prepareSyncPlan(snapshot, existing.slice(0, MAX_SYNC_PROPERTIES));
+      const incomingIds = new Set(snapshot.properties.map(item => item.data.externalId));
+      const missing = snapshot.snapshotComplete ? existing.filter(p => !incomingIds.has(p.externalId)) : [];
+      let reconciliations = [];
+      if (missing.length) {
+        let query = ReconciliationModel.find({ $or: [
+          { propiedadId: { $in: missing.map(p => p._id) } },
+          { usuarioId, importSourceId, externalId: { $in: missing.map(p => p.externalId) } }
+        ] });
+        if (query?.lean) query = query.lean();
+        reconciliations = await budget.run(() => query);
+      }
+      const { plan, resultsTruncated, ...summary } = prepareSyncPlan(snapshot, existing.slice(0, MAX_SYNC_PROPERTIES),
+        { usuarioId, importSourceId, reconciliations });
       const finishedAt = now();
       const final = { ...summary, plan, planTruncated: resultsTruncated, snapshotDigest: snapshotDigest(snapshot),
         status: snapshot.snapshotComplete ? "simulated" : "blocked",

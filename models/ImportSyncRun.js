@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { NEW_IMPORT_STATUSES, NEW_IMPORT_RESULT_STATUSES, NEW_IMPORT_FAILURE_CODES } from "../utils/import/newImportState.js";
+import { MISSING_BLOCK_CODES } from "../utils/import/missingEligibility.js";
 
 const newResultSchema = new mongoose.Schema({
   externalId: { type: String, required: true, maxlength: 200 },
@@ -64,7 +65,14 @@ const schema = new mongoose.Schema({
       enrollmentEligible: Boolean,
       importNewEligible: Boolean,
       importNewBlockCode: { type: String, enum: ["SYNC_NEW_INVALID_DATA", null] },
-      linked: Boolean
+      linked: Boolean,
+      hideMissingEligible: Boolean,
+      hideMissingBlockCode: { type: String, enum: [...MISSING_BLOCK_CODES, null] },
+      missingEvidence: { type: new mongoose.Schema({
+        version: Number, usuarioId: mongoose.Schema.Types.ObjectId, importSourceId: mongoose.Schema.Types.ObjectId,
+        expectedContentRevision: Number, expectedVisiblePublicamente: Boolean, enrolled: Boolean, reconciliationChecked: Boolean,
+        expectedBaselineFingerprint: String, baselineVersion: Number, expectedContentFingerprint: String
+      }, { _id: false, strict: "throw" }), default: undefined }
     }, { _id: false, strict: "throw" })],
     default: undefined,
     select: false,

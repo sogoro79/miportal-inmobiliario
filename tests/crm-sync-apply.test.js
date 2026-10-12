@@ -100,6 +100,7 @@ function harness(count = 1) {
     }
   };
   const dependencies = { PropiedadModel: properties, ImportSourceModel: sources, ImportSyncRunModel: runs,
+    ReconciliationModel: { find: async () => [] },
     env, now: () => new Date(clock), fetchXml: async (...args) => {
       fetches.push(args); if (pausedFetch) await pausedFetch(); return { xml: feed };
     } };

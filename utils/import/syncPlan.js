@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { safeNewImportSummary } from "./newImportState.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
+import { prepareMissingEligibility, safeMissingEligibility } from "./missingEligibility.js";
 import { syncFingerprint, SYNC_FIELDS } from "./syncSnapshot.js";
 import { SYNC_APPLY_V1_FIELDS, SYNC_APPLY_FIELDS_VERSION, SYNC_NORMALIZATION_VERSION, SYNC_SNAPSHOT_VERSION,
   baselineValid, managedFingerprint, managedChangedFields, proposedManagedContent,
@@ -28,7 +29,7 @@ export function snapshotDigest(snapshot) {
     complete: snapshot.snapshotComplete, records, warnings: [...snapshot.warnings].sort() })).digest("hex");
 }
 
-export function prepareSyncPlan(snapshot, existing) {
+export function prepareSyncPlan(snapshot, existing, context = {}) {
   const legacy = compareSyncSnapshot(snapshot, existing);
   const incoming = new Map(snapshot.properties.map(item => [item.data.externalId, item]));
   const results = legacy.results.map(item => {
@@ -42,7 +43,8 @@ export function prepareSyncPlan(snapshot, existing) {
     if (item.type === "NEW") return { ...base, safeReasonCode: "NEW_REQUIRES_MANUAL_IMPORT",
       importNewEligible: item.publishableByData === true,
       importNewBlockCode: item.publishableByData === true ? null : "SYNC_NEW_INVALID_DATA" };
-    if (item.type === "MISSING") return { ...base, safeReasonCode: "MISSING_REQUIRES_REVIEW" };
+    if (item.type === "MISSING") return { ...base, safeReasonCode: "MISSING_REQUIRES_REVIEW",
+      ...prepareMissingEligibility(snapshot, matches, item.externalId, context) };
     if (!property || !data) return { ...base, type: "CONFLICT", safeReasonCode: item.reason === "SUSPICIOUS_REFERENCE_CHANGE" ? item.reason : "AMBIGUOUS_IDENTITY" };
     const differences = suppliedNonPhotoDifferences(property, data);
     base.changedFields = differences.filter(field => detailFields.has(field));
@@ -63,6 +65,10 @@ export function prepareSyncPlan(snapshot, existing) {
   });
   const summary = Object.fromEntries(Object.values(counters).map(key => [key, 0]));
   for (const item of results) summary[counters[item.type]]++;
+  if (results.length > MAX_RUN_DETAILS) for (const item of results) if (item.type === "MISSING") {
+    item.hideMissingEligible = false; item.hideMissingBlockCode = "MISSING_RUN_TRUNCATED";
+    delete item.missingEvidence;
+  }
   return { ...summary, totalResults: results.length, resultsTruncated: results.length > MAX_RUN_DETAILS,
     plan: results.slice(0, MAX_RUN_DETAILS) };
 }
@@ -124,6 +130,7 @@ export function safeRunSummary(run, now = new Date()) {
       changedFields: (entry.changedFields || []).filter(field => detailFields.has(field)),
       blocked: entry.blocked !== false, linked: entry.linked === true,
       enrollmentEligible: entry.enrollmentEligible === true && entry.safeReasonCode === "PROPERTY_SYNC_DISABLED",
+      ...(entry.type === "MISSING" ? safeMissingEligibility(entry, run, now, runVersions) : {}),
       ...(entry.type === "NEW" ? { importNewEligible: entry.importNewEligible === true,
         importNewBlockCode: entry.importNewEligible === true ? null
           : entry.importNewBlockCode === "SYNC_NEW_INVALID_DATA" ? "SYNC_NEW_INVALID_DATA" : "SYNC_NEW_RUN_CHANGED" } : {}),

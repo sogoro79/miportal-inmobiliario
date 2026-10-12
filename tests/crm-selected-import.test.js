@@ -186,7 +186,7 @@ test("escenario completo: Fase 2 baseline, edicion manual y diff sin escrituras"
       return { matchedCount: 1 };
     }
   };
-  const simulate = createSyncSimulator({ env,
+  const simulate = createSyncSimulator({ env, ReconciliationModel: { find: async () => [] },
     ImportSourceModel: sourceModel,
     ImportSyncRunModel: { create: async row => { runs.push(row); return { _id: "run" }; }, updateOne: async () => {} },
     PropiedadModel: { find: async () => properties, create: () => assert.fail("no creates"), updateOne: () => assert.fail("no updates"), deleteOne: () => assert.fail("no deletes") },

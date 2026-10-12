@@ -105,7 +105,8 @@ function harness({ xml = feed(), fetcher, properties = [property()], beforePrope
     },
     findOne(filter) { return query(() => store.runs.find(r => matches(r, filter)) || null); }
   };
-  const dependencies = { ImportSourceModel: sources, PropiedadModel: props, ImportSyncRunModel: runs, env, now: () => new Date(time),
+  const dependencies = { ImportSourceModel: sources, PropiedadModel: props, ImportSyncRunModel: runs,
+    ReconciliationModel: { find: async () => [] }, env, now: () => new Date(time),
     fetchXml: async (...args) => { requests.push(args); return fetcher ? fetcher(...args, store) : { xml }; } };
   return { store, writes, reads, requests, dependencies,
     enroll: createSyncEnroller(dependencies), simulate: createSyncSimulator(dependencies),

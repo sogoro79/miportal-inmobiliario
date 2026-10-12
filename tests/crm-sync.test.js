@@ -268,7 +268,7 @@ function harness({ feed = xml(1), existing = [], fetcher, source: sourceOverride
   const runs = [];
   const updates = [];
   const lookups = [];
-  const simulate = createSyncSimulator({ env,
+  const simulate = createSyncSimulator({ env, ReconciliationModel: { find: async () => [] },
     ImportSourceModel: {
       findOne: async filter => { lookups.push(filter); return filter.usuarioId === userId && filter._id === sourceId &&
         (!filter.importLockToken || filter.importLockToken === source.importLockToken) &&
