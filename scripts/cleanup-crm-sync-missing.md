@@ -27,12 +27,24 @@ TEST ya debe estar eliminado. CONTROL nunca debe haberse importado.
 Se aborta ante cualquier propiedad con esos externalIds (incluso de otro usuario),
 con esa source o con IDs históricos encontrados en los receipts/planes.
 No se asume referencia = externalId. Nunca se escribe sobre Propiedad.
+También se consulta hiddenByMissingRunId con los IDs de runs candidatos y
+proyección explícita +hiddenByMissingRunId. Cualquier propiedad que conserve
+esa referencia aborta, incluso con owner/source/externalId distintos.
+La consulta entra en el planHash y se repite después del borrado usando los IDs
+históricos de runs, sin modificar ningún marcador.
 
 Los runs deben ser del mismo usuario/source, sin truncamiento ni operaciones en
 curso/indeterminadas y contener solo referencias permitidas en plan y receipts.
 missingHide solo puede referirse a TEST. Se reportan por separado receipts UPDATE,
 NEW y MISSING, eliminados únicamente con su run; no hay colección de receipts
 independiente en la arquitectura actual.
+Para APTO se exige exactamente un missingHide completed: selección de un solo
+TEST, un solo resultado TEST con status hidden, countHidden=1 y
+countAlreadyHidden=0. No se acepta already_hidden para esta prueba concreta.
+Los runs anteriores sin receipt son válidos, siempre que el conjunto contenga
+ese único receipt final. El resumen incluye propiedadesConHiddenByMissingRunId,
+missingHideCompletedReceipts y missingHideReceiptValido. Si todo está ya
+eliminado, YA LIMPIO no exige un receipt que ya no existe.
 
 Reconciliaciones: solo CRM del mismo usuario/source y externalId, enlazadas a un
 ID histórico de la prueba que aparezca en un run. Solo estado prepared, sin

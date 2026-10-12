@@ -24,17 +24,20 @@ function harness() {
     Usuario: [{ _id: U, plan: "lanzamiento_2026", publicationVersion: 1 }], Propiedad: [],
     ImportSource: [{ _id: S, usuarioId: U, feedType: "generic_xml", feedUrlHash: crypto.createHash("sha256").update(FEED_URL).digest("hex") }],
     ImportSyncRun: [{ _id: "run", usuarioId: U, importSourceId: S, status: "simulated", plan: [{ externalId: EXTERNAL_ID }],
-      missingHide: { status: "completed", selectedExternalIds: [EXTERNAL_ID], results: [{ externalId: EXTERNAL_ID, status: "hidden" }] },
+      missingHide: { status: "completed", selectedExternalIds: [EXTERNAL_ID], results: [{ externalId: EXTERNAL_ID, status: "hidden" }],
+        countHidden: 1, countAlreadyHidden: 0 },
       newImport: { status: "completed", selectedExternalIds: [EXTERNAL_ID], results: [{ externalId: EXTERNAL_ID, propertyId: P }] } }],
     ImportReconciliation: []
   };
-  let tx, writes = 0, failDelete = false, failPost = false;
+  let tx, writes = 0, failDelete = false, failPost = false, failHiddenPost = false;
   const reads = [];
   const models = Object.fromEntries(Object.keys(db).map(name => [name, {
     find(filter) {
-      reads.push({ name, filter }); let session;
-      return { select() { return this; }, session(v) { session = v; return this; }, async lean() {
+      const tracked = { name, filter }; reads.push(tracked); let session;
+      return { select(v) { tracked.select = v; return this; }, session(v) { session = v; return this; }, async lean() {
         const records = (session ? tx : db)[name];
+        if (session && failHiddenPost && name === "Propiedad" && filter.hiddenByMissingRunId && !tx.ImportSyncRun.length)
+          return [{ _id: "foreign", hiddenByMissingRunId: "run" }];
         if (session && failPost && name === "ImportSource" && !records.length) return structuredClone(db.ImportSource);
         return structuredClone(records.filter(v => matches(v, filter)));
       } };
@@ -58,6 +61,7 @@ function harness() {
   }, async endSession() {} }) };
   return { deps, reads, get db() { return db; }, get writes() { return writes; },
     failDeletes() { failDelete = true; }, failVerification() { failPost = true; },
+    failHiddenVerification() { failHiddenPost = true; },
     dry: () => cleanup(options, deps),
     apply: planHash => cleanup({ ...options, apply: true, confirm: CONFIRM, "expect-plan": planHash }, deps) };
 }
@@ -71,6 +75,8 @@ test("missing property is expected; dry-run reports safe CRM plan without writes
   assert.equal(r.resultado, "APTO PARA LIMPIEZA"); assert.equal(r.propiedadEncontrada, false);
   assert.equal(r.otrasPropiedadesAfectadas, 0); assert.equal(r.newImportReceipts, 1);
   assert.equal(r.missingHideReceipts, 1); assert.equal(r.applyReceipts, 0);
+  assert.equal(r.propiedadesConHiddenByMissingRunId, 0);
+  assert.equal(r.missingHideCompletedReceipts, 1); assert.equal(r.missingHideReceiptValido, true);
   assert.deepEqual(r.allowedExternalIds, ALLOWED_EXTERNAL_IDS);
   assert.equal(r.dryRun, true); assert.equal(h.writes, 0); assert.deepEqual(h.db, before);
 });
@@ -95,6 +101,15 @@ const mutations = {
   "property externalId reappears": db => db.Propiedad.push({ _id: P, externalId: EXTERNAL_ID }),
   "control property reappears": db => db.Propiedad.push({ _id: P, externalId: ALLOWED_EXTERNAL_IDS[1] }),
   "property source reappears": db => db.Propiedad.push({ _id: P, importSourceId: S, externalId: "OTHER" }),
+  "inverse marker on reassigned unrelated property": db => db.Propiedad.push({
+    _id: "foreign", usuarioId: "other", externalId: "OTHER", importSourceId: "other", hiddenByMissingRunId: "run" }),
+  "missing completed receipt": db => { delete db.ImportSyncRun[0].missingHide; },
+  "two completed receipts": db => db.ImportSyncRun.push({ ...structuredClone(db.ImportSyncRun[0]), _id: "second" }),
+  "wrong hidden count": db => { db.ImportSyncRun[0].missingHide.countHidden = 2; },
+  "already hidden count": db => { db.ImportSyncRun[0].missingHide.countAlreadyHidden = 1; },
+  "already hidden result": db => { db.ImportSyncRun[0].missingHide.results[0].status = "already_hidden"; },
+  "duplicate selected reference": db => db.ImportSyncRun[0].missingHide.selectedExternalIds.push(EXTERNAL_ID),
+  "duplicate hidden result": db => db.ImportSyncRun[0].missingHide.results.push({ externalId: EXTERNAL_ID, status: "hidden" }),
   "receipt points to live unrelated property": db => db.Propiedad.push({ _id: P, externalId: "OTHER" }),
   "wrong source URL": db => { db.ImportSource[0].feedUrlHash = "bad"; },
   "wrong source owner": db => { db.ImportSource[0].usuarioId = "other"; },
@@ -161,7 +176,7 @@ test("BASE and MISSING runs containing only TEST and CONTROL are both accepted",
 });
 test("plan hash includes receipt content, run IDs and reconciliation IDs", async () => {
   const h = harness(), initial = (await h.dry()).planHash;
-  h.db.ImportSyncRun[0].missingHide.results[0].status = "already_hidden";
+  h.db.ImportSyncRun[0].missingHide.completedAt = new Date("2026-10-12T00:00:00Z");
   const changed = (await h.dry()).planHash;
   assert.notEqual(changed, initial);
   await assert.rejects(() => h.apply(initial), { code: "PLAN_CHANGED" });
@@ -181,4 +196,22 @@ test("apply UPDATE receipt is counted but deleted only as part of its run", asyn
   const report = await h.apply((await h.dry()).planHash);
   assert.equal(report.deleted.ImportSyncRun, 1);
   assert.equal(Object.keys(report.deleted).length, 3);
+});
+test("inverse marker query uses explicit projection and changes the plan hash", async () => {
+  const h = harness(), initial = (await h.dry()).planHash;
+  h.db.Propiedad.push({ _id: "foreign", externalId: "OTHER", hiddenByMissingRunId: "run" });
+  const report = await h.dry();
+  assert.notEqual(report.planHash, initial);
+  assert.equal(report.propiedadesConHiddenByMissingRunId, 1);
+  assert.equal(report.reasonCode, "HIDDEN_PROPERTY_REFERENCE");
+  assert.ok(h.reads.some(r => r.name === "Propiedad" && r.filter.hiddenByMissingRunId?.$in?.includes("run") &&
+    r.select === "+hiddenByMissingRunId"));
+  assert.equal(h.writes, 0);
+});
+test("historical run IDs are checked for inverse markers after deletion and roll back on a residual", async () => {
+  const h = harness(), plan = (await h.dry()).planHash, before = structuredClone(h.db);
+  h.failHiddenVerification();
+  await assert.rejects(() => h.apply(plan), { code: "POST_VERIFICATION_FAILED" });
+  assert.deepEqual(h.db, before);
+  assert.ok(h.reads.some(r => r.filter.hiddenByMissingRunId?.$in?.includes("run")));
 });

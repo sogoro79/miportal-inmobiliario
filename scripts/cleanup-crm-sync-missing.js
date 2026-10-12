@@ -55,6 +55,17 @@ async function inspect(options, models, session) {
     { usuarioId: userId, "newImport.results.externalId": { $in: ALLOWED_EXTERNAL_IDS } },
     { usuarioId: userId, "missingHide.selectedExternalIds": { $in: ALLOWED_EXTERNAL_IDS } },
     { usuarioId: userId, "missingHide.results.externalId": { $in: ALLOWED_EXTERNAL_IDS } }] }, session, "+plan");
+  const candidateRunIds = runs.map(r => r._id);
+  const hiddenProperties = candidateRunIds.length ? await read(models.Propiedad,
+    { hiddenByMissingRunId: { $in: candidateRunIds } }, session, "+hiddenByMissingRunId") : [];
+  const completedReceipts = runs.filter(r => r.missingHide?.status === "completed");
+  const receipt = completedReceipts[0]?.missingHide;
+  const missingHideReceiptValido = completedReceipts.length === 1 &&
+    Array.isArray(receipt.selectedExternalIds) && receipt.selectedExternalIds.length === 1 &&
+    receipt.selectedExternalIds[0] === EXTERNAL_ID &&
+    Array.isArray(receipt.results) && receipt.results.length === 1 &&
+    receipt.results[0].externalId === EXTERNAL_ID && receipt.results[0].status === "hidden" &&
+    receipt.countHidden === 1 && receipt.countAlreadyHidden === 0;
   const originalIds = [...new Set([...runs.flatMap(r => [...(r.plan || []).map(e => e.propiedadId),
     ...(r.newImport?.results || []).map(e => e.propertyId)]), ...reconciliations.map(r => r.propiedadId)]
     .filter(Boolean).map(id))];
@@ -74,12 +85,14 @@ async function inspect(options, models, session) {
     ...(run.missingHide?.selectedExternalIds || []), ...(run.missingHide?.results || []).map(e => e.externalId)];
   const report = { usuarioEncontrado: users.length === 1, planActual: users[0]?.plan || null,
     sourceEncontrada: sources.length === 1, sourceUrlCoincide: sources[0]?.feedUrlHash === hash(FEED_URL),
-    propiedadEncontrada: properties.length > 0 || referencedProperties.length > 0, allowedExternalIds: ALLOWED_EXTERNAL_IDS,
+    propiedadEncontrada: properties.length > 0 || referencedProperties.length > 0 || hiddenProperties.length > 0, allowedExternalIds: ALLOWED_EXTERNAL_IDS,
+    propiedadesConHiddenByMissingRunId: hiddenProperties.length,
+    missingHideCompletedReceipts: completedReceipts.length, missingHideReceiptValido,
     importSyncRuns: runs.length, importReconciliations: reconciliations.length,
     applyReceipts: runs.filter(r => r.appliedAt || r.selectedExternalIds?.length).length,
     newImportReceipts: runs.filter(r => r.newImport).length,
     missingHideReceipts: runs.filter(r => r.missingHide).length,
-    otrasPropiedadesAfectadas: new Set([...properties, ...referencedProperties].map(p => id(p._id))).size,
+    otrasPropiedadesAfectadas: new Set([...properties, ...referencedProperties, ...hiddenProperties].map(p => id(p._id))).size,
     otrosExternalIdsEnRuns: runs.flatMap(refs).filter(e => !ALLOWED_EXTERNAL_IDS.includes(e)).length,
     runs: runs.map(r => ({ runId: id(r._id), createdAt: r.createdAt || r.startedAt,
       externalIds: [...new Set(refs(r))], applyStatus: r.appliedAt ? "applied" : r.status,
@@ -87,11 +100,13 @@ async function inspect(options, models, session) {
     resultado: "NO APTO PARA LIMPIEZA", dryRun: !options.apply };
   let reason;
   if (users.length !== 1) reason = "USER_NOT_FOUND";
+  else if (hiddenProperties.length) reason = "HIDDEN_PROPERTY_REFERENCE";
   else if (report.propiedadEncontrada) reason = "PROPERTY_STILL_EXISTS";
   else if (crossReference) reason = "AMBIGUOUS_CRM_REFERENCE";
   else if (!sources.length && !runs.length && !reconciliations.length) report.resultado = "YA LIMPIO";
   else if (sources.length !== 1 || id(sources[0].usuarioId) !== userId || !report.sourceUrlCoincide || sources[0].feedType !== "generic_xml") reason = "SOURCE_IDENTITY_MISMATCH";
   else if (sources[0].importLockToken || sources[0].importLockUntil > new Date()) reason = "SOURCE_BUSY";
+  else if (!missingHideReceiptValido) reason = "MISSING_RECEIPT_MISMATCH";
   else {
     if (originalIds.length > 1 || originalIds.some(v => !/^[a-fA-F0-9]{24}$/.test(v)) ||
       links.some(e => e.externalId !== EXTERNAL_ID)) reason = "AMBIGUOUS_PROPERTY_REFERENCE";
@@ -117,9 +132,10 @@ async function inspect(options, models, session) {
   }
   if (reason) report.reasonCode = reason;
   // The fingerprint includes read versions/content, not only the displayed counts.
-  const manifest = { users, sources, properties, runs, reconciliations, referencedProperties, crossRuns, crossReconciliations };
+  const manifest = { users, sources, properties, runs, reconciliations, referencedProperties, crossRuns, crossReconciliations,
+    candidateRunIds, hiddenProperties, missingHideCompletedReceipts: completedReceipts.length, missingHideReceiptValido };
   report.planHash = hash(JSON.stringify(manifest));
-  return { report, runs, reconciliations, originalIds };
+  return { report, runs, reconciliations, originalIds, candidateRunIds };
 }
 
 export async function cleanup(options, { models = defaultModels, startSession = () => mongoose.startSession() } = {}) {
@@ -152,6 +168,9 @@ export async function cleanup(options, { models = defaultModels, startSession = 
       deleted.ImportSource = source.deletedCount;
       const after = await inspect(options, models, session);
       if (after.report.resultado !== "YA LIMPIO") fail("POST_VERIFICATION_FAILED");
+      if (state.candidateRunIds.length && (await read(models.Propiedad,
+        { hiddenByMissingRunId: { $in: state.candidateRunIds } }, session, "+hiddenByMissingRunId")).length)
+        fail("POST_VERIFICATION_FAILED");
       for (const [name, records] of [["ImportSyncRun", state.runs], ["ImportReconciliation", state.reconciliations]]) {
         if (records.length && (await read(models[name], { _id: { $in: records.map(r => r._id) } }, session)).length)
           fail("POST_VERIFICATION_FAILED");
