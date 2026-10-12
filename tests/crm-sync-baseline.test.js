@@ -360,7 +360,12 @@ async function withHttp(task, options = {}) {
   finally { Usuario.findById = previous; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
 }
 
-const controlledNewXml = fs.readFileSync(new URL("../public/test-sync-new/homeclick24-sync-new-test.xml", import.meta.url), "utf8");
+const newEligibilityXml = `<properties><property><externalId>NEW-ELIGIBILITY-1</externalId>
+  <title>Piso</title><description>Descripcion</description><operation>venta</operation>
+  <price>198000</price><address>Direccion</address><city>Chipiona</city>
+  <bedrooms>2</bedrooms><bathrooms>1</bathrooms><surface>72</surface>
+  <propertyType>piso</propertyType><condition>used</condition>
+  </property></properties>`;
 const newEligibility = data => ({ status: data.status, newImportEligible: data.newImportEligible,
   newImportBlockedReason: data.newImportBlockedReason, results: data.results.map(entry => ({
     externalId: entry.externalId, type: entry.type, importNewEligible: entry.importNewEligible,
@@ -394,7 +399,7 @@ for (const publicable of [true, false]) test(`actual simulate HTTP -> GET -> UI 
   await elements.get("crmSyncSimulate").listeners.click();
   assert.equal(post.status, 200);
   assert.deepEqual(newEligibility(post.body), { status: "simulated", newImportEligible: true,
-    newImportBlockedReason: null, results: [{ externalId: "SYNC-NEW-TEST-001", type: "NEW",
+    newImportBlockedReason: null, results: [{ externalId: "NEW-ELIGIBILITY-1", type: "NEW",
       importNewEligible: publicable, importNewBlockCode: publicable ? null : "SYNC_NEW_INVALID_DATA" }] });
   const nodes = all(elements.get("crmSyncResults"));
   assert.equal(nodes.filter(node => node.type === "checkbox").length, publicable ? 1 : 0);
@@ -414,7 +419,7 @@ for (const publicable of [true, false]) test(`actual simulate HTTP -> GET -> UI 
     assert.equal(safe.newImportBlockedReason, "SYNC_NEW_RUN_CHANGED", field);
   }
   assert.equal(safeRunSummary(h.store.runs[0], new Date(+clock + 3600000)).newImportBlockedReason, "RUN_EXPIRED");
-}, { xml: publicable ? controlledNewXml : controlledNewXml.replace("<bedrooms>2</bedrooms>", ""),
+}, { xml: publicable ? newEligibilityXml : newEligibilityXml.replace("<bedrooms>2</bedrooms>", ""),
   properties: [], startedAt: new Date() }));
 
 test("enroll HTTP requires auth, strict body, own source and bounded selection", async () => withHttp(async (h, app) => {
