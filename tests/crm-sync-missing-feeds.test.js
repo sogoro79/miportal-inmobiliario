@@ -23,8 +23,9 @@ import { createCrmImportRouter } from "../routes/crmImport.js";
 
 const BASE_URL="https://www.homeclick24.com/test-sync-missing/homeclick24-missing-base.xml";
 const E="SYNC-MISSING-TEST-001", CONTROL="SYNC-MISSING-CONTROL-001";
-const base=fs.readFileSync(new URL("../public/test-sync-missing/homeclick24-missing-base.xml",import.meta.url),"utf8");
-const absent=fs.readFileSync(new URL("../public/test-sync-missing/homeclick24-missing-empty.xml",import.meta.url),"utf8");
+const base=fs.readFileSync(new URL("./fixtures/crm/homeclick24-missing-baseline.xml",import.meta.url),"utf8");
+const absent=fs.readFileSync(new URL("../public/test-sync-missing/homeclick24-missing-base.xml",import.meta.url),"utf8");
+const reference=fs.readFileSync(new URL("../public/test-sync-missing/homeclick24-missing-empty.xml",import.meta.url),"utf8");
 const U="000000000000000000000001",S="000000000000000000000002",P="000000000000000000000003",R="000000000000000000000004";
 function enrolled() {
   const parsed=validateImportProperty(analyzeGenericXml(base)[0]);assert.deepEqual(parsed.errors,[]);
@@ -32,7 +33,7 @@ function enrolled() {
     visiblePublicamente:true,syncEnabled:true,syncOverrides:{},contentRevision:0,syncApplyFingerprintVersion:1};
   p.syncApplyFingerprint=managedFingerprint(p);return p;
 }
-test("BASE is valid, exactly one publicable target, mapper and snapshot have same semantics",()=>{
+test("original baseline is valid, exactly one publicable target, mapper and snapshot have same semantics",()=>{
   assert.equal(XMLValidator.validate(base),true);
   const snapshot=buildSyncSnapshot(base),mapped=analyzeGenericXml(base);
   assert.equal(snapshot.snapshotComplete,true);assert.equal(snapshot.properties.length,1);assert.equal(mapped.length,1);
@@ -49,7 +50,9 @@ test("BASE is valid, exactly one publicable target, mapper and snapshot have sam
   assert.deepEqual(mapped[0].fotos,[]);assert.deepEqual(p.imagenes,[]);assert.equal(p.videoUrl,"");
   assert.doesNotMatch(base,/[a-f0-9]{24}|https?:\/\/|@|usuarioId|userId|ownerId|importSourceId/i);
 });
-test("MISSING fixture uses one distinct control, not an incomplete literal empty feed",()=>{
+test("public BASE matches the unchanged MISSING reference with one control and no target or photos",()=>{
+  assert.equal(absent,reference);
+  assert.ok(!absent.includes(E));
   assert.equal(XMLValidator.validate(absent),true);
   const snapshot=buildSyncSnapshot(absent);
   assert.equal(snapshot.snapshotComplete,true);assert.equal(snapshot.properties.length,1);

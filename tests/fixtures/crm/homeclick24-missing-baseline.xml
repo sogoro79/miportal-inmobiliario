@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <property>
+    <externalId>SYNC-MISSING-TEST-001</externalId>
+    <title>Piso de prueba MISSING CRM en Rota</title>
+    <description>Datos ficticios exclusivos para prueba controlada MISSING CRM. No usar como anuncio real.</description>
+    <operation>venta</operation>
+    <price>214000</price>
+    <propertyType>piso</propertyType>
+    <condition>used</condition>
+    <bedrooms>3</bedrooms>
+    <bathrooms>2</bathrooms>
+    <surface>88</surface>
+    <address>Dirección de prueba MISSING</address>
+    <city>Rota</city>
+    <province>Cádiz</province>
+    <terrace>true</terrace>
+    <garage>false</garage>
+    <pool>false</pool>
+  </property>
+</properties>
