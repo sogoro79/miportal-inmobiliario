@@ -469,7 +469,8 @@ test("UI shows enrollment only for matching unlinked property, never NEW/MISSING
   const rows = output.children[1].children;
   assert.equal(rows[0].children.length, 1); rows[0].children[0].listeners.click();
   assert.deepEqual(chosen, ["REF"]);
-  assert.ok(rows.slice(1).every(row => row.children.length === 0));
+  const descendants = node => [node, ...node.children.flatMap(descendants)];
+  assert.ok(rows.slice(1).every(row => descendants(row).every(node => !node.listeners.click)));
 });
 
 const eligibilityNow = new Date("2026-10-10T10:00:00Z");

@@ -60,7 +60,69 @@
     output.append(block);
   }
 
-  function renderizar(data, output, onEnroll, onApply, onImportNew, onConsult) {
+  function missingMessage(code) {
+    const messages = {
+      MISSING_SNAPSHOT_INCOMPLETE: "El feed está incompleto. Vuelve a simular antes de ocultar anuncios.",
+      MISSING_RUN_TRUNCATED: "El resultado está truncado. Vuelve a simular con un conjunto más pequeño.",
+      MISSING_PROPERTY_NOT_FOUND: "El anuncio ya no existe. Vuelve a simular.",
+      MISSING_IDENTITY_AMBIGUOUS: "No se puede identificar este anuncio con seguridad. Requiere revisión.",
+      MISSING_OWNER_CHANGED: "El propietario del anuncio ha cambiado. Requiere revisión.",
+      MISSING_SOURCE_CHANGED: "La fuente del anuncio ha cambiado. Requiere revisión.",
+      MISSING_NOT_ENROLLED: "Necesita volver a vincularse antes de ocultarse.",
+      MISSING_BASELINE_INVALID: "La vinculación del anuncio requiere revisión.",
+      MISSING_MANUAL_OVERRIDE: "Este anuncio tiene cambios manuales y requiere revisión.",
+      MISSING_RECONCILIATION_PENDING: "Hay una importación pendiente de comprobación. Requiere revisión.",
+      MISSING_RECONCILIATION_UNCHECKED: "No se pudo comprobar si hay importaciones pendientes. Vuelve a simular.",
+      MISSING_ALREADY_HIDDEN: "Este anuncio ya está oculto.",
+      MISSING_PREVIOUSLY_HIDDEN: "Este anuncio se ocultó anteriormente. Requiere revisión.",
+      MISSING_REVISION_INVALID: "La revisión del anuncio no permite un ocultado seguro.",
+      MISSING_RUN_CHANGED: "El resultado ya no permite ocultar anuncios. Vuelve a simular.",
+      MISSING_RUN_EXPIRED: "La simulación ha caducado. Vuelve a simular.",
+      MISSING_PROPERTY_CHANGED: "El anuncio ha cambiado desde la simulación. Vuelve a simular.",
+      MISSING_FEED_CHANGED: "El feed ha cambiado. Vuelve a simular.",
+      MISSING_REAPPEARED: "El anuncio vuelve a aparecer en el feed. No se ha ocultado.",
+      MISSING_SELECTION_INVALID: "Selecciona entre 1 y 10 anuncios elegibles para ocultar.",
+      MISSING_SELECTION_MISMATCH: "Esta simulación ya tiene otra selección registrada. Consulta su estado.",
+      MISSING_OPERATION_BLOCKED: "El ocultado requiere revisión. Consulta su estado antes de continuar.",
+      MISSING_USER_INACTIVE: "Esta cuenta no puede realizar el ocultado.",
+      SYNC_SOURCE_BUSY: "La fuente CRM está ocupada. Consulta el estado antes de continuar.",
+      SYNC_RUN_NOT_FOUND: "No se encuentra la simulación. Vuelve a simular.",
+      SYNC_SOURCE_NOT_FOUND: "No se encuentra la fuente CRM. Revisa su configuración.",
+      SYNC_SOURCE_NOT_CONFIGURED: "La fuente CRM requiere configuración.",
+      MISSING_IN_PROGRESS: "No se ha podido confirmar el resultado. El ocultado sigue en curso. Consulta su estado; no repitas la solicitud.",
+      MISSING_UNCONFIRMED: "No se ha podido confirmar el resultado. Consulta su estado antes de continuar.",
+      IMPORT_TIMEOUT: "No se ha podido confirmar el resultado. Consulta su estado antes de continuar.",
+      FEED_TIMEOUT: "No se ha podido confirmar el resultado. Consulta su estado antes de continuar."
+    };
+    return Object.hasOwn(messages, code) ? messages[code]
+      : "No se pudo confirmar el ocultado. Consulta su estado y revisa la simulación antes de continuar.";
+  }
+
+  function missingResult(receipt, output) {
+    const block = document.createElement("div");
+    block.className = "crm-sync-missing-result";
+    block.setAttribute("role", "status");
+    const title = document.createElement("p");
+    title.textContent = "Ocultado completado.";
+    block.append(title);
+    const summary = document.createElement("p");
+    summary.textContent = `${receipt.countHidden} ${receipt.countHidden === 1 ? "anuncio ocultado" : "anuncios ocultados"} · ${receipt.countAlreadyHidden} ya estaban ocultos`;
+    block.append(summary);
+    for (const item of (receipt.results || []).slice(0, 10)) {
+      const row = document.createElement("p");
+      row.textContent = `${item.externalId}: ${item.status === "hidden" ? "Ocultado" : item.status === "already_hidden" ? "Ya estaba oculto" : missingMessage(item.code)}`;
+      block.append(row);
+    }
+    const link = document.createElement("a");
+    link.href = "/perfil.html#listaPropiedades";
+    link.textContent = "Ver mis propiedades";
+    block.append(link);
+    output.append(block);
+  }
+
+  let missingExpiryTimer;
+  function renderizar(data, output, onEnroll, onApply, onImportNew, onConsult, onHideMissing, onConsultMissing) {
+    if (missingExpiryTimer !== undefined && typeof clearTimeout === "function") clearTimeout(missingExpiryTimer);
     output.replaceChildren();
     const summary = document.createElement("p");
     summary.textContent = resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
@@ -99,11 +161,57 @@
       (!data.newImport?.status || data.newImport.status === "idle");
     const newButton = canImportNew ? document.createElement("button") : null;
     const newNotice = canImportNew ? document.createElement("p") : null;
+    const missingSelected = new Set();
+    const missingInputs = [];
+    const canHideMissing = onHideMissing && !expiredNow && data.status === "simulated" &&
+      data.snapshotComplete === true && !data.planTruncated && !data.resultsTruncated &&
+      !data.missingHide && (!data.newImport?.status || data.newImport.status === "idle") &&
+      !data.appliedAt && !data.selectedExternalIds?.length;
+    const missingButton = canHideMissing ? document.createElement("button") : null;
+    const missingNotice = canHideMissing ? document.createElement("p") : null;
+    function expireMissing() {
+      missingSelected.clear();
+      missingInputs.forEach(input => { input.checked = false; input.disabled = true; });
+      if (missingButton) missingButton.disabled = true;
+      if (missingNotice) missingNotice.textContent = missingMessage("MISSING_RUN_EXPIRED");
+    }
     for (const item of (data.results || []).slice(0, 100)) {
       const row = document.createElement("li");
       const fields = item.changedFields || Object.entries(item.changes || {}).map(([field, change]) => `${field}${change.blockedByOverride ? " (protegido por edición manual)" : ""}`);
       const state = item.reason === "PROPERTY_SYNC_DISABLED" ? "Requiere vinculación" : item.blocked === true ? "Bloqueado / requiere revisión" : item.linked ? "Vinculado" : item.type;
       row.textContent = `${item.externalId || "Sin referencia"}: ${item.type}${state !== item.type ? " · " + state : ""}${fields.length ? " · " + fields.join(", ") : ""}${item.reason && item.reason !== "PROPERTY_SYNC_DISABLED" ? " · Requiere revisión" : ""}${item.errors?.length ? " · Datos inválidos" : ""}`;
+      if (item.type === "MISSING") {
+        const eligible = canHideMissing && item.hideMissingEligible === true;
+        const message = eligible ? "Listo para ocultar" : data.missingHide?.status === "completed"
+          ? "Consulta el resultado de ocultado" : missingMessage(expiredNow ? "MISSING_RUN_EXPIRED" :
+            item.hideMissingBlockCode || "MISSING_RUN_CHANGED");
+        row.textContent = "";
+        const label = document.createElement("label");
+        label.className = "crm-sync-missing-label";
+        const description = document.createElement("span");
+        description.textContent = `${item.externalId || "Sin referencia"}: MISSING · Este anuncio ya no aparece en el feed CRM. ${message}`;
+        label.append(description);
+        if (eligible) {
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.setAttribute("aria-label", `Seleccionar anuncio para ocultar ${item.externalId}`);
+          missingInputs.push(checkbox);
+          checkbox.addEventListener("change", () => {
+            if (checkbox.disabled) return;
+            if (!(Date.parse(data.expiresAt) > Date.now())) { expireMissing(); return; }
+            if (checkbox.checked && missingSelected.size >= 10) {
+              checkbox.checked = false;
+              missingNotice.textContent = "Selecciona como máximo 10 anuncios para ocultar.";
+              return;
+            }
+            if (checkbox.checked) missingSelected.add(item.externalId); else missingSelected.delete(item.externalId);
+            missingNotice.textContent = `${missingSelected.size} anuncios seleccionados / 10`;
+            missingButton.disabled = missingSelected.size === 0;
+          });
+          label.append(checkbox);
+        }
+        row.append(label);
+      }
       if (item.type === "NEW") {
         // NEW is blocked for UPDATE by design; only the server's NEW eligibility applies here.
         const eligible = canImportNew && item.importNewEligible === true && !item.errors?.length &&
@@ -161,6 +269,59 @@
       list.append(row);
     }
     output.append(list);
+    if (missingInputs.length) {
+      missingButton.type = "button";
+      missingButton.className = "btn-perfil green";
+      missingButton.textContent = "Ocultar anuncios";
+      missingButton.disabled = true;
+      let pending = false, consumed = false;
+      missingButton.addEventListener("click", async () => {
+        if (pending || consumed || missingButton.disabled || !missingSelected.size) return;
+        if (!(Date.parse(data.expiresAt) > Date.now())) { expireMissing(); return; }
+        pending = true;
+        missingButton.disabled = true;
+        missingInputs.forEach(input => { input.disabled = true; });
+        try { consumed = await onHideMissing([...missingSelected]) === true; }
+        finally {
+          pending = false;
+          if (consumed) {
+            missingSelected.clear();
+            missingInputs.forEach(input => { input.checked = false; });
+          }
+          if (!(Date.parse(data.expiresAt) > Date.now())) expireMissing();
+          else {
+            missingButton.disabled = consumed || !missingSelected.size;
+            missingInputs.forEach(input => { input.disabled = consumed; });
+          }
+        }
+      });
+      missingNotice.textContent = "0 anuncios seleccionados / 10";
+      missingNotice.setAttribute("aria-live", "polite");
+      output.append(missingNotice);
+      output.append(missingButton);
+      if (typeof setTimeout === "function") missingExpiryTimer = setTimeout(expireMissing,
+        Math.min(2147483647, Math.max(0, Date.parse(data.expiresAt) - Date.now())));
+    }
+    if (data.missingHide?.status === "completed") missingResult(data.missingHide, output);
+    else if (data.missingHide) {
+      const notice = document.createElement("p");
+      notice.setAttribute("role", "status");
+      notice.textContent = missingMessage(data.missingHide.status === "failed"
+        ? data.missingHide.errorCode : "MISSING_UNCONFIRMED");
+      output.append(notice);
+      if (onConsultMissing) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn-perfil green";
+        button.textContent = "Consultar estado";
+        button.addEventListener("click", async () => {
+          if (button.disabled) return;
+          button.disabled = true;
+          try { await onConsultMissing(); } finally { button.disabled = false; }
+        });
+        output.append(button);
+      }
+    }
     if (canApply && (data.results || []).some(item => item.type === "UPDATE" && item.blocked === false)) {
       applyButton.type = "button";
       applyButton.className = "btn-perfil green";
@@ -249,6 +410,18 @@
       const data = await api("POST", "simulate", { importSourceId: sourceId });
       let applyClosed = false;
       let newClosed = false;
+      let missingClosed = false;
+      const consultMissing = () => action(async () => {
+        let state;
+        try { state = await api("GET", `runs/${data.runId}`); }
+        catch {
+          throw new Error("No se pudo consultar el estado del ocultado. No repitas la solicitud; vuelve a consultar el estado.");
+        }
+        renderizar(state.missingHide ? state : { ...state, missingHide: { status: "indeterminate" } },
+          output, null, null, null, null, null, consultMissing);
+        status.textContent = state.missingHide?.status === "completed" ? "Ocultado completado."
+          : missingMessage(state.missingHide?.status === "failed" ? state.missingHide.errorCode : "MISSING_UNCONFIRMED");
+      });
       const consult = () => action(async () => {
         let state;
         try { state = await api("GET", `runs/${data.runId}`); }
@@ -325,7 +498,33 @@
             output.append(notice);
           }
         });
-      }, consult);
+      }, consult, async externalIds => {
+        if (busy || missingClosed || !externalIds.length) return false;
+        if (!confirm(`Se ocultarán ${externalIds.length} anuncios que ya no aparecen en el feed CRM.\n\nNo se eliminarán sus datos, fotos, favoritos ni conversaciones.\n\nPodrás seguir viéndolos en Mis propiedades.\n\n¿Continuar?`)) return false;
+        await action(async () => {
+          missingClosed = true;
+          let result;
+          try { result = await api("POST", "hide-missing", { runId: data.runId, externalIds }); }
+          catch (error) {
+            renderizar({ ...data, missingHide: { status: error.missingUnconfirmed ? "indeterminate" : "failed",
+              errorCode: error.code } }, output, null, null, null, null, null, consultMissing);
+            throw error;
+          }
+          status.textContent = "Ocultado completado.";
+          output.replaceChildren();
+          missingResult(result, output);
+          try {
+            const state = await api("GET", `runs/${data.runId}`);
+            renderizar({ ...state, missingHide: result }, output);
+          } catch {
+            const notice = document.createElement("p");
+            notice.setAttribute("role", "status");
+            notice.textContent = "Los anuncios se ocultaron correctamente, pero no se pudo actualizar el estado visual. Recarga la página para comprobar el resultado.";
+            output.append(notice);
+          }
+        });
+        return true;
+      }, consultMissing);
       status.textContent = "Simulación completada. No se ha modificado ningún anuncio.";
     }
     async function api(method, path, body) {
@@ -333,6 +532,8 @@
       if (!token) throw new Error("Inicia sesión de nuevo para continuar.");
       const unconfirmedApply = () => Object.assign(new Error("No se pudo confirmar el resultado de la aplicación. Consulta o refresca el estado de la simulación antes de volver a intentarlo."), { applyUnconfirmed: true });
       const unconfirmedNew = () => Object.assign(new Error(newMessage("INDETERMINATE")), { newUnconfirmed: true, code: "INDETERMINATE" });
+      const unconfirmedMissing = () => Object.assign(new Error(missingMessage("MISSING_UNCONFIRMED")),
+        { missingUnconfirmed: true, code: "MISSING_UNCONFIRMED" });
       let response;
       try {
         response = await fetch(`/api/crm-import/sync/${path}`, { method,
@@ -341,9 +542,32 @@
       } catch (error) {
         if (path === "apply") throw unconfirmedApply();
         if (path === "import-new") throw unconfirmedNew();
+        if (path === "hide-missing") throw unconfirmedMissing();
         throw error;
       }
       const data = await response.json().catch(() => ({})) || {};
+      if (path === "hide-missing") {
+        if ([502, 503, 504].includes(response.status) ||
+          ["MISSING_UNCONFIRMED", "MISSING_IN_PROGRESS"].includes(data.code) ||
+          ["preparing", "applying", "indeterminate"].includes(data.status)) throw unconfirmedMissing();
+        if (response.ok) {
+          const results = data.results;
+          const selection = body.externalIds;
+          if (data.status !== "completed" || data.runId !== body.runId ||
+            !Array.isArray(data.selectedExternalIds) || data.selectedExternalIds.length !== selection.length ||
+            new Set(data.selectedExternalIds).size !== selection.length ||
+            !data.selectedExternalIds.every(ref => selection.includes(ref)) ||
+            !Array.isArray(results) || results.length !== selection.length ||
+            results.some(item => !item || typeof item !== "object") ||
+            new Set(results.map(item => item.externalId)).size !== selection.length ||
+            results.some(item => !selection.includes(item.externalId) || !["hidden", "already_hidden"].includes(item.status)) ||
+            data.countHidden !== results.filter(item => item.status === "hidden").length ||
+            data.countAlreadyHidden !== results.filter(item => item.status === "already_hidden").length) throw unconfirmedMissing();
+        } else {
+          throw Object.assign(new Error(response.status === 401 ? "Inicia sesión de nuevo para continuar." :
+            missingMessage(data.code)), { code: data.code });
+        }
+      }
       const recognizedNewCodes = new Set([
         "SYNC_NEW_PLAN_LIMIT", "SYNC_NEW_PLAN_REQUIRED", "SYNC_NEW_SELECTION_INVALID", "SYNC_NEW_SELECTION_MISMATCH",
         "SYNC_NEW_SOURCE_CHANGED", "SYNC_NEW_RUN_CHANGED", "SYNC_NEW_FEED_CHANGED", "SYNC_NEW_NOT_NEW",

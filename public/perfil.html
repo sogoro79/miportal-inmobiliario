@@ -464,7 +464,10 @@
     .crm-sync-results li { margin-bottom: 12px; }
     .crm-sync-results input[type="checkbox"] { margin-left: 12px; width: 18px; height: 18px; vertical-align: middle; flex-shrink: 0; }
     .crm-sync-results .btn-perfil { max-width: 100%; white-space: normal; }
-    .crm-sync-new-result { margin-top: 16px; padding-top: 12px; border-top: 1px solid #d8edc6; min-width: 0; }
+    .crm-sync-new-result, .crm-sync-missing-result { margin-top: 16px; padding-top: 12px; border-top: 1px solid #d8edc6; min-width: 0; }
+    .crm-sync-missing-label { display: flex; align-items: center; gap: 12px; min-width: 0; cursor: pointer; }
+    .crm-sync-missing-label span { min-width: 0; overflow-wrap: anywhere; }
+    .crm-sync-results .crm-sync-missing-label input[type="checkbox"] { margin-left: 0; min-width: 18px; }
 
     .crm-import-disabled {
       margin-top: 12px;
@@ -821,7 +824,7 @@
 
 <script src="/js/publish-flow.js"></script>
 <script src="/js/precios.js?v=1"></script>
-<script src="/js/crm-sync-ui.js?v=8"></script>
+<script src="/js/crm-sync-ui.js?v=9"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");

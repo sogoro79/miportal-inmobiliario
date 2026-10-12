@@ -251,7 +251,7 @@ test("responsive profile keeps wrapped content, bounded buttons and cache versio
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
   assert.match(html, /crm-sync-results[^}]*overflow-wrap: anywhere/);
   assert.match(html, /crm-sync-results \.btn-perfil[^}]*max-width: 100%; white-space: normal/);
-  assert.match(html, /crm-sync-ui\.js\?v=8/);
+  assert.match(html, /crm-sync-ui\.js\?v=9/);
 });
 
 for (const publicable of [true, false]) test(`real snapshot -> safe summary -> UI: publicable=${publicable}`, async () => {

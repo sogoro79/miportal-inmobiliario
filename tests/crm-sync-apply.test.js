@@ -344,7 +344,8 @@ test("UI only offers apply for eligible UPDATE, selects IDs and no content", () 
     results: [{ externalId: "R-0", type: "UPDATE", blocked: false }, ...["UNCHANGED", "NEW", "MISSING", "CONFLICT", "INVALID"].map(type => ({ externalId: type, type, blocked: false }))] };
   context.window.HomeClickCrmSync.renderizar(data, out, null, ids => selected.push(...ids));
   const list = out.children.find(e => e.children.length === 6), checkbox = list.children[0].children[0];
-  assert.ok(list.children.slice(1).every(e => e.children.length === 0));
+  const descendants = node => [node, ...node.children.flatMap(descendants)];
+  assert.ok(list.children.slice(1).every(row => descendants(row).every(node => node.type !== "checkbox")));
   checkbox.checked = true; checkbox.listeners.change();
   out.children.find(e => e.textContent === "Aplicar cambios").listeners.click(); assert.deepEqual(selected, ["R-0"]);
   for (const changes of [{ applyEligible: false }, { status: "applied" }, { expired: true }]) {
