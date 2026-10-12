@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { NEW_IMPORT_STATUSES, NEW_IMPORT_RESULT_STATUSES, NEW_IMPORT_FAILURE_CODES } from "../utils/import/newImportState.js";
 import { MISSING_BLOCK_CODES } from "../utils/import/missingEligibility.js";
+import { MISSING_HIDE_STATUSES, MISSING_HIDE_CODES } from "../utils/import/missingHideState.js";
 
 const newResultSchema = new mongoose.Schema({
   externalId: { type: String, required: true, maxlength: 200 },
@@ -20,6 +21,18 @@ const newImportSchema = new mongoose.Schema({
 }, { _id: false, strict: "throw" });
 
 const schema = new mongoose.Schema({
+  missingHide: { type: new mongoose.Schema({
+    status: { type: String, enum: MISSING_HIDE_STATUSES, required: true },
+    operationId: { type: String, required: true },
+    selectedExternalIds: { type: [String], required: true,
+      validate: value => value.length >= 1 && value.length <= 10 && new Set(value).size === value.length },
+    results: { type: [new mongoose.Schema({ externalId: String,
+      status: { type: String, enum: ["hidden", "already_hidden", "skipped", "failed"] },
+      code: { type: String, enum: [...MISSING_HIDE_CODES] }
+    }, { _id: false, strict: "throw" })], default: [], validate: value => value.length <= 10 },
+    countHidden: Number, countAlreadyHidden: Number, startedAt: Date, completedAt: Date,
+    errorCode: { type: String, enum: [...MISSING_HIDE_CODES] }
+  }, { _id: false, strict: "throw" }), default: undefined },
   usuarioId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true },
   importSourceId: { type: mongoose.Schema.Types.ObjectId, ref: "ImportSource", required: true },
   status: { type: String, enum: ["running", "completed", "incomplete", "simulated", "applying", "applied", "blocked", "failed", "aborted"], required: true },

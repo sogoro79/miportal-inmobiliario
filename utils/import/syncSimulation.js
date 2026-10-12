@@ -40,6 +40,7 @@ export function createSyncSimulator({
       budget.assertActive();
       const snapshot = buildSyncSnapshot(fetched.xml);
       let properties = PropiedadModel.find({ usuarioId, importSourceId, source: "crm" });
+      if (properties?.select) properties = properties.select("+hiddenByMissingRunId");
       if (properties?.limit) properties = properties.limit(MAX_SYNC_PROPERTIES + 1);
       if (properties?.lean) properties = properties.lean();
       const existing = await budget.run(() => properties);

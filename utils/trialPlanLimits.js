@@ -12,6 +12,7 @@ import {
 } from "./propertyAvailability.js";
 
 function propiedadValidaParaLimites(propiedad = {}, { incluirOcultas = false } = {}) {
+  if (propiedad.hiddenByMissingRunId != null) return false;
   return propiedadDisponiblePublicamente(propiedad, { incluirOcultas });
 }
 
@@ -51,7 +52,9 @@ export async function aplicarLimitesPlanTrasTrial(usuarioId, {
   const limiteFotos = getLimiteFotosPlan(planDestino);
   const fechaExpiracionVisible = calcularFechaExpiracionPlan(planDestino, now);
 
-  const propiedades = await Propiedad.find({ usuarioId });
+  let query = Propiedad.find({ usuarioId });
+  if (query?.select) query = query.select("+hiddenByMissingRunId");
+  const propiedades = await query;
   const visiblesValidas = ordenarPropiedadesParaPlan(
     propiedades.filter(propiedad => propiedadValidaParaLimites(propiedad))
   );
@@ -89,9 +92,9 @@ export async function aplicarLimitesPlanTrasTrial(usuarioId, {
   for (const propiedad of todasValidas) {
     const debeSerVisible = permitidasIds.has(String(propiedad._id));
     if (debeSerVisible && propiedad.visiblePublicamente !== true) {
-      propiedad.visiblePublicamente = true;
-      propiedad.fechaExpiracion = fechaExpiracionVisible;
-      await propiedad.save();
+      const recovered = await Propiedad.updateOne({ _id: propiedad._id, usuarioId, hiddenByMissingRunId: null },
+        { $set: { visiblePublicamente: true, fechaExpiracion: fechaExpiracionVisible } }, { runValidators: true });
+      if (recovered.matchedCount !== 1) continue;
       propiedadesRecuperadas += 1;
       fechasRenovadas += 1;
     } else if (

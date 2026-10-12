@@ -21,6 +21,7 @@ const PropiedadSchema = new mongoose.Schema({
     default: () => ({})
   },
   removedFromFeedAt: Date,
+  hiddenByMissingRunId: { type: mongoose.Schema.Types.ObjectId, ref: "ImportSyncRun", select: false },
   titulo:        { type: String, required: true },
   referencia:    { type: String, default: "" },
   direccion:     { type: String, required: true },

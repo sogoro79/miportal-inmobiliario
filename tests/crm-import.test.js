@@ -256,7 +256,8 @@ test("router registra configuracion, vinculacion, simulacion y apply manual", ()
   const routes = router.stack.filter(layer => layer.route?.path.startsWith("/sync/"))
     .map(layer => [layer.route.path, Object.keys(layer.route.methods)]);
   assert.deepEqual(routes, [["/sync/source", ["get"]], ["/sync/source", ["put"]], ["/sync/simulate", ["post"]],
-    ["/sync/apply", ["post"]], ["/sync/import-new", ["post"]], ["/sync/enroll", ["post"]], ["/sync/runs/:id", ["get"]]]);
+    ["/sync/apply", ["post"]], ["/sync/import-new", ["post"]], ["/sync/hide-missing", ["post"]],
+    ["/sync/enroll", ["post"]], ["/sync/runs/:id", ["get"]]]);
 });
 
 test("GET/PUT fuente sync requieren auth y solo permiten el propietario autenticado", async () => {

@@ -95,6 +95,8 @@ export const securityRateLimits = {
   crmSyncApplyByUser: createUserSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "crm-sync-apply" }),
   crmSyncImportNew: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "crm-sync-import-new" }),
   crmSyncImportNewByUser: createUserSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "crm-sync-import-new" }),
+  crmSyncHideMissing: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "crm-sync-hide-missing" }),
+  crmSyncHideMissingByUser: createUserSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "crm-sync-hide-missing" }),
   professionalPromotionActivation: createSecurityRateLimit({ windowMs: 60 * 60 * 1000, max: 6, keyPrefix: "professional-promo-activation" }),
   adminSensitive: createSecurityRateLimit({ windowMs: 15 * 60 * 1000, max: 60, keyPrefix: "admin-sensitive" })
 };

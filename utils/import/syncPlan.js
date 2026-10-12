@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { safeNewImportSummary } from "./newImportState.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { prepareMissingEligibility, safeMissingEligibility } from "./missingEligibility.js";
+import { safeMissingHideSummary } from "./missingHideState.js";
 import { syncFingerprint, SYNC_FIELDS } from "./syncSnapshot.js";
 import { SYNC_APPLY_V1_FIELDS, SYNC_APPLY_FIELDS_VERSION, SYNC_NORMALIZATION_VERSION, SYNC_SNAPSHOT_VERSION,
   baselineValid, managedFingerprint, managedChangedFields, proposedManagedContent,
@@ -87,7 +88,7 @@ export function evaluateRunApplyEligibility(run, now = new Date()) {
     : isRunPlanTruncated(run) ? "RUN_PLAN_TRUNCATED"
     : run.snapshotComplete !== true ? "RUN_SNAPSHOT_INCOMPLETE"
     : run.status !== "simulated" ? "RUN_STATUS_NOT_APPLICABLE"
-    : run.blocked === true || Boolean(run.errorCode) || !Array.isArray(run.plan) ||
+    : run.blocked === true || Boolean(run.errorCode) || Boolean(run.missingHide) || !Array.isArray(run.plan) ||
       (run.newImport?.status && run.newImport.status !== "idle") ? "RUN_BLOCKED" : null;
   return { expired, applyEligible: applyBlockedReason === null, applyBlockedReason };
 }
@@ -99,7 +100,7 @@ export function evaluateRunNewImportEligibility(run, now = new Date(), usuarioId
     : isRunPlanTruncated(run) ? "RUN_PLAN_TRUNCATED"
     : run.snapshotComplete !== true ? "RUN_SNAPSHOT_INCOMPLETE"
     : run.status !== "simulated" ? "RUN_STATUS_NOT_APPLICABLE"
-    : run.blocked === true || run.errorCode || !Array.isArray(run.plan) ? "RUN_BLOCKED"
+    : run.blocked === true || run.errorCode || run.missingHide || !Array.isArray(run.plan) ? "RUN_BLOCKED"
     : !/^[a-f0-9]{64}$/.test(run.sourceIdentityHash || "") ||
       !/^[a-f0-9]{64}$/.test(run.snapshotDigest || "") || !/^[a-fA-F0-9]{24}$/.test(String(run.importSourceId || "")) ||
       Object.entries(runVersions).some(([key, version]) => run[key] !== version) ? "SYNC_NEW_RUN_CHANGED"
@@ -115,6 +116,7 @@ export function safeRunSummary(run, now = new Date()) {
     ...evaluateRunApplyEligibility(run, now), snapshotComplete: run.snapshotComplete === true,
     ...evaluateRunNewImportEligibility(run, now),
     ...(run.newImport ? { newImport: safeNewImportSummary(run.newImport) } : {}),
+    ...(run.missingHide ? { missingHide: safeMissingHideSummary(run.missingHide) } : {}),
     snapshotCount: Number.isSafeInteger(run.snapshotCount) ? run.snapshotCount : 0,
     totalResults: Number.isSafeInteger(run.totalResults) ? run.totalResults : 0,
     planTruncated: isRunPlanTruncated(run), resultsTruncated: isRunPlanTruncated(run),

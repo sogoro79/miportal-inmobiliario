@@ -24,6 +24,8 @@ import { createSyncEnroller } from "../utils/import/syncEnroll.js";
 import { safeRunSummary } from "../utils/import/syncPlan.js";
 import { createSyncApplier } from "../utils/import/syncApply.js";
 import { createSyncNewImporter, safeNewFailureCode } from "../utils/import/syncImportNew.js";
+import { createMissingHider } from "../utils/import/syncHideMissing.js";
+import { safeMissingHideCode } from "../utils/import/missingHideState.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
@@ -70,6 +72,9 @@ export function createCrmImportRouter({
   enrollSync,
   applySync,
   importNewSync,
+  hideMissingSync,
+  hideMissingRateLimitMiddleware = securityRateLimits.crmSyncHideMissing,
+  hideMissingUserRateLimitMiddleware = securityRateLimits.crmSyncHideMissingByUser,
   newImportRateLimitMiddleware = securityRateLimits.crmSyncImportNew,
   newImportUserRateLimitMiddleware = securityRateLimits.crmSyncImportNewByUser,
   applyRateLimitMiddleware = securityRateLimits.crmSyncApply,
@@ -89,6 +94,8 @@ export function createCrmImportRouter({
   const runNewImport = importNewSync || createSyncNewImporter({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
   const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel });
+  const runMissingHide = hideMissingSync || createMissingHider({ ImportSourceModel, ImportSyncRunModel,
+    PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
 
   function sourceError(res, error) {
     const code = ["SYNC_SOURCE_BUSY", "SYNC_SOURCE_URL_MISMATCH"].includes(error?.code) ? error.code : safeSimulationCode(error);
@@ -172,6 +179,28 @@ export function createCrmImportRouter({
         ? "El resultado no está confirmado o sigue en curso. Consulta el estado de la simulación antes de volver a intentarlo."
         : code === "RUN_EXPIRED" ? "Esta simulación ha caducado. Vuelve a simular."
         : "No se pudieron importar los anuncios nuevos. Revisa el estado y vuelve a simular." });
+    }
+  });
+
+  router.post("/sync/hide-missing", requireAuth, hideMissingUserRateLimitMiddleware, hideMissingRateLimitMiddleware, async (req, res) => {
+    const parsed = z.object({ runId: z.string().regex(/^[a-fA-F0-9]{24}$/),
+      externalIds: z.array(z.string().trim().min(1).max(200)
+        .refine(value => !/https?:\/\/|[<>&?=\u0000-\u001f]/i.test(value)))
+        .min(1).max(10).refine(values => new Set(values).size === values.length)
+    }).strict().safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ code: "MISSING_SELECTION_INVALID",
+      error: "Indica una simulación y entre 1 y 10 referencias distintas, sin otros datos." });
+    try { return res.json(await runMissingHide({ usuarioId: req.user.id, ...parsed.data })); }
+    catch (error) {
+      const code = safeMissingHideCode(error);
+      const status = ["SYNC_RUN_NOT_FOUND", "SYNC_SOURCE_NOT_FOUND"].includes(code) ? 404
+        : code === "MISSING_USER_INACTIVE" ? 403 : code === "MISSING_UNCONFIRMED" ? 503
+        : ["IMPORT_TIMEOUT", "FEED_TIMEOUT"].includes(code) ? 504 : code === "MISSING_SELECTION_INVALID" ? 400
+        : code === "MISSING_FAILED" ? 500 : 409;
+      console.warn("[CRM Missing Hide]", { code });
+      return res.status(status).json({ code, error: ["MISSING_UNCONFIRMED", "MISSING_IN_PROGRESS"].includes(code)
+        ? "El resultado no está confirmado o sigue en curso. Consulta el estado de la simulación antes de volver a intentarlo."
+        : "No se pudieron ocultar los anuncios. Consulta el estado y vuelve a simular." });
     }
   });
 
