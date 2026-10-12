@@ -501,6 +501,10 @@
       }, consult, async externalIds => {
         if (busy || missingClosed || !externalIds.length) return false;
         if (!confirm(`Se ocultarán ${externalIds.length} anuncios que ya no aparecen en el feed CRM.\n\nNo se eliminarán sus datos, fotos, favoritos ni conversaciones.\n\nPodrás seguir viéndolos en Mis propiedades.\n\n¿Continuar?`)) return false;
+        if (!(Date.parse(data.expiresAt) > Date.now())) {
+          status.textContent = missingMessage("MISSING_RUN_EXPIRED");
+          return false;
+        }
         await action(async () => {
           missingClosed = true;
           let result;

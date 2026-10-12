@@ -24,16 +24,16 @@ const inputs = output => descendants(output).filter(item => item.type === "check
 const select = input => { input.checked = true; input.listeners.change(); };
 const findButton = (output, label) => descendants(output).find(item => item.textContent === label && item.tag === "button");
 async function harness({ data = preview(), post = () => response(receipt()),
-  get = () => response({ ...preview(), missingHide: receipt() }), confirmation = true } = {}) {
+  get = () => response({ ...preview(), missingHide: receipt() }), confirmation = true, clock = Date } = {}) {
   const elements = new Map(), calls = [], confirmations = [], timers = [];
   const document = { createElement: element, getElementById(id) {
     if (!elements.has(id)) elements.set(id, element("div"));
     return elements.get(id);
   } };
-  const context = vm.createContext({ window: {}, document, Date,
+  const context = vm.createContext({ window: {}, document, Date: clock,
     setTimeout(fn) { timers.push(fn); return timers.length - 1; },
     clearTimeout(id) { timers[id] = null; },
-    confirm(message) { confirmations.push(message); return confirmation; },
+    confirm(message) { confirmations.push(message); return typeof confirmation === "function" ? confirmation(message) : confirmation; },
     fetch: async (url, options) => {
       const path = url.split("/").at(-1);
       calls.push({ path, method: options.method, headers: options.headers, body: options.body ? JSON.parse(options.body) : undefined });
@@ -168,6 +168,7 @@ for (const [name, post] of [
   ["in progress", () => response({ code: "MISSING_IN_PROGRESS" }, 409)],
   ["preparing", () => response({ status: "preparing" })],
   ["applying", () => response({ status: "applying" })],
+  ["indeterminate", () => response({ status: "indeterminate" })],
   ["malformed", () => response(null)],
   ["foreign receipt", () => response({ ...receipt(), selectedExternalIds: ["OTHER"] })]
 ]) test(`${name} POST is unconfirmed, never retries, consult uses only GET`, async () => {
@@ -221,6 +222,42 @@ test("expiry is also checked immediately before action without waiting for timer
   const h = await harness(); select(inputs(h.output)[0]);
   h.data.expiresAt = new Date(0).toISOString(); await h.button.listeners.click();
   assert.equal(inputs(h.output)[0].checked, false);
+  assert.equal(h.calls.filter(c => c.path === "hide-missing").length, 0);
+});
+test("run still valid after accepting confirmation sends one POST", async () => {
+  const data = preview();
+  let now = Date.now();
+  class Clock extends Date { static now() { return now; } }
+  const h = await harness({ data, clock: Clock, confirmation: () => {
+    assert.ok(Clock.now() < Date.parse(data.expiresAt));
+    now += 1000;
+    assert.ok(Clock.now() < Date.parse(data.expiresAt));
+    return true;
+  } });
+  select(inputs(h.output)[0]); await h.button.listeners.click();
+  assert.equal(h.confirmations.length, 1);
+  assert.equal(h.calls.filter(c => c.path === "hide-missing").length, 1);
+  assert.equal(h.status.textContent, "Ocultado completado.");
+});
+test("run expires during accepted confirmation: zero POST, cleared and blocked selection, resimulation message", async () => {
+  const data = preview();
+  let now = Date.now();
+  class Clock extends Date { static now() { return now; } }
+  const h = await harness({ data, clock: Clock, confirmation: () => {
+    assert.ok(Clock.now() < Date.parse(data.expiresAt));
+    now = Date.parse(data.expiresAt);
+    return true;
+  } });
+  const input = inputs(h.output)[0]; select(input);
+  await h.button.listeners.click();
+  assert.equal(h.confirmations.length, 1);
+  assert.equal(h.calls.filter(c => c.path === "hide-missing").length, 0);
+  assert.equal(h.calls.filter(c => c.path === "own-run").length, 0);
+  assert.equal(input.checked, false); assert.equal(input.disabled, true);
+  assert.equal(h.button.disabled, true);
+  assert.equal(h.status.textContent, "La simulación ha caducado. Vuelve a simular.");
+  assert.match(text(h.output), /La simulación ha caducado. Vuelve a simular/);
+  await h.button.listeners.click();
   assert.equal(h.calls.filter(c => c.path === "hide-missing").length, 0);
 });
 test("responsive MISSING labels wrap and profile loads the new script version", () => {
