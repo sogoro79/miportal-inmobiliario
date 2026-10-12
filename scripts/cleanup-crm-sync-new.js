@@ -8,18 +8,13 @@ import Propiedad from "../models/Propiedad.js";
 import ImportSource from "../models/ImportSource.js";
 import ImportSyncRun from "../models/ImportSyncRun.js";
 import ImportReconciliation from "../models/ImportReconciliation.js";
-import Conversacion from "../models/Conversacion.js";
-import Notificacion from "../models/Notificacion.js";
-import EstadisticaAnuncio from "../models/EstadisticaAnuncio.js";
 
 export const EXTERNAL_ID = "SYNC-NEW-TEST-001";
 export const FEED_URL = "https://www.homeclick24.com/test-sync-new/homeclick24-sync-new-test.xml";
 export const CONFIRM = "DELETE_SYNC_NEW_TEST_ALBERTO";
-const TITLE = "Piso de prueba NEW CRM en Chipiona";
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const id = value => String(value ?? "");
-const defaultModels = { Usuario, Propiedad, ImportSource, ImportSyncRun, ImportReconciliation,
-  Conversacion, Notificacion, EstadisticaAnuncio };
+const defaultModels = { Usuario, Propiedad, ImportSource, ImportSyncRun, ImportReconciliation };
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 
 export function parseArgs(args) {
@@ -48,61 +43,59 @@ async function inspect(options, models, session) {
   const users = await read(models.Usuario, { _id: userId }, session, "plan +publicationVersion");
   const sources = await read(models.ImportSource, { _id: sourceId }, session, "+encryptedFeedUrl");
   const properties = await read(models.Propiedad, { $or: [{ externalId: EXTERNAL_ID }, { importSourceId: sourceId }] }, session);
-  const targets = properties.filter(p => p.externalId === EXTERNAL_ID);
-  const propertyIds = targets.map(p => p._id);
-  const relation = { $or: [{ importSourceId: sourceId }, { propiedadId: { $in: propertyIds } },
+  const relation = { $or: [{ importSourceId: sourceId },
     { usuarioId: userId, externalId: EXTERNAL_ID }] };
   const reconciliations = await read(models.ImportReconciliation, relation, session);
   const runs = await read(models.ImportSyncRun, { $or: [{ importSourceId: sourceId },
-    { "plan.propiedadId": { $in: propertyIds } }, { "newImport.results.propertyId": { $in: propertyIds } },
     { usuarioId: userId, "plan.externalId": EXTERNAL_ID },
-    { usuarioId: userId, "newImport.selectedExternalIds": EXTERNAL_ID }] }, session, "+plan");
-  const conversations = await read(models.Conversacion, { propiedadId: { $in: propertyIds } }, session);
-  const notifications = await read(models.Notificacion, { propiedadId: { $in: propertyIds } }, session);
-  const favorites = await read(models.Usuario, { favoritos: { $in: propertyIds } }, session, "_id");
-  const stats = await read(models.EstadisticaAnuncio, { propiedadId: { $in: propertyIds } }, session);
+    { usuarioId: userId, selectedExternalIds: EXTERNAL_ID },
+    { usuarioId: userId, "newImport.selectedExternalIds": EXTERNAL_ID },
+    { usuarioId: userId, "newImport.results.externalId": EXTERNAL_ID }] }, session, "+plan");
+  const originalIds = [...new Set([...runs.flatMap(r => [...(r.plan || []).map(e => e.propiedadId),
+    ...(r.newImport?.results || []).map(e => e.propertyId)]), ...reconciliations.map(r => r.propiedadId)]
+    .filter(Boolean).map(id))];
+  const referencedProperties = originalIds.length ? await read(models.Propiedad, { _id: { $in: originalIds } }, session) : [];
+  const crossRuns = originalIds.length ? await read(models.ImportSyncRun, { $or: [
+    { "plan.propiedadId": { $in: originalIds } }, { "newImport.results.propertyId": { $in: originalIds } }] }, session, "+plan") : [];
+  const crossReconciliations = originalIds.length ? await read(models.ImportReconciliation,
+    { propiedadId: { $in: originalIds } }, session) : [];
+  const crossReference = crossRuns.some(r => !runs.some(known => id(known._id) === id(r._id))) ||
+    crossReconciliations.some(r => !reconciliations.some(known => id(known._id) === id(r._id)));
   const refs = run => [...(run.plan || []).map(e => e.externalId), ...(run.selectedExternalIds || []),
     ...(run.newImport?.selectedExternalIds || []), ...(run.newImport?.results || []).map(e => e.externalId)];
   const report = { usuarioEncontrado: users.length === 1, planActual: users[0]?.plan || null,
     sourceEncontrada: sources.length === 1, sourceUrlCoincide: sources[0]?.feedUrlHash === hash(FEED_URL),
-    propiedadEncontrada: targets.length === 1, externalId: EXTERNAL_ID, propiedadId: id(targets[0]?._id) || null,
-    tituloCoincide: targets[0]?.titulo === TITLE, imagenesAsociadas: targets.reduce((n,p) => n + (p.imagenes?.length || 0), 0),
+    propiedadEncontrada: properties.length > 0 || referencedProperties.length > 0, externalId: EXTERNAL_ID,
     importSyncRuns: runs.length, importReconciliations: reconciliations.length,
     importReceipts: runs.reduce((n,r) => n + (r.newImport?.results?.length || 0), 0),
-    otrasPropiedadesAfectadas: properties.length - targets.length,
+    otrasPropiedadesAfectadas: new Set([...properties, ...referencedProperties].map(p => id(p._id))).size,
     otrosExternalIdsEnRuns: runs.flatMap(refs).filter(e => e !== EXTERNAL_ID).length,
-    referenciasExternas: conversations.length + notifications.length + favorites.length,
-    estadisticasAsociadas: stats.length, runs: runs.map(r => ({ runId: id(r._id), createdAt: r.createdAt || r.startedAt,
+    runs: runs.map(r => ({ runId: id(r._id), createdAt: r.createdAt || r.startedAt,
       externalIds: [...new Set(refs(r))], newImportStatus: r.newImport?.status || null, sourceId: id(r.importSourceId) })),
     resultado: "NO APTO PARA LIMPIEZA", dryRun: !options.apply };
   let reason;
   if (users.length !== 1) reason = "USER_NOT_FOUND";
-  else if (!sources.length && !properties.length && !runs.length && !reconciliations.length) report.resultado = "YA LIMPIO";
+  else if (report.propiedadEncontrada) reason = "PROPERTY_STILL_EXISTS";
+  else if (crossReference) reason = "AMBIGUOUS_CRM_REFERENCE";
+  else if (!sources.length && !runs.length && !reconciliations.length) report.resultado = "YA LIMPIO";
   else if (sources.length !== 1 || id(sources[0].usuarioId) !== userId || !report.sourceUrlCoincide || sources[0].feedType !== "generic_xml") reason = "SOURCE_IDENTITY_MISMATCH";
   else if (sources[0].importLockToken || sources[0].importLockUntil > new Date()) reason = "SOURCE_BUSY";
-  else if (targets.length !== 1 || properties.length !== 1) reason = "PROPERTY_SELECTION_AMBIGUOUS";
   else {
-    const p = targets[0];
-    if (id(p.usuarioId) !== userId || id(p.importSourceId) !== sourceId || p.source !== "crm" || p.titulo !== TITLE ||
-      p.precio !== 198000 || p.localidad !== "Chipiona" || p.tipoOperacion !== "venta" || p.referencia !== "") reason = "PROPERTY_IDENTITY_MISMATCH";
-    else if (!Array.isArray(p.imagenes) || p.imagenes.length || p.videoUrl) reason = "MEDIA_PRESENT";
-    else if (report.referenciasExternas) reason = "EXTERNAL_REFERENCES";
-    else if (stats.some(s => id(s.usuarioId) !== userId)) reason = "AMBIGUOUS_STATISTICS";
+    if (originalIds.length > 1 || originalIds.some(v => !/^[a-fA-F0-9]{24}$/.test(v))) reason = "AMBIGUOUS_PROPERTY_REFERENCE";
     else if (runs.some(r => id(r.usuarioId) !== userId || id(r.importSourceId) !== sourceId || !refs(r).length ||
       refs(r).some(e => e !== EXTERNAL_ID) || ["running", "applying"].includes(r.status) ||
-      ["importing", "indeterminate"].includes(r.newImport?.status) ||
-      [...(r.plan || []).map(e => e.propiedadId), ...(r.newImport?.results || []).map(e => e.propertyId)]
-        .filter(Boolean).some(v => id(v) !== id(p._id)))) reason = "AMBIGUOUS_RUN";
+      r.planTruncated === true || (r.totalResults != null && r.totalResults > (r.plan || []).length) ||
+      ["importing", "indeterminate"].includes(r.newImport?.status))) reason = "AMBIGUOUS_RUN";
     else if (reconciliations.some(r => id(r.usuarioId) !== userId || id(r.importSourceId) !== sourceId ||
-      id(r.propiedadId) !== id(p._id) || r.source !== "crm" || r.externalId !== EXTERNAL_ID ||
+      r.source !== "crm" || r.externalId !== EXTERNAL_ID ||
       r.state !== "prepared" || !Array.isArray(r.publicIds) || r.publicIds.length || r.reasonCode)) reason = "RECONCILIATION_PENDING_OR_AMBIGUOUS";
     else report.resultado = "APTO PARA LIMPIEZA";
   }
   if (reason) report.reasonCode = reason;
   // The fingerprint includes read versions/content, not only the displayed counts.
-  const manifest = { users, sources, properties, runs, reconciliations, stats };
+  const manifest = { users, sources, properties, runs, reconciliations, referencedProperties, crossRuns, crossReconciliations };
   report.planHash = hash(JSON.stringify(manifest));
-  return { report, targets, runs, reconciliations, stats };
+  return { report, runs, reconciliations, originalIds };
 }
 
 export async function cleanup(options, { models = defaultModels, startSession = () => mongoose.startSession() } = {}) {
@@ -125,8 +118,7 @@ export async function cleanup(options, { models = defaultModels, startSession = 
       { $set: { importLockToken: crypto.randomUUID(), importLockUntil: new Date(Date.now() + 60000) } }, { session });
       if (fence.matchedCount !== 1) fail("SOURCE_BUSY");
       const deleted = {};
-      for (const [name, records] of [["ImportSyncRun", state.runs], ["ImportReconciliation", state.reconciliations],
-        ["EstadisticaAnuncio", state.stats], ["Propiedad", state.targets]]) {
+      for (const [name, records] of [["ImportSyncRun", state.runs], ["ImportReconciliation", state.reconciliations]]) {
         const count = await models[name].deleteMany({ _id: { $in: records.map(r => r._id) } }, { session });
         if (count.deletedCount !== records.length) fail("DELETE_COUNT_MISMATCH");
         deleted[name] = count.deletedCount;
@@ -136,6 +128,15 @@ export async function cleanup(options, { models = defaultModels, startSession = 
       deleted.ImportSource = source.deletedCount;
       const after = await inspect(options, models, session);
       if (after.report.resultado !== "YA LIMPIO") fail("POST_VERIFICATION_FAILED");
+      // Keep the IDs from the deleted receipts: never infer them from a missing property.
+      if (state.originalIds.length) {
+        const ids = state.originalIds;
+        const residualRuns = await read(models.ImportSyncRun, { $or: [
+          { "plan.propiedadId": { $in: ids } }, { "newImport.results.propertyId": { $in: ids } }] }, session, "+plan");
+        const residualReconciliations = await read(models.ImportReconciliation, { propiedadId: { $in: ids } }, session);
+        const residualProperties = await read(models.Propiedad, { _id: { $in: ids } }, session);
+        if (residualRuns.length || residualReconciliations.length || residualProperties.length) fail("POST_VERIFICATION_FAILED");
+      }
       result = { ...state.report, resultado: "LIMPIEZA COMPLETADA", deleted, verificacionPosterior: true };
     });
     return result;

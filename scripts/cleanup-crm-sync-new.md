@@ -1,49 +1,46 @@
-# Limpieza controlada de NEW CRM
+# Limpieza CRM tras borrado manual de NEW
 
-Herramienta temporal exclusiva para SYNC-NEW-TEST-001 y su fuente:
+Herramienta temporal exclusiva para SYNC-NEW-TEST-001 y la fuente:
 https://www.homeclick24.com/test-sync-new/homeclick24-sync-new-test.xml
 
-No ejecutar hasta obtener autorizacion. No se ejecuta al importar el modulo.
-Usa MONGODB_URI ya configurada en Render y dotenv en local, sin imprimirla.
+La propiedad ya debe estar eliminada. Cualquier propiedad con ese externalId,
+vinculada a la source o referenciada por sus receipts bloquea la limpieza.
+No elimina ni modifica propiedades, usuarios, planes, favoritos, chats,
+mensajes, notificaciones, estadisticas ni recursos externos.
 
-Dry-run (IDs obligatorios, no seleccionar por nombre/email):
+Dry-run por defecto, con IDs explicitos de Alberto y su source de prueba:
 
 ```sh
 node scripts/cleanup-crm-sync-new.js --user-id=<USER_ID_ALBERTO> --source-id=<SOURCE_ID_PRUEBA>
 ```
 
-Apply, solo tras revisar APTO PARA LIMPIEZA y copiar planHash del dry-run:
+Solo tras revisar APTO PARA LIMPIEZA y planHash, y con autorizacion:
 
 ```sh
 node scripts/cleanup-crm-sync-new.js --user-id=<USER_ID_ALBERTO> --source-id=<SOURCE_ID_PRUEBA> --apply --confirm=DELETE_SYNC_NEW_TEST_ALBERTO --expect-plan=<PLAN_HASH_DRY_RUN>
 ```
 
-El hash del plan detecta cambios en documentos/versiones entre lectura y apply.
-Apply revalida dentro de una transaccion con withTransaction y escritura sobre
-la fuente compartida para contender con importacion/configuracion concurrente.
-Requiere MongoDB compatible con transacciones (Atlas replica set).
+Usa MONGODB_URI existente, sin imprimirla ni modificar variables. Requiere
+transacciones (Atlas replica set). AutoIndex y autoCreate estan desactivados.
+No ejecutar este script real durante su preparacion o sus tests.
 
-Identidad: propietario y source explicitos, URL exacta mediante hash SHA-256,
-source crm, externalId exacto, titulo, precio 198000, localidad Chipiona,
-operacion venta y referencia vacia del flujo real. No presupone referencia=externalId.
-No se borran usuarios ni se modifican planes/publicationVersion.
+Valida propietario/source/tipo y hash SHA-256 de la URL exacta. Runs y receipts
+deben contener exclusivamente el externalId de prueba. Runs truncados,
+propietarios/fuentes distintos, referencias CRM cruzadas o varios IDs de
+propiedad bloquean. Recibos importing/indeterminate y locks bloquean.
+Reconciliaciones solo se retiran con identidad completa, source crm y estado
+prepared sin recursos ni motivo pendiente; las demas requieren diagnostico.
 
-Los receipts NEW estan embebidos en ImportSyncRun; desaparecen solo con runs
-dedicados. Cualquier otra referencia, propietario o propiedad bloquea la limpieza.
-Reconciliaciones unknown/cleanup_required bloquean; solo prepared sin recursos
-ni motivo pendiente y con identidad completa pueden retirarse. Estadisticas
-inequivocamente ligadas a la propiedad y propietario se retiran. Chats, favoritos
-y notificaciones bloquean; nunca se borran. Los mensajes quedan protegidos al
-bloquear conversaciones. Sin fotos persistidas: cero llamadas Cloudinary.
-Un placeholder exclusivamente visual no figura en imagenes; cualquier entrada
-persistida en imagenes bloquea por prudencia, incluso si parece un placeholder.
+Apply reconsulta dentro de withTransaction, compara el hash del plan y escribe
+la misma source usada por los locks CRM antes de borrar. Conflictos/retries
+revalidan: no puede confirmarse una importacion concurrente inadvertida sobre
+esa source. Solo borra source, runs dedicados (incluyen receipts NEW) y
+reconciliaciones validadas. Los IDs originales de receipts se conservan para
+comprobar referencias CRM residuales y ausencia de propiedades al finalizar.
+No necesita una barrera de borrado de propiedad: no borra ninguna propiedad.
 
-Ejecutar en una ventana sin actividad de esta cuenta/anuncio. MongoDB no impone
-claves foraneas: lectores externos que creen nuevos favoritos/chats durante la
-limpieza no comparten necesariamente el lock CRM. La transaccion revalida las
-referencias existentes, pero no es un bloqueo global de toda la aplicacion.
-
-Tras aplicar, verificar los conteos y verificacionPosterior. Un segundo apply
-completamente limpio devuelve YA LIMPIO sin escrituras. Una respuesta perdida o
-un error de commit no autoriza a asumir borrado: consultar primero con dry-run.
-No retirar aun el feed publico ni la documentacion de prueba.
+Una segunda ejecucion completamente limpia devuelve YA LIMPIO sin escrituras.
+Ante respuesta perdida o commit indeterminado, consultar dry-run: no asumir
+rollback ni repetir a ciegas. No comprueba ni limpia referencias no CRM que
+pudiera haber dejado el borrado manual previo.
+El feed publico y la documentacion de prueba permanecen intactos.
