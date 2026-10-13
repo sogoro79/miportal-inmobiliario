@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <property>
+    <externalId>SYNC-MISSING-UI-001</externalId>
+    <title>Piso prueba UI MISSING en Rota</title>
+    <description>Datos ficticios exclusivos para prueba controlada de la UI MISSING CRM. No usar como anuncio real.</description>
+    <operation>venta</operation>
+    <price>219000</price>
+    <address>Dirección ficticia de prueba UI MISSING</address>
+    <city>Rota</city>
+    <province>Cádiz</province>
+    <propertyType>piso</propertyType>
+    <condition>used</condition>
+    <bedrooms>2</bedrooms>
+    <bathrooms>1</bathrooms>
+    <surface>80</surface>
+    <terrace>true</terrace>
+    <garage>false</garage>
+    <pool>false</pool>
+  </property>
+</properties>
