@@ -468,6 +468,16 @@
     .crm-sync-missing-label { display: flex; align-items: center; gap: 12px; min-width: 0; cursor: pointer; }
     .crm-sync-missing-label span { min-width: 0; overflow-wrap: anywhere; }
     .crm-sync-results .crm-sync-missing-label input[type="checkbox"] { margin-left: 0; min-width: 18px; }
+    .crm-sync-restore-result { margin-top: 16px; min-width: 0; overflow-wrap: anywhere; }
+    .crm-sync-restore-label { display: flex; align-items: center; gap: 12px; min-width: 0; cursor: pointer; }
+    .crm-sync-restore-label span { min-width: 0; overflow-wrap: anywhere; }
+    .crm-sync-results .crm-sync-restore-label input[type="checkbox"] { margin-left: 0; min-width: 18px; }
+    .crm-sync-restore-confirm { width: 420px; max-width: calc(100% - 32px); box-sizing: border-box; padding: 24px; border: 1px solid #d8edc6; border-radius: 8px; }
+    .crm-sync-restore-confirm::backdrop { background: rgba(0, 0, 0, 0.45); }
+    .crm-sync-restore-confirm h2 { font-size: 1.2rem; margin: 0 0 16px; }
+    .crm-sync-restore-confirm p { line-height: 1.6; overflow-wrap: anywhere; }
+    .crm-sync-restore-confirm-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
+    .crm-sync-restore-confirm-actions .btn-perfil { max-width: 100%; white-space: normal; }
 
     .crm-import-disabled {
       margin-top: 12px;
@@ -824,7 +834,7 @@
 
 <script src="/js/publish-flow.js"></script>
 <script src="/js/precios.js?v=1"></script>
-<script src="/js/crm-sync-ui.js?v=9"></script>
+<script src="/js/crm-sync-ui.js?v=10"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");

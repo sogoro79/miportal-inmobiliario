@@ -2,8 +2,9 @@
 
 La simulación detecta, calcula elegibilidad observada y guarda evidencia
 privada en ImportSyncRun sin escribir sobre Propiedad o Usuario.
-La subfase 2 añade restauración manual backend, sin botón nuevo ni
-republicación automática. Contenido, imágenes, baseline y overrides no cambian.
+La subfase 2 añade restauración manual backend y la subfase 3 su UI de
+Volver a publicar, sin republicación automática. Contenido, imágenes,
+baseline y overrides no cambian.
 
 ## Clasificación
 
@@ -85,7 +86,8 @@ El GET vuelve a comprobar vigencia, versiones, coherencia/evidencia completa y
 fechas observadas. No vuelve a consultar el cupo ni documentos vivos:
 restoreEligible describe una simulación, no una autorización definitiva.
 Runs legacy sin evidencia no se habilitan; requieren nueva simulación.
-La UI actual muestra REAPPEARED como requiere revisión, sin checkbox o acción.
+La UI ofrece selección independiente solo cuando restoreEligible es true,
+el run está vigente y no ha sido consumido por otra operación.
 
 ## Códigos seguros
 
@@ -171,8 +173,41 @@ Los tests de concurrencia usan sesiones/modelos in-memory, verifican el fence
 antes del conteo y modelan conflictos de snapshots/retries; no son una prueba
 de integración contra Atlas real.
 
-## Pendiente de UI
+## Subfase 3: UI de Volver a publicar
 
-Selección independiente, confirmación y Volver a publicar solo después de
-auditar el backend. No mezclar restauración con UPDATE. Si se requiere aplicar
-cambios a reaparecidos, se diseñará un flujo separado; esta versión los bloquea.
+REAPPEARED muestra "Este anuncio ha vuelto a aparecer en tu CRM" y, si es
+elegible, "Listo para volver a publicar" con checkbox accesible. Su selección
+y contador son independientes de UPDATE, NEW y MISSING, con máximo 10.
+La UI es solo una vista del resultado observado; el backend sigue revalidando.
+
+Volver a publicar abre un diálogo con Cancelar y Volver a publicar, explicando
+que los anuncios volverán a los listados públicos y consumirán cupo. Se comprueba
+la caducidad antes de abrirlo y otra vez al aceptarlo. Si caduca no hay POST,
+se limpia/bloquea la selección y se pide nueva simulación.
+
+El POST envía únicamente `{ runId, externalIds }`. Durante confirmación y envío
+se bloquea el doble clic y no hay retries automáticos. Las demás selecciones se
+conservan, pero sus controles quedan bloqueados al iniciar una operación porque
+el backend permite consumir el run una sola vez.
+
+Completed muestra Publicación completada, conteos y Publicado por referencia,
+limpia solo la selección REAPPEARED y no permite otro POST. El resultado del POST
+permanece visible aunque falle el GET posterior. Un receipt completed ya cargado
+también muestra resultado, sin acción de repetición.
+
+Errores de red, respuesta inválida, 502/503/504 y estados preparing/applying/
+indeterminate son inciertos: "No se ha podido confirmar todavía el resultado"
+y Consultar estado. Esta acción solo hace GET `/api/crm-import/sync/runs/:runId`;
+completed recupera el receipt, pending mantiene el bloqueo y failed muestra un
+mensaje seguro. No hay polling ni POST automático. Se conservan runId y selección
+en memoria mientras siga abierta la página.
+
+CONTENT_CHANGED, PLAN_LIMIT, PLAN_INACTIVE, LISTING_EXPIRED, NO_LONGER_PRESENT,
+REVISION_CHANGED, RECONCILIATION_PENDING y RUN_EXPIRED tienen mensajes amigables;
+códigos desconocidos usan fallback seguro. Nunca se muestra evidencia privada.
+
+Para la prueba controlada en producción falta preparar un feed temporal y una
+cuenta autorizada: importar/vincular, ocultar por MISSING, hacer reaparecer en la
+misma URL y simular antes de confirmar Volver a publicar. Esta subfase no prepara
+ese feed ni ejecuta ninguna operación real. Si se requiere aplicar cambios a
+reaparecidos, se diseñará un flujo separado; esta versión los bloquea.

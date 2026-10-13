@@ -202,7 +202,7 @@ test("safe summary rejects expired, changed, incomplete and legacy evidence with
   const legacy = new ImportSyncRun({ _id: N, ...run(f), plan: [{ externalId: "CRM-1", type: "REAPPEARED", blocked: true }] });
   assert.notEqual(legacy.plan[0].restoreEligible, true); assert.equal(legacy.plan[0].restoreEvidence, undefined);
 });
-test("existing UI renders REAPPEARED as review only with no checkbox or action", () => {
+test("REAPPEARED view without restore handler cannot offer checkbox or action", () => {
   const element = () => ({ children: [], textContent: "", listeners: {}, append(v) { this.children.push(v); },
     replaceChildren() { this.children = []; }, setAttribute() {}, addEventListener(k, fn) { this.listeners[k] = fn; } });
   const context = vm.createContext({ window: {}, document: { createElement: element }, Date });
@@ -211,7 +211,7 @@ test("existing UI renders REAPPEARED as review only with no checkbox or action",
   context.window.HomeClickCrmSync.renderizar(safeRunSummary(run(f), now), output,
     () => assert.fail("enroll"), () => assert.fail("UPDATE"), () => assert.fail("NEW"), null, () => assert.fail("MISSING"));
   const descendants = n => [n, ...n.children.flatMap(descendants)];
-  assert.ok(descendants(output).some(e => /REAPPEARED.*requiere revisión/.test(e.textContent)));
+  assert.ok(descendants(output).some(e => /REAPPEARED.*Este anuncio ha vuelto a aparecer en tu CRM/.test(e.textContent)));
   assert.ok(descendants(output).every(e => e.type !== "checkbox" && !e.listeners.click));
 });
 
