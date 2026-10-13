@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { NEW_IMPORT_STATUSES, NEW_IMPORT_RESULT_STATUSES, NEW_IMPORT_FAILURE_CODES } from "../utils/import/newImportState.js";
 import { MISSING_BLOCK_CODES } from "../utils/import/missingEligibility.js";
 import { MISSING_HIDE_STATUSES, MISSING_HIDE_CODES } from "../utils/import/missingHideState.js";
+import { REAPPEARED_BLOCK_CODES } from "../utils/import/reappearedEligibility.js";
 
 const newResultSchema = new mongoose.Schema({
   externalId: { type: String, required: true, maxlength: 200 },
@@ -46,6 +47,7 @@ const schema = new mongoose.Schema({
   updateCount: { type: Number, default: 0 },
   newCount: { type: Number, default: 0 },
   missingCount: { type: Number, default: 0 },
+  reappearedCount: { type: Number, default: 0 },
   conflictCount: { type: Number, default: 0 },
   errorCount: { type: Number, default: 0 },
   warnings: { type: [String], default: [] },
@@ -68,7 +70,7 @@ const schema = new mongoose.Schema({
     type: [new mongoose.Schema({
       propiedadId: mongoose.Schema.Types.ObjectId,
       externalId: String,
-      type: { type: String, enum: ["UNCHANGED", "UPDATE", "NEW", "MISSING", "CONFLICT", "INVALID"] },
+      type: { type: String, enum: ["UNCHANGED", "UPDATE", "NEW", "MISSING", "REAPPEARED", "CONFLICT", "INVALID"] },
       expectedContentRevision: Number,
       expectedBaselineFingerprint: String,
       proposedBaselineFingerprint: String,
@@ -81,6 +83,20 @@ const schema = new mongoose.Schema({
       linked: Boolean,
       hideMissingEligible: Boolean,
       hideMissingBlockCode: { type: String, enum: [...MISSING_BLOCK_CODES, null] },
+      restoreEligible: Boolean,
+      restoreBlockCode: { type: String, enum: [...REAPPEARED_BLOCK_CODES, null] },
+      restoreEvidence: { type: new mongoose.Schema({
+        version: Number, propiedadId: mongoose.Schema.Types.ObjectId, usuarioId: mongoose.Schema.Types.ObjectId,
+        importSourceId: mongoose.Schema.Types.ObjectId, externalId: String,
+        expectedContentRevision: Number, expectedVisiblePublicamente: Boolean,
+        expectedHiddenByMissingRunId: mongoose.Schema.Types.ObjectId, expectedRemovedFromFeedAt: Date,
+        expectedBaselineFingerprint: String, baselineVersion: Number, expectedManagedFingerprint: String,
+        expectedContentFingerprint: String, causalRunId: mongoose.Schema.Types.ObjectId, causalRunValidated: Boolean,
+        reconciliationChecked: Boolean, enrolled: Boolean, observedPlan: String, observedVisibleCount: Number,
+        observedLimit: Number, observedAvailable: Number, observedUnlimited: Boolean, observedAt: Date,
+        planValidUntil: Date, listingValidUntil: Date, sourceIdentityHash: String, snapshotDigest: String,
+        snapshotVersion: Number, normalizationVersion: Number, applyFieldsVersion: Number
+      }, { _id: false, strict: "throw" }), default: undefined },
       missingEvidence: { type: new mongoose.Schema({
         version: Number, usuarioId: mongoose.Schema.Types.ObjectId, importSourceId: mongoose.Schema.Types.ObjectId,
         expectedContentRevision: Number, expectedVisiblePublicamente: Boolean, enrolled: Boolean, reconciliationChecked: Boolean,

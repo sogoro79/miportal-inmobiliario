@@ -95,6 +95,7 @@ export function createSyncApplier({ PropiedadModel = Propiedad, ImportSourceMode
         const entries = checkRun(run, lock.source, digest);
         let query = PropiedadModel.find({ usuarioId, importSourceId: run.importSourceId, source: "crm",
           externalId: { $in: externalIds } });
+        if (query?.select) query = query.select("+hiddenByMissingRunId");
         if (query?.session) query = query.session(session);
         if (query?.lean) query = query.lean();
         const properties = await query;

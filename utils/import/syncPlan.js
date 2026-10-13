@@ -3,6 +3,7 @@ import { safeNewImportSummary } from "./newImportState.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { prepareMissingEligibility, safeMissingEligibility } from "./missingEligibility.js";
 import { safeMissingHideSummary } from "./missingHideState.js";
+import { prepareReappearedEligibility, safeReappearedEligibility, REAPPEARED_BLOCK_CODES } from "./reappearedEligibility.js";
 import { syncFingerprint, SYNC_FIELDS } from "./syncSnapshot.js";
 import { SYNC_APPLY_V1_FIELDS, SYNC_APPLY_FIELDS_VERSION, SYNC_NORMALIZATION_VERSION, SYNC_SNAPSHOT_VERSION,
   baselineValid, managedFingerprint, managedChangedFields, proposedManagedContent,
@@ -10,7 +11,7 @@ import { SYNC_APPLY_V1_FIELDS, SYNC_APPLY_FIELDS_VERSION, SYNC_NORMALIZATION_VER
 
 export const MAX_RUN_DETAILS = 100;
 export const RUN_LIFETIME_MS = 20 * 60 * 1000;
-const counters = { UNCHANGED: "unchangedCount", UPDATE: "updateCount", NEW: "newCount", MISSING: "missingCount", CONFLICT: "conflictCount", INVALID: "errorCount" };
+const counters = { UNCHANGED: "unchangedCount", UPDATE: "updateCount", NEW: "newCount", MISSING: "missingCount", REAPPEARED: "reappearedCount", CONFLICT: "conflictCount", INVALID: "errorCount" };
 const detailFields = new Set(SYNC_FIELDS.filter(field => !["externalId", "imagenes", "crmWithdrawal"].includes(field)));
 const warningCodes = new Set(["EMPTY_OR_UNRECOGNIZED_FEED", "SNAPSHOT_LIMIT_EXCEEDED", "SNAPSHOT_INVALID_RECORDS",
   "MISSING_DISABLED_INCOMPLETE_SNAPSHOT", "SNAPSHOT_STRUCTURE_LIMIT", "SNAPSHOT_AMBIGUOUS_STRUCTURE",
@@ -20,7 +21,8 @@ const safeExternalId = value => typeof value === "string" && value.length <= 200
 export const RUN_REASON_CODES = new Set([
   "PROPERTY_SYNC_DISABLED", "SYNC_BASELINE_INVALID", "MANUAL_OVERRIDE", "UNSUPPORTED_FIELD_CHANGE",
   "CRM_WITHDRAWAL", "AMBIGUOUS_IDENTITY", "SUSPICIOUS_REFERENCE_CHANGE", "INVALID_RECORD",
-  "NEW_REQUIRES_MANUAL_IMPORT", "MISSING_REQUIRES_REVIEW", "SYNC_SNAPSHOT_INCOMPLETE", "SIMULATION_IN_PROGRESS"
+  "NEW_REQUIRES_MANUAL_IMPORT", "MISSING_REQUIRES_REVIEW", "SYNC_SNAPSHOT_INCOMPLETE", "SIMULATION_IN_PROGRESS",
+  "REAPPEARED_REQUIRES_REVIEW", ...REAPPEARED_BLOCK_CODES
 ]);
 
 export function snapshotDigest(snapshot) {
@@ -31,7 +33,7 @@ export function snapshotDigest(snapshot) {
 }
 
 export function prepareSyncPlan(snapshot, existing, context = {}) {
-  const legacy = compareSyncSnapshot(snapshot, existing);
+  const legacy = compareSyncSnapshot(snapshot, existing, context);
   const incoming = new Map(snapshot.properties.map(item => [item.data.externalId, item]));
   const results = legacy.results.map(item => {
     const matches = existing.filter(p => p.externalId === item.externalId);
@@ -46,6 +48,11 @@ export function prepareSyncPlan(snapshot, existing, context = {}) {
       importNewBlockCode: item.publishableByData === true ? null : "SYNC_NEW_INVALID_DATA" };
     if (item.type === "MISSING") return { ...base, safeReasonCode: "MISSING_REQUIRES_REVIEW",
       ...prepareMissingEligibility(snapshot, matches, item.externalId, context) };
+    if (item.type === "REAPPEARED") return { ...base, safeReasonCode: "REAPPEARED_REQUIRES_REVIEW",
+      changedFields: managedChangedFields(property, data),
+      ...prepareReappearedEligibility(snapshot, matches, item.externalId, context) };
+    if (REAPPEARED_BLOCK_CODES.has(item.reason)) return { ...base, type: "CONFLICT",
+      safeReasonCode: item.reason, restoreEligible: false, restoreBlockCode: item.reason };
     if (!property || !data) return { ...base, type: "CONFLICT", safeReasonCode: item.reason === "SUSPICIOUS_REFERENCE_CHANGE" ? item.reason : "AMBIGUOUS_IDENTITY" };
     const differences = suppliedNonPhotoDifferences(property, data);
     base.changedFields = differences.filter(field => detailFields.has(field));
@@ -66,9 +73,14 @@ export function prepareSyncPlan(snapshot, existing, context = {}) {
   });
   const summary = Object.fromEntries(Object.values(counters).map(key => [key, 0]));
   for (const item of results) summary[counters[item.type]]++;
-  if (results.length > MAX_RUN_DETAILS) for (const item of results) if (item.type === "MISSING") {
-    item.hideMissingEligible = false; item.hideMissingBlockCode = "MISSING_RUN_TRUNCATED";
-    delete item.missingEvidence;
+  if (results.length > MAX_RUN_DETAILS) for (const item of results) {
+    if (item.type === "MISSING") {
+      item.hideMissingEligible = false; item.hideMissingBlockCode = "MISSING_RUN_TRUNCATED";
+      delete item.missingEvidence;
+    } else if (item.type === "REAPPEARED") {
+      item.restoreEligible = false; item.restoreBlockCode = "REAPPEARED_RUN_TRUNCATED";
+      delete item.restoreEvidence;
+    }
   }
   return { ...summary, totalResults: results.length, resultsTruncated: results.length > MAX_RUN_DETAILS,
     plan: results.slice(0, MAX_RUN_DETAILS) };
@@ -133,6 +145,7 @@ export function safeRunSummary(run, now = new Date()) {
       blocked: entry.blocked !== false, linked: entry.linked === true,
       enrollmentEligible: entry.enrollmentEligible === true && entry.safeReasonCode === "PROPERTY_SYNC_DISABLED",
       ...(entry.type === "MISSING" ? safeMissingEligibility(entry, run, now, runVersions) : {}),
+      ...(entry.type === "REAPPEARED" ? safeReappearedEligibility(entry, run, now, runVersions) : {}),
       ...(entry.type === "NEW" ? { importNewEligible: entry.importNewEligible === true,
         importNewBlockCode: entry.importNewEligible === true ? null
           : entry.importNewBlockCode === "SYNC_NEW_INVALID_DATA" ? "SYNC_NEW_INVALID_DATA" : "SYNC_NEW_RUN_CHANGED" } : {}),

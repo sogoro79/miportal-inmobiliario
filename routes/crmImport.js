@@ -88,7 +88,7 @@ export function createCrmImportRouter({
 } = {}) {
   const router = express.Router();
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
-  const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
+  const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
   const runEnrollment = enrollSync || createSyncEnroller({ ImportSourceModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runApply = applySync || createSyncApplier({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runNewImport = importNewSync || createSyncNewImporter({ ImportSourceModel, ImportSyncRunModel,

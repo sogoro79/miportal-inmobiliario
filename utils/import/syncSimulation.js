@@ -2,6 +2,9 @@ import ImportSource from "../../models/ImportSource.js";
 import ImportSyncRun from "../../models/ImportSyncRun.js";
 import Propiedad from "../../models/Propiedad.js";
 import ImportReconciliation from "../../models/ImportReconciliation.js";
+import Usuario from "../../models/Usuario.js";
+import { getPublicationAvailability } from "../propertyCreation.js";
+import { hasReappearedMarkers } from "./reappearedEligibility.js";
 import { fetchFeedXml } from "./feedFetcher.js";
 import { buildSyncSnapshot, MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
 import { createImportBudget } from "./importBudget.js";
@@ -23,7 +26,7 @@ export function safeSimulationCode(error) {
 
 export function createSyncSimulator({
   ImportSourceModel = ImportSource, ImportSyncRunModel = ImportSyncRun, PropiedadModel = Propiedad,
-  ReconciliationModel = ImportReconciliation,
+  ReconciliationModel = ImportReconciliation, UsuarioModel = Usuario,
   fetchXml = fetchFeedXml, env = process.env, now = () => new Date()
 } = {}) {
   return async ({ usuarioId, importSourceId }) => {
@@ -50,17 +53,38 @@ export function createSyncSimulator({
       }
       const incomingIds = new Set(snapshot.properties.map(item => item.data.externalId));
       const missing = snapshot.snapshotComplete ? existing.filter(p => !incomingIds.has(p.externalId)) : [];
+      const reappeared = existing.filter(p => incomingIds.has(p.externalId) && hasReappearedMarkers(p));
+      const reconciliationCandidates = [...missing, ...reappeared];
       let reconciliations = [];
-      if (missing.length) {
+      if (reconciliationCandidates.length) {
         let query = ReconciliationModel.find({ $or: [
-          { propiedadId: { $in: missing.map(p => p._id) } },
-          { usuarioId, importSourceId, externalId: { $in: missing.map(p => p.externalId) } }
+          { propiedadId: { $in: reconciliationCandidates.map(p => p._id) } },
+          { usuarioId, importSourceId, externalId: { $in: reconciliationCandidates.map(p => p.externalId) } }
         ] });
         if (query?.lean) query = query.lean();
         reconciliations = await budget.run(() => query);
       }
+      let causalRuns = [], user, visibleCount;
+      if (reappeared.length) {
+        const causalIds = [...new Set(reappeared.map(p => String(p.hiddenByMissingRunId))
+          .filter(value => /^[a-fA-F0-9]{24}$/.test(value)))];
+        if (causalIds.length) {
+          let query = ImportSyncRunModel.find({ _id: { $in: causalIds } });
+          if (query?.select) query = query.select("+plan");
+          if (query?.lean) query = query.lean();
+          causalRuns = await budget.run(() => query);
+        }
+        let query = UsuarioModel.findOne({ _id: usuarioId });
+        if (query?.lean) query = query.lean();
+        user = await budget.run(() => query);
+        if (user) {
+          const availability = await budget.run(() => getPublicationAvailability(user, { usuarioId, PropiedadModel }));
+          visibleCount = availability.anunciosActuales;
+        }
+      }
       const { plan, resultsTruncated, ...summary } = prepareSyncPlan(snapshot, existing.slice(0, MAX_SYNC_PROPERTIES),
-        { usuarioId, importSourceId, reconciliations });
+        { usuarioId, importSourceId, reconciliations, causalRuns, user, visibleCount, now: now(),
+          sourceIdentityHash: lock.source.feedUrlHash, snapshotDigest: snapshotDigest(snapshot), versions: runVersions });
       const finishedAt = now();
       const final = { ...summary, plan, planTruncated: resultsTruncated, snapshotDigest: snapshotDigest(snapshot),
         status: snapshot.snapshotComplete ? "simulated" : "blocked",

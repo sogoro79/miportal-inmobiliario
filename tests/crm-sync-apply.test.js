@@ -136,6 +136,26 @@ test("applied run is idempotent without fetch, property writes, revisions or tim
   assert.equal(h.writes.length, 0); assert.equal(h.fetches.length, 0); assert.deepEqual(h.state.properties, before);
   await assert.rejects(() => h.apply({ ...request, externalIds: ["other"] }), { code: "SYNC_APPLY_SELECTION_MISMATCH" });
 });
+test("legacy UPDATE run cannot apply to a MISSING-hidden property; marker is explicitly selected", async () => {
+  const h = await ready();
+  Object.assign(h.state.properties[0], { visiblePublicamente: false, hiddenByMissingRunId: S, removedFromFeedAt: new Date() });
+  const before = structuredClone(h.state.properties);
+  const find = h.dependencies.PropiedadModel.find;
+  let selectedMarker = false;
+  h.dependencies.PropiedadModel.find = filter => {
+    const query = find(filter), then = query.then;
+    query.select = value => { selectedMarker = value === "+hiddenByMissingRunId"; return query; };
+    query.then = (resolve, reject) => then(values => resolve(values.map(p => {
+      if (!selectedMarker) delete p.hiddenByMissingRunId;
+      return p;
+    })), reject);
+    return query;
+  };
+  await assert.rejects(() => h.apply(request), { code: "SYNC_APPLY_PROPERTY_CHANGED" });
+  assert.equal(selectedMarker, true);
+  assert.deepEqual(h.state.properties, before);
+  assert.equal(h.writes.filter(w => w.model === "property").length, 0);
+});
 
 for (const [name, change, code] of [
   ["foreign run", h => h.state.runs[0].usuarioId = S, "SYNC_RUN_NOT_FOUND"],

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { syncFingerprint, SYNC_FINGERPRINT_VERSION, normalizedKey } from "./syncSnapshot.js";
 import { validateImportProperty } from "./selectedImport.js";
+import { hasReappearedMarkers, reappearedIdentityBlock } from "./reappearedEligibility.js";
 
 const identityFields = new Set(["localidad", "provincia", "tipoOperacion", "tipoInmueble"]);
 
@@ -14,7 +15,7 @@ export function safeSyncValue(value, field) {
 
 function entryId(externalId) { return safeSyncValue(externalId || "", "externalId"); }
 
-export function compareSyncSnapshot(snapshot, existing) {
+export function compareSyncSnapshot(snapshot, existing, context = {}) {
   const byId = new Map();
   for (const property of existing) {
     const group = byId.get(property.externalId) || [];
@@ -41,6 +42,11 @@ export function compareSyncSnapshot(snapshot, existing) {
     }
     if (matches.length !== 1) { results.push({ ...base, type: "CONFLICT", reason: "AMBIGUOUS_IDENTITY" }); continue; }
     const property = matches[0];
+    if (hasReappearedMarkers(property)) {
+      const reason = reappearedIdentityBlock(property, data, context);
+      results.push({ ...base, type: reason ? "CONFLICT" : "REAPPEARED", ...(reason ? { reason } : {}) });
+      continue;
+    }
     // Legacy imports have no baseline/enrollment; never infer permission to overwrite them.
     if (property.syncEnabled !== true) { results.push({ ...base, type: "CONFLICT", reason: "PROPERTY_SYNC_DISABLED" }); continue; }
     const fingerprint = syncFingerprint(data);
@@ -66,7 +72,7 @@ export function compareSyncSnapshot(snapshot, existing) {
     }
   }
   const summary = {};
-  for (const [type, key] of Object.entries({ UNCHANGED: "unchangedCount", UPDATE: "updateCount", NEW: "newCount", MISSING: "missingCount", CONFLICT: "conflictCount", INVALID: "errorCount" })) {
+  for (const [type, key] of Object.entries({ UNCHANGED: "unchangedCount", UPDATE: "updateCount", NEW: "newCount", MISSING: "missingCount", REAPPEARED: "reappearedCount", CONFLICT: "conflictCount", INVALID: "errorCount" })) {
     summary[key] = results.filter(result => result.type === type).length;
   }
   return { ...summary, results };
