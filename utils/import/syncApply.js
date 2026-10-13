@@ -112,7 +112,7 @@ export function createSyncApplier({ PropiedadModel = Propiedad, ImportSourceMode
         });
         const claimed = await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId, importSourceId: run.importSourceId,
           sourceIdentityHash: lock.source.feedUrlHash, status: "simulated", expiresAt: { $gt: now() },
-          snapshotComplete: true, planTruncated: { $ne: true } }, { $set: { status: "applying" } }, { session });
+          snapshotComplete: true, planTruncated: { $ne: true }, reappearedRestore: { $exists: false } }, { $set: { status: "applying" } }, { session });
         if (claimed.matchedCount !== 1) throw applyError("SYNC_APPLY_RUN_CHANGED");
         for (const entry of approved) {
           const data = incoming.get(entry.externalId);

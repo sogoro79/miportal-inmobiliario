@@ -52,7 +52,7 @@ export function safeMissingEligibility(entry, run, now, expectedVersions) {
   if (!(new Date(run.expiresAt).getTime() > new Date(now).getTime())) return blocked("MISSING_RUN_EXPIRED");
   if (run.snapshotComplete !== true) return blocked("MISSING_SNAPSHOT_INCOMPLETE");
   if (run.planTruncated === true || run.totalResults > 100 || run.plan?.length > 100) return blocked("MISSING_RUN_TRUNCATED");
-  if (run.status !== "simulated" || run.errorCode || run.blocked === true || run.missingHide ||
+  if (run.status !== "simulated" || run.errorCode || run.blocked === true || run.missingHide || run.reappearedRestore ||
     (run.newImport?.status && run.newImport.status !== "idle") ||
     !validHash(run.snapshotDigest) || !validHash(run.sourceIdentityHash) ||
     Object.entries(expectedVersions).some(([k,v]) => run[k] !== v)) return blocked("MISSING_RUN_CHANGED");

@@ -257,6 +257,7 @@ test("router registra configuracion, vinculacion, simulacion y apply manual", ()
     .map(layer => [layer.route.path, Object.keys(layer.route.methods)]);
   assert.deepEqual(routes, [["/sync/source", ["get"]], ["/sync/source", ["put"]], ["/sync/simulate", ["post"]],
     ["/sync/apply", ["post"]], ["/sync/import-new", ["post"]], ["/sync/hide-missing", ["post"]],
+    ["/sync/restore-reappeared", ["post"]],
     ["/sync/enroll", ["post"]], ["/sync/runs/:id", ["get"]]]);
 });
 

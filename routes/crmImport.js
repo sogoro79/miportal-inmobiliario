@@ -26,6 +26,8 @@ import { createSyncApplier } from "../utils/import/syncApply.js";
 import { createSyncNewImporter, safeNewFailureCode } from "../utils/import/syncImportNew.js";
 import { createMissingHider } from "../utils/import/syncHideMissing.js";
 import { safeMissingHideCode } from "../utils/import/missingHideState.js";
+import { createReappearedRestorer } from "../utils/import/syncRestoreReappeared.js";
+import { safeRestoreCode, validRestoreExternalId } from "../utils/import/reappearedRestoreState.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000)
@@ -73,6 +75,9 @@ export function createCrmImportRouter({
   applySync,
   importNewSync,
   hideMissingSync,
+  restoreReappearedSync,
+  restoreRateLimitMiddleware = securityRateLimits.crmSyncApply,
+  restoreUserRateLimitMiddleware = securityRateLimits.crmSyncApplyByUser,
   hideMissingRateLimitMiddleware = securityRateLimits.crmSyncHideMissing,
   hideMissingUserRateLimitMiddleware = securityRateLimits.crmSyncHideMissingByUser,
   newImportRateLimitMiddleware = securityRateLimits.crmSyncImportNew,
@@ -95,6 +100,8 @@ export function createCrmImportRouter({
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
   const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel });
   const runMissingHide = hideMissingSync || createMissingHider({ ImportSourceModel, ImportSyncRunModel,
+    PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
+  const runRestore = restoreReappearedSync || createReappearedRestorer({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
 
   function sourceError(res, error) {
@@ -201,6 +208,29 @@ export function createCrmImportRouter({
       return res.status(status).json({ code, error: ["MISSING_UNCONFIRMED", "MISSING_IN_PROGRESS"].includes(code)
         ? "El resultado no está confirmado o sigue en curso. Consulta el estado de la simulación antes de volver a intentarlo."
         : "No se pudieron ocultar los anuncios. Consulta el estado y vuelve a simular." });
+    }
+  });
+
+  router.post("/sync/restore-reappeared", requireAuth, restoreUserRateLimitMiddleware, restoreRateLimitMiddleware, async (req, res) => {
+    const parsed = z.object({ runId: z.string().regex(/^[a-fA-F0-9]{24}$/),
+      externalIds: z.array(z.string().refine(validRestoreExternalId)).min(1).max(10)
+        .refine(values => new Set(values).size === values.length)
+    }).strict().safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ code: "REAPPEARED_SELECTION_INVALID",
+      error: "Indica una simulación y entre 1 y 10 referencias distintas, sin otros datos." });
+    try { return res.json(await runRestore({ usuarioId: req.user.id, ...parsed.data })); }
+    catch (error) {
+      const code = safeRestoreCode(error);
+      const status = ["REAPPEARED_RUN_NOT_FOUND", "SYNC_SOURCE_NOT_FOUND"].includes(code) ? 404
+        : code === "REAPPEARED_INDETERMINATE" ? 503 : code === "REAPPEARED_SELECTION_INVALID" ? 400
+        : code === "REAPPEARED_PLAN_INACTIVE" ? 403 : ["IMPORT_TIMEOUT", "FEED_TIMEOUT"].includes(code) ? 504
+        : code === "REAPPEARED_FAILED" ? 500 : 409;
+      console.warn("[CRM Reappeared Restore]", { code });
+      return res.status(status).json({ code, error: ["REAPPEARED_INDETERMINATE", "REAPPEARED_IN_PROGRESS"].includes(code)
+        ? "El resultado no está confirmado o sigue en curso. Consulta el estado de la simulación antes de volver a intentarlo."
+        : code === "REAPPEARED_PLAN_LIMIT" ? "No hay cupo suficiente en tu plan para volver a publicar estos anuncios."
+        : code === "REAPPEARED_RUN_EXPIRED" ? "Esta simulación ha caducado. Vuelve a simular."
+        : "No se pudieron volver a publicar los anuncios. Consulta el estado y vuelve a simular." });
     }
   });
 

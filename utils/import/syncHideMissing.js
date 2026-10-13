@@ -56,7 +56,7 @@ export function createMissingHider({ PropiedadModel = Propiedad, UsuarioModel = 
         run.sourceIdentityHash !== source.feedUrlHash || source.activo !== true || source.feedType !== "generic_xml") reject("MISSING_RUN_CHANGED");
       if (run.missingHide && (run.missingHide.operationId !== operationId || run.missingHide.status !== "preparing" ||
         !sameSelection(run.missingHide.selectedExternalIds, externalIds))) reject("MISSING_OPERATION_BLOCKED");
-      if (run.status !== "simulated" || (run.newImport?.status && run.newImport.status !== "idle")) reject("MISSING_OPERATION_BLOCKED");
+      if (run.status !== "simulated" || run.reappearedRestore || (run.newImport?.status && run.newImport.status !== "idle")) reject("MISSING_OPERATION_BLOCKED");
       const clean = { ...run, missingHide: undefined };
       return externalIds.map(ref => {
         const entries = (run.plan || []).filter(e => e.externalId === ref);
@@ -89,7 +89,7 @@ export function createMissingHider({ PropiedadModel = Propiedad, UsuarioModel = 
       operationId = crypto.randomUUID();
       const startedAt = now();
       const intent = await ImportSyncRunModel.updateOne({ _id: runId, usuarioId, status: "simulated",
-        expiresAt: { $gt: now() }, missingHide: { $exists: false } }, { $set: {
+        expiresAt: { $gt: now() }, missingHide: { $exists: false }, reappearedRestore: { $exists: false } }, { $set: {
         missingHide: { status: "preparing", operationId, selectedExternalIds: externalIds, results: [], startedAt }
       } }, { runValidators: true });
       if (intent.modifiedCount !== 1) reject("MISSING_OPERATION_BLOCKED");

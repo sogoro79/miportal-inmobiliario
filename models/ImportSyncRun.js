@@ -3,6 +3,7 @@ import { NEW_IMPORT_STATUSES, NEW_IMPORT_RESULT_STATUSES, NEW_IMPORT_FAILURE_COD
 import { MISSING_BLOCK_CODES } from "../utils/import/missingEligibility.js";
 import { MISSING_HIDE_STATUSES, MISSING_HIDE_CODES } from "../utils/import/missingHideState.js";
 import { REAPPEARED_BLOCK_CODES } from "../utils/import/reappearedEligibility.js";
+import { REAPPEARED_RESTORE_STATUSES, REAPPEARED_RESTORE_CODES } from "../utils/import/reappearedRestoreState.js";
 
 const newResultSchema = new mongoose.Schema({
   externalId: { type: String, required: true, maxlength: 200 },
@@ -22,6 +23,19 @@ const newImportSchema = new mongoose.Schema({
 }, { _id: false, strict: "throw" });
 
 const schema = new mongoose.Schema({
+  reappearedRestore: { type: new mongoose.Schema({
+    status: { type: String, enum: REAPPEARED_RESTORE_STATUSES, required: true },
+    operationId: { type: String, required: true },
+    selectionHash: { type: String, required: true, match: /^[a-f0-9]{64}$/ },
+    selectedExternalIds: { type: [String], required: true,
+      validate: value => value.length >= 1 && value.length <= 10 && new Set(value).size === value.length },
+    results: { type: [new mongoose.Schema({ externalId: String,
+      status: { type: String, enum: ["restored", "already_restored", "failed"] },
+      code: { type: String, enum: [...REAPPEARED_RESTORE_CODES] }
+    }, { _id: false, strict: "throw" })], default: [], validate: value => value.length <= 10 },
+    countRestored: Number, countAlreadyRestored: Number, startedAt: Date, completedAt: Date,
+    errorCode: { type: String, enum: [...REAPPEARED_RESTORE_CODES] }
+  }, { _id: false, strict: "throw" }), default: undefined },
   missingHide: { type: new mongoose.Schema({
     status: { type: String, enum: MISSING_HIDE_STATUSES, required: true },
     operationId: { type: String, required: true },

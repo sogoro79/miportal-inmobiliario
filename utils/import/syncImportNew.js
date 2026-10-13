@@ -119,6 +119,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       checkRun(await budget.run(() => readRun()), lock.source);
       const claimed = await budget.run(() => ImportSyncRunModel.updateOne({ _id: runId, usuarioId, status: "simulated",
         sourceIdentityHash: source.feedUrlHash, snapshotDigest: freshRun.snapshotDigest, expiresAt: { $gt: now() },
+        reappearedRestore: { $exists: false },
         $or: [{ newImport: { $exists: false } }, { "newImport.status": "idle" }] },
       { $set: { newImport: { status: "importing", selectedExternalIds: selected, startedAt: now(), results: alreadyExists } } }, { runValidators: true }),
       { onLateResult: async result => {
