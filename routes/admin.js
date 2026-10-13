@@ -1,6 +1,7 @@
 import express from 'express';
 import { capturePropertyContent, markManualContentChanges } from '../utils/propertyContent.js';
 import { guardManualPropertyRevision, isPropertyRevisionConflict } from '../utils/propertyRevision.js';
+import { savePropertyWithCapacity, isCapacityTransitionError } from '../utils/propertyCapacityTransition.js';
 import Stripe from 'stripe';
 import { v2 as cloudinary } from 'cloudinary';
 import Usuario from '../models/Usuario.js';
@@ -1166,7 +1167,7 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
     }
 
     markManualContentChanges(propiedad, contenidoAnterior);
-    await propiedad.save();
+    await savePropertyWithCapacity(propiedad, contenidoAnterior);
     res.json({ ok: true, propiedad });
   } catch (err) {
     console.error('Error editando propiedad desde admin:', {
@@ -1176,6 +1177,7 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
     if (isPropertyRevisionConflict(err)) {
       return res.status(err.status || 409).json({ error: "El anuncio ha cambiado. Recarga la ficha antes de guardar." });
     }
+    if (isCapacityTransitionError(err)) return res.status(err.status).json({ code: err.code, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

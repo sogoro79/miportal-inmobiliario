@@ -13,6 +13,57 @@ import { recordManualPublicationUncertainty } from "../utils/manualPublicationRe
 import { getSeoZoneContext } from "../utils/seoZones.js";
 import { capturePropertyContent } from "../utils/propertyContent.js";
 
+function registerCapacityHttpTests() {
+for (const mode of ["normal", "admin"]) for (const available of [true, false]) {
+  test(`PUT ${mode} incorporación al cupo ${available ? "con hueco" : "sin hueco"} usa fence y respuesta segura`, async () => {
+    const owner = "507f1f77bcf86cd799439099", admin = "507f1f77bcf86cd799439012", propertyId = "507f1f77bcf86cd799439088";
+    const savedMethods = { userFind: Usuario.findById, userUpdate: Usuario.updateOne, session: Usuario.startSession,
+      propertyFind: Propiedad.findById, propertyOne: Propiedad.findOne, propertyUpdate: Propiedad.updateOne, count: Propiedad.countDocuments };
+    const stored = { _id: propertyId, usuarioId: owner, titulo: "Casa", precio: 100000, direccion: "Chipiona",
+      tipoOperacion: "venta", habitaciones: 2, banos: 1, imagenes: [], contentRevision: 0,
+      visiblePublicamente: mode === "normal", estadoComercial: mode === "normal" ? "Vendido" : "Disponible" };
+    const property = Propiedad.hydrate(stored), events = []; let version = 0, writes = 0;
+    const query = value => ({ select() { return this; }, lean() { return this; }, session() { return this; },
+      then(resolve, reject) { return Promise.resolve(value).then(resolve, reject); } });
+    Usuario.findById = id => query({ _id: String(id), activo: true, plan: "gratis", planActivo: false, role: String(id) === admin ? "admin" : "user" });
+    Usuario.startSession = async () => ({ async withTransaction(callback) {
+      const before = version; try { await callback(); } catch (error) { version = before; throw error; }
+    }, async endSession() {} });
+    Usuario.updateOne = async (filter, op, options) => {
+      assert.equal(String(filter._id), owner); assert.ok(options.session); assert.equal(op.$inc.publicationVersion, 1);
+      version++; events.push("fence"); return { matchedCount: 1 };
+    };
+    Propiedad.findById = () => query(property);
+    Propiedad.findOne = () => query({ ...stored });
+    Propiedad.countDocuments = () => { events.push("count"); return query(available ? 1 : 2); };
+    Propiedad.updateOne = async (filter, op, options) => {
+      assert.equal(String(filter._id), propertyId); assert.ok(options.session); writes++;
+      Object.assign(stored, op.$set); stored.contentRevision += op.$inc?.contentRevision || 0;
+      return { matchedCount: 1 };
+    };
+    const token = jwt.sign({ id: mode === "admin" ? admin : owner, ...(mode === "admin" ? { role: "admin" } : {}) }, "test-secret");
+    try {
+      const response = await request(`${mode === "admin" ? "/admin" : ""}/propiedades/${propertyId}`, {
+        method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
+          "X-Forwarded-For": mode === "admin" ? "203.0.113.231" : "203.0.113.230" },
+        body: mode === "admin" ? { visiblePublicamente: true } : { estadoComercial: "Disponible" }
+      });
+      assert.equal(response.status, available ? 200 : 403, response.text);
+      assert.deepEqual(events, ["fence", "count"]);
+      assert.equal(writes, available ? 1 : 0); assert.equal(version, available ? 1 : 0);
+      if (!available) {
+        assert.equal(JSON.parse(response.text).code, "PUBLICATION_PLAN_LIMIT");
+        assert.doesNotMatch(response.text, /publicationVersion|WriteConflict|Mongo|stack/);
+      }
+    } finally {
+      Usuario.findById = savedMethods.userFind; Usuario.updateOne = savedMethods.userUpdate; Usuario.startSession = savedMethods.session;
+      Propiedad.findById = savedMethods.propertyFind; Propiedad.findOne = savedMethods.propertyOne;
+      Propiedad.updateOne = savedMethods.propertyUpdate; Propiedad.countDocuments = savedMethods.count;
+    }
+  });
+}
+}
+
 process.env.NODE_ENV = "production";
 process.env.JWT_SECRET = "test-secret";
 process.env.RESEND_API_KEY = "re_test";
@@ -22,6 +73,7 @@ process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
 const { default: app } = await import("../server.js");
 const { default: authRoutes } = await import("../routes/auth.js");
 const { default: propiedadesRoutes } = await import("../routes/propiedades.js");
+registerCapacityHttpTests();
 
 function normalizeHeaders(headers = {}) {
   return Object.fromEntries(

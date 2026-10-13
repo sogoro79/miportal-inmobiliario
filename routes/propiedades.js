@@ -4,6 +4,7 @@ import express from "express";
 import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
 import { guardManualPropertyRevision, isPropertyRevisionConflict } from "../utils/propertyRevision.js";
 import { persistPublication } from "../utils/publicationPersistence.js";
+import { savePropertyWithCapacity, isCapacityTransitionError } from "../utils/propertyCapacityTransition.js";
 import mongoose from "mongoose";
 import { recordManualPublicationUncertainty } from "../utils/manualPublicationReconciliation.js";
 import multer from "multer";
@@ -841,7 +842,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     ];
 
     markManualContentChanges(propiedad, contenidoAnterior);
-    await propiedad.save();
+    await savePropertyWithCapacity(propiedad, contenidoAnterior);
     debeLimpiarSubidas = false;
     const imagenesConservadas = new Set(imagenesExistentes);
     const imagenesRetiradas = imagenesOriginales.filter(url => !imagenesConservadas.has(url));
@@ -849,7 +850,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     res.json(propiedad);
 
   } catch (err) {
-    if (debeLimpiarSubidas) {
+    if (debeLimpiarSubidas && !err.retainImages) {
       await limpiarImagenesSubidas(urlsSubidas);
     }
     if (err instanceof InvalidExistingImagesError) {
@@ -858,6 +859,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     if (isPropertyRevisionConflict(err)) {
       return res.status(err.status || 409).json({ error: "El anuncio ha cambiado. Recarga la ficha antes de guardar." });
     }
+    if (isCapacityTransitionError(err)) return res.status(err.status).json({ code: err.code, error: err.message });
     console.error("Error al editar propiedad:", {
       name: err.name,
       message: err.message

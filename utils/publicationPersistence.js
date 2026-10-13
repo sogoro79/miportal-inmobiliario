@@ -4,6 +4,7 @@ import Propiedad from "../models/Propiedad.js";
 import { buildPropiedadCreateData, getPublicationAvailability } from "./propertyCreation.js";
 import { getLimiteFotosPlan } from "./planLimits.js";
 import { getPlanParaFotos } from "./publishEligibility.js";
+import { fencePublicationUser } from "./publicationCapacity.js";
 
 export class PublicationError extends Error {
   constructor(message, status = 403, options = {}) {
@@ -24,8 +25,8 @@ export function createPublicationPersistence({ UsuarioModel = Usuario, Propiedad
         budget?.assertActive();
         await transactionHooks?.before?.(session);
         // All publishers write this same document before counting, serializing per user.
-        const lock = await UsuarioModel.updateOne({ _id: usuarioId, activo: { $ne: false } },
-          { $inc: { publicationVersion: 1 } }, { session, ...(budget ? { maxTimeMS: Math.max(1, budget.remainingMs()) } : {}) });
+        const lock = await fencePublicationUser(UsuarioModel, usuarioId, session,
+          budget ? { maxTimeMS: Math.max(1, budget.remainingMs()) } : {});
         if (!lock.matchedCount) throw new PublicationError("El usuario no está disponible.");
         let query = UsuarioModel.findById(usuarioId);
         if (query.session) query = query.session(session);

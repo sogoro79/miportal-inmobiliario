@@ -297,7 +297,13 @@ test("plan recovery keeps MISSING hidden, normal recovery intact, and stale read
         if(race){normal.hiddenByMissingRunId=R;return {matchedCount:0};}
         Object.assign(normal,u.$set);return {matchedCount:1};
       };
-      const result=await aplicarLimitesPlanTrasTrial(U,{repararSiNoHayVisibles:true});
+      const session = { withTransaction: async callback => callback(), endSession: async () => {} };
+      const result=await aplicarLimitesPlanTrasTrial(U,{repararSiNoHayVisibles:true,
+        UsuarioModel: { startSession: async () => session, updateOne: async () => ({ matchedCount: 1 }),
+          findById: () => ({ session() { return Promise.resolve({ _id: U, plan: "gratis", activo: true }); } }) },
+        PropiedadModel: { find: Propiedad.find, updateOne: Propiedad.updateOne,
+          countDocuments: () => ({ session() { return Promise.resolve(0); } }) }
+      });
       assert.equal(selected,true);assert.equal(updates,1);assert.equal(hidden.visiblePublicamente,false);
       assert.equal(normal.visiblePublicamente,!race);assert.equal(result.propiedadesRecuperadas,race?0:1);
     }

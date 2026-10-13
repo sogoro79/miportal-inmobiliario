@@ -11,6 +11,7 @@ import { safeReappearedEligibility, prepareReappearedEligibility } from "./reapp
 import { safeRestoreCode, safeRestoreSummary, restoreSelectionHash, validRestoreExternalId,
   REAPPEARED_RESTORE_CODES } from "./reappearedRestoreState.js";
 import { getPublicationAvailability } from "../propertyCreation.js";
+import { fencePublicationUser } from "../publicationCapacity.js";
 import { managedChangedFields, suppliedNonPhotoDifferences } from "./syncBaseline.js";
 import { acquireSyncLock } from "./syncLock.js";
 import { createImportBudget } from "./importBudget.js";
@@ -127,8 +128,7 @@ export function createReappearedRestorer({ PropiedadModel = Propiedad, UsuarioMo
         } }, { session, runValidators: true });
         if (claim.matchedCount !== 1) reject("REAPPEARED_OPERATION_CONFLICT");
         // Same write used by manual publication and selected NEW, before any capacity read.
-        const fence = await UsuarioModel.updateOne({ _id: usuarioId, activo: { $ne: false } },
-          { $inc: { publicationVersion: 1 } }, { session });
+        const fence = await fencePublicationUser(UsuarioModel, usuarioId, session);
         if (fence.matchedCount !== 1) reject("REAPPEARED_PLAN_INACTIVE", 403);
         const user = await query(UsuarioModel, { _id: usuarioId }, session);
         const availability = await getPublicationAvailability(user, { usuarioId, PropiedadModel, session });

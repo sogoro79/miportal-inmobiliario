@@ -1,4 +1,23 @@
-import { getLimiteAnunciosPlan } from "./planLimits.js";
+import { getLimiteAnunciosPlan, getPlanConfig, KNOWN_PLAN_IDS } from "./planLimits.js";
+
+const nonQuotaStates = Object.freeze(["Vendido", "Alquilado", "Reservado", "No disponible"]);
+
+// Exact in-memory counterpart of filtroPropiedadesValidasVisibles (no expiry filter).
+export function consumesPublicationQuota(property = {}) {
+  return property.visiblePublicamente !== false && property.activo !== false &&
+    property.eliminada !== true && property.oculto !== true && !nonQuotaStates.includes(property.estadoComercial);
+}
+
+export function publicationPlanIsCurrent(user, now = new Date()) {
+  if (!user || user.activo === false || !KNOWN_PLAN_IDS.includes(user.plan || "gratis") ||
+    !usuarioTienePlanActivoParaPublicar(user)) return false;
+  const future = value => value != null && Number.isFinite(new Date(value).getTime()) && new Date(value) > now;
+  if (user.planFechaFin != null && !future(user.planFechaFin)) return false;
+  if (user.plan === "vip_trial" && !future(user.trialEndDate)) return false;
+  if (user.plan === "lanzamiento_2026" && (!future(user.planFechaFin) || !future(getPlanConfig(user.plan).expiracionFija))) return false;
+  if (user.plan === "professional_trial_60d" && (user.professionalPromoStatus !== "active" || !future(user.professionalPromoEndsAt))) return false;
+  return true;
+}
 
 export function getPlanParaFotos(usuario) {
   let plan = usuario?.plan || "gratis";
@@ -30,7 +49,7 @@ export function filtroPropiedadesValidasVisibles(usuarioId) {
     activo: { $ne: false },
     eliminada: { $ne: true },
     oculto: { $ne: true },
-    estadoComercial: { $nin: ["Vendido", "Alquilado", "Reservado", "No disponible"] }
+    estadoComercial: { $nin: [...nonQuotaStates] }
   };
 }
 

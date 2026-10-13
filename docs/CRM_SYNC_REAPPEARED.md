@@ -161,13 +161,15 @@ publicación manual y NEW/Fase 2 usan createPublicationPersistence y el mismo
 Usuario.publicationVersion. Dos restores o restore y esos publicadores fuerzan
 WriteConflict/retry al escribir el mismo usuario; el conteo se rehace en un
 snapshot nuevo, sin compartir el último hueco. No se promete exclusión respecto
-a escritores que no participen: edición de visibilidad desde admin y recuperación
-de planes en trialPlanLimits no usan publicationVersion actualmente. Es una
-limitación arquitectónica previa (P1 para una garantía global de cupo) que debe resolverse antes de afirmar garantía
-global para cualquier republicación, no se modifica en esta subfase.
+a escritores externos al portal (por ejemplo modificaciones directas de base
+de datos). Edición normal, edición admin y recuperación de planes ahora usan
+la misma contención al incorporar cupo, sin alterar la transacción ni el receipt
+del restore. Véase [PUBLICATION_CAPACITY.md](PUBLICATION_CAPACITY.md) para el
+predicado exacto, inventario online y alcance de la garantía.
 
-Los tests de concurrencia usan sesiones/modelos in-memory y verifican el fence
-compartido antes del conteo; no son una prueba de integración contra Atlas real.
+Los tests de concurrencia usan sesiones/modelos in-memory, verifican el fence
+antes del conteo y modelan conflictos de snapshots/retries; no son una prueba
+de integración contra Atlas real.
 
 ## Pendiente de UI
 
