@@ -15,29 +15,29 @@ const xml = fs.readFileSync(url, "utf8");
 const target = "SYNC-REAPPEARED-UI-001";
 const control = "SYNC-REAPPEARED-UI-CONTROL-001";
 const expected = {
-  externalId: target, titulo: "Piso prueba REAPPEARED en Rota",
-  descripcion: "Propiedad temporal para prueba controlada REAPPEARED CRM.",
-  tipoOperacion: "venta", precio: 231000, direccion: "Dirección de prueba REAPPEARED",
+  externalId: control, titulo: "Control prueba REAPPEARED",
+  descripcion: "Registro de control temporal para prueba REAPPEARED CRM.",
+  tipoOperacion: "venta", precio: 226000, direccion: "Dirección de control REAPPEARED",
   localidad: "Rota", provincia: "Cádiz", codigoPostal: "11520",
   tipoInmueble: "piso", estado: "segunda_mano", estadoComercial: "Disponible",
-  habitaciones: 2, banos: 1, superficie: 82, garaje: false, piscina: false, terraza: false
+  habitaciones: 1, banos: 1, superficie: 61, garaje: false, piscina: false, terraza: false
 };
 
-test("temporary BASE exists at the exact future public path and is valid XML", () => {
+test("MISSING scenario keeps the exact public path and valid XML", () => {
   assert.ok(fs.existsSync(url));
   assert.equal(XMLValidator.validate(xml), true);
   assert.equal(new URL(`/${path.slice("public/".length)}`, "https://www.homeclick24.com").href,
     "https://www.homeclick24.com/test-sync-reappeared-ui/homeclick24-reappeared-ui.xml");
 });
-test("BASE contains exactly the unique target, not control or old test identities", () => {
+test("MISSING scenario contains only the unique control and no target or old test identities", () => {
   const preview = analyzeGenericXml(xml);
   assert.equal(preview.length, 1);
-  assert.deepEqual(preview.map(p => p.externalId), [target]);
+  assert.deepEqual(preview.map(p => p.externalId), [control]);
   assert.equal(new Set(preview.map(p => p.externalId)).size, 1);
-  assert.ok(!xml.includes(control));
+  assert.ok(!xml.includes(target));
   assert.doesNotMatch(xml, /SYNC-(?:MISSING|NEW|APPLY|DEMO)|HC24-DEMO|test-sync-(?:missing|new|apply)/);
 });
-test("complete snapshot has exact BASE fields and no invalid data", () => {
+test("complete snapshot has exact control fields and no invalid data", () => {
   const snapshot = buildSyncSnapshot(xml);
   assert.equal(snapshot.snapshotComplete, true);
   assert.deepEqual(snapshot.warnings, []);
@@ -45,7 +45,7 @@ test("complete snapshot has exact BASE fields and no invalid data", () => {
   assert.deepEqual(snapshot.properties[0].errors, []);
   assert.deepEqual(snapshot.properties[0].data, expected);
 });
-test("BASE is publishable using the real Phase 2 validator", () => {
+test("control is publishable using the real Phase 2 validator", () => {
   const preview = analyzeGenericXml(xml)[0];
   const validated = validateImportProperty(preview);
   assert.deepEqual(preview.errors, []);
@@ -54,7 +54,7 @@ test("BASE is publishable using the real Phase 2 validator", () => {
   assert.equal(diff.newCount, 1);
   assert.equal(diff.results[0].publishableByData, true);
 });
-test("BASE has no photos, video, coordinates or embedded resources", () => {
+test("control has no photos, video, coordinates or embedded resources", () => {
   const preview = analyzeGenericXml(xml)[0];
   assert.deepEqual(preview.fotos, []);
   assert.equal(preview.lat, null); assert.equal(preview.lng, null);
@@ -71,13 +71,14 @@ test("Phase 2 mapper and creation helper preserve snapshot semantics without per
   assert.equal(created.videoUrl, "");
   assert.deepEqual(managedChangedFields(created, expected), []);
 });
-test("documented later control is valid and separate, not served in initial BASE", () => {
+test("served control matches the documented MISSING scenario", () => {
   const doc = fs.readFileSync(new URL("../docs/CRM_SYNC_REAPPEARED_UI_TEST.md", import.meta.url), "utf8");
   const controlXml = doc.match(/```xml\n([\s\S]*?)\n```/)[1];
   const snapshot = buildSyncSnapshot(controlXml);
   assert.equal(snapshot.snapshotComplete, true);
   assert.equal(snapshot.properties.length, 1);
   const data = snapshot.properties[0].data;
+  assert.deepEqual(data, buildSyncSnapshot(xml).properties[0].data);
   assert.equal(data.externalId, control);
   assert.equal(data.titulo, "Control prueba REAPPEARED");
   assert.equal(data.precio, 226000); assert.equal(data.habitaciones, 1); assert.equal(data.banos, 1);
@@ -86,4 +87,12 @@ test("documented later control is valid and separate, not served in initial BASE
   assert.deepEqual(analyzeGenericXml(controlXml)[0].fotos, []);
   assert.deepEqual(validateImportProperty(analyzeGenericXml(controlXml)[0]).errors, []);
   assert.ok(!controlXml.includes(target));
+});
+
+test("complete control snapshot classifies the previously imported target as MISSING", () => {
+  const diff = compareSyncSnapshot(buildSyncSnapshot(xml), [{ externalId: target }]);
+  assert.equal(diff.newCount, 1);
+  assert.equal(diff.missingCount, 1);
+  assert.equal(diff.results.find(item => item.externalId === control).type, "NEW");
+  assert.equal(diff.results.find(item => item.externalId === target).type, "MISSING");
 });
