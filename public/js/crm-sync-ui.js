@@ -182,7 +182,6 @@
 
   function confirmRepublication(count) {
     return new Promise(resolve => {
-      const previousFocus = document.activeElement;
       const dialog = document.createElement("dialog");
       dialog.className = "crm-sync-restore-confirm";
       dialog.setAttribute("aria-labelledby", "crmRestoreConfirmTitle");
@@ -203,7 +202,7 @@
       function finish(confirmed) {
         if (settled) return;
         settled = true;
-        dialog.close(); dialog.remove(); previousFocus?.focus();
+        dialog.close(); dialog.remove();
         resolve(confirmed);
       }
       cancel.addEventListener("click", () => finish(false));
@@ -449,6 +448,7 @@
             restoreButton.disabled = restoreConsumed || !restoreSelected.size;
             restoreInputs.forEach(input => { input.disabled = restoreConsumed; });
           }
+          if (!restoreButton.disabled) restoreButton.focus();
         }
       });
       restoreNotice.textContent = "0 anuncios seleccionados / 10";

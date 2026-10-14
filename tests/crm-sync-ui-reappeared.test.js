@@ -28,7 +28,11 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 async function harness({ data = preview(), post = () => response(receipt()),
   get = () => response({ ...preview(), reappearedRestore: receipt() }), clock = Date } = {}) {
   const elements = new Map(), calls = [], timers = [], body = element("body");
-  const document = { body, createElement: element, getElementById(id) {
+  const document = { body, activeElement: body, createElement(tag) {
+    const node = element(tag);
+    node.focus = () => { if (!node.disabled && !node.removed) document.activeElement = node; };
+    return node;
+  }, getElementById(id) {
     if (!elements.has(id)) elements.set(id, element("div")); return elements.get(id);
   } };
   const context = vm.createContext({ window: {}, document, Date: clock,
@@ -48,7 +52,7 @@ async function harness({ data = preview(), post = () => response(receipt()),
   await elements.get("crmSyncSimulate").listeners.click();
   const output = elements.get("crmSyncResults"), status = elements.get("crmSyncStatus");
   const dialog = () => body.children.findLast(item => item.tag === "dialog" && !item.removed);
-  return { data, output, status, calls, timers, elements, dialog,
+  return { data, output, status, calls, timers, elements, dialog, document,
     button: button(output, "Volver a publicar"),
     async start() { const pending = this.button.listeners.click(); await tick(); return { pending }; },
     async submit(accept = true) {
@@ -102,6 +106,21 @@ test("cancel and Escape send no POST and preserve selection", async () => {
     if (escape) h.dialog().listeners.cancel({ preventDefault() {} }); else button(h.dialog(), "Cancelar").listeners.click();
     await pending; assert.equal(postCount(h), 0); assert.equal(h.button.disabled, false); assert.equal(inputs(h.output)[0].checked, true);
   }
+});
+for (const escape of [false, true]) test(`${escape ? "Escape" : "Cancel"} returns focus only after controls are enabled`, async () => {
+  const h = await harness(); select(inputs(h.output)[0]); h.button.focus();
+  const { pending } = await h.start();
+  assert.equal(h.button.disabled, true);
+  assert.equal(h.document.activeElement, button(h.dialog(), "Cancelar"));
+  if (escape) h.dialog().listeners.cancel({ preventDefault() {} });
+  else button(h.dialog(), "Cancelar").listeners.click();
+  await pending;
+  assert.equal(h.button.disabled, false);
+  assert.equal(inputs(h.output)[0].disabled, false);
+  assert.equal(h.elements.get("crmSyncSave").disabled, false);
+  assert.equal(h.elements.get("crmSyncSimulate").disabled, false);
+  assert.equal(h.document.activeElement, h.button);
+  assert.equal(postCount(h), 0);
 });
 test("expiry before confirmation sends no POST and clears selection", async () => {
   const h = await harness(); const input = inputs(h.output)[0]; select(input);
@@ -194,7 +213,7 @@ test("private evidence and unknown codes never appear in rendered REAPPEARED", a
 });
 test("profile loads fresh JS and responsive accessible controls", () => {
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
-  assert.match(html, /crm-sync-ui\.js\?v=10/);
+  assert.match(html, /crm-sync-ui\.js\?v=11/);
   assert.match(html, /\.crm-sync-restore-label span\s*\{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/);
   assert.match(html, /max-width: calc\(100% - 32px\)/); assert.match(html, /crm-sync-restore-confirm-actions[^}]*flex-wrap: wrap/);
 });

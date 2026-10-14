@@ -1178,7 +1178,7 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
       return res.status(err.status || 409).json({ error: "El anuncio ha cambiado. Recarga la ficha antes de guardar." });
     }
     if (isCapacityTransitionError(err)) return res.status(err.status).json({ code: err.code, error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "No se pudo completar la operación." });
   }
 });
 

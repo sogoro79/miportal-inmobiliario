@@ -1727,6 +1727,33 @@ test("DELETE admin limpia Cloudinary con imágenes guardadas en MongoDB", async 
   }
 });
 
+for (const scenario of [
+  { name: "conflicto de revisión", error: Object.assign(new Error("Detalle de revisión interno"), { code: "PROPERTY_REVISION_CONFLICT", status: 409 }),
+    status: 409, body: { error: "El anuncio ha cambiado. Recarga la ficha antes de guardar." } },
+  { name: "cupo controlado", error: Object.assign(new Error("Has alcanzado el límite de anuncios de tu plan."), { code: "PUBLICATION_PLAN_LIMIT", status: 403 }),
+    status: 403, body: { code: "PUBLICATION_PLAN_LIMIT", error: "Has alcanzado el límite de anuncios de tu plan." } },
+  { name: "error inesperado", error: Object.assign(new Error("Mongo E11000 private-database.internal secret-detail"), { code: 11000,
+    stack: "private-stack-trace" }), status: 500, body: { error: "No se pudo completar la operación." } }
+]) test(`PUT admin ${scenario.name} mantiene status y no expone detalles internos`, async () => {
+  const previousUserFind = Usuario.findById, previousPropertyFind = Propiedad.findById, previousLog = console.error;
+  const logs = [];
+  Usuario.findById = () => Promise.resolve({ _id: "507f1f77bcf86cd799439012", activo: true, role: "admin" });
+  Propiedad.findById = () => Promise.resolve({ _id: "507f1f77bcf86cd799439088", contentRevision: 0,
+    titulo: "Casa", tipoInmueble: "piso", save: async () => { throw scenario.error; } });
+  console.error = (...args) => logs.push(args);
+  const token = jwt.sign({ id: "507f1f77bcf86cd799439012", role: "admin" }, "test-secret");
+  try {
+    const result = await request("/admin/propiedades/507f1f77bcf86cd799439088", {
+      method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: { descripcion: "Descripción editada" }
+    });
+    assert.equal(result.status, scenario.status);
+    assert.deepEqual(JSON.parse(result.text), scenario.body);
+    assert.doesNotMatch(result.text, /Mongo|E11000|private-|secret-detail|stack|Detalle de revisión interno/);
+    assert.ok(logs.some(args => args[0] === "Error editando propiedad desde admin:" && args[1].error === scenario.error.message));
+  } finally { Usuario.findById = previousUserFind; Propiedad.findById = previousPropertyFind; console.error = previousLog; }
+});
+
 test("PUT /admin/propiedades/:id conserva geografía estructurada cuando se omite", async () => {
   const previousFindByIdUsuario = Usuario.findById;
   const previousFindByIdPropiedad = Propiedad.findById;
