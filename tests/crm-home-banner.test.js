@@ -17,7 +17,7 @@ test("CRM banner is after launch promotion and before property listings", () => 
 });
 
 test("CRM banner copy and real CTA point only to the help page", () => {
-  for (const copy of ["Conecta tu CRM con HomeClick24", "Importa y sincroniza tus inmuebles de forma fácil, rápida y profesional.", "Altas automáticas", "Actualizaciones", "Sincronización CRM", "Ahorra tiempo", "Feeds XML compatibles", "Importación y cambios con tu confirmación."]) {
+  for (const copy of ["Conecta tu CRM con HomeClick24", "Importa y sincroniza tus inmuebles de forma fácil, rápida y profesional.", "Nuevos anuncios", "Actualizaciones", "Sincronización CRM", "Ahorra tiempo", "Feeds XML compatibles", "Importación y cambios con tu confirmación."]) {
     assert.ok(banner.includes(copy), copy);
   }
   assert.match(banner, /<a class="crm-home-cta" href="\/crm.html">Descubre cómo funciona<\/a>/);
