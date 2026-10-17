@@ -1366,6 +1366,72 @@
         flex-direction: column;
       }
     }
+    /* CRM: informative link only, independent of the publication flow. */
+    .crm-home-banner {
+      margin-top: 28px;
+      padding: 36px 24px;
+      background: #f0f6eb;
+      border-block: 1px solid #d9e6d0;
+    }
+    .crm-home-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+      gap: 40px;
+      align-items: center;
+    }
+    .crm-home-banner h2 {
+      margin: 8px 0 12px;
+      font-size: 28px;
+      line-height: 1.25;
+      color: #223c2b;
+      letter-spacing: 0;
+    }
+    .crm-home-eyebrow { color: #386326; font-size: 14px; font-weight: 700; }
+    .crm-home-subtitle { margin: 0; color: #425245; font-size: 17px; line-height: 1.6; }
+    .crm-home-benefits {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 22px;
+      margin: 18px 0;
+      padding-left: 18px;
+      color: #304e31;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .crm-home-note { color: #425245; font-size: 14px; line-height: 1.6; margin: 0 0 18px; }
+    .crm-home-cta {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 48px;
+      padding: 12px 20px;
+      border-radius: 6px;
+      background: #7cc242;
+      color: #17270f;
+      font-weight: 800;
+      line-height: 1.5;
+      text-align: center;
+      text-decoration: none;
+    }
+    .crm-home-cta:hover { text-decoration: underline; background: #8ed153; }
+    .crm-home-cta:focus-visible { outline: 3px solid #244c28; outline-offset: 4px; }
+    .crm-home-visual { background: #fff; border: 1px solid #ccdac5; border-radius: 8px; padding: 24px; min-width: 0; }
+    .crm-home-visual-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; color: #223c2b; font-size: 18px; font-weight: 800; }
+    .crm-home-visual-brand img { width: 40px; height: 40px; flex-shrink: 0; }
+    .crm-home-visual-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 0; border-top: 1px solid #e2e8de; color: #425245; font-size: 14px; }
+    .crm-home-visual-row strong { color: #31592c; font-size: 14px; }
+    @media (max-width: 800px) {
+      .crm-home-inner { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+      .crm-home-visual { max-width: 540px; width: 100%; }
+    }
+    @media (max-width: 480px) {
+      .crm-home-banner { padding: 28px 20px; }
+      .crm-home-banner h2 { font-size: 25px; }
+      .crm-home-cta { width: 100%; }
+      .crm-home-visual { padding: 20px; }
+    }
   </style>
     <!-- PWA -->
   <link rel="manifest" href="/manifest.json">
@@ -1428,6 +1494,30 @@
         </ul>
       </div>
       <a class="professional-promo-cta" href="/registro?plan=lanzamiento_2026" data-launch-plan-cta>Activar gratis</a>
+    </div>
+  </div>
+</section>
+
+<section class="crm-home-banner" aria-labelledby="crmHomeTitle">
+  <div class="crm-home-inner">
+    <div>
+      <p class="crm-home-eyebrow">Feeds XML compatibles</p>
+      <h2 id="crmHomeTitle">Conecta tu CRM con HomeClick24</h2>
+      <p class="crm-home-subtitle">Importa y sincroniza tus inmuebles de forma fácil, rápida y profesional.</p>
+      <ul class="crm-home-benefits">
+        <li>Altas automáticas</li>
+        <li>Actualizaciones</li>
+        <li>Sincronización CRM</li>
+        <li>Ahorra tiempo</li>
+      </ul>
+      <p class="crm-home-note">Importación y cambios con tu confirmación.</p>
+      <a class="crm-home-cta" href="/crm.html">Descubre cómo funciona</a>
+    </div>
+    <div class="crm-home-visual" aria-hidden="true">
+      <div class="crm-home-visual-brand"><img src="/favicon.png?v=3" alt="" width="40" height="40" loading="lazy">HomeClick24</div>
+      <div class="crm-home-visual-row"><span>Tu cartera</span><strong>XML compatible</strong></div>
+      <div class="crm-home-visual-row"><span>Revisar</span><strong>Simular cambios</strong></div>
+      <div class="crm-home-visual-row"><span>Confirmar</span><strong>Tú decides</strong></div>
     </div>
   </div>
 </section>
