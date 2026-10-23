@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <propiedad id="0001">
+    <referencia>SYNTHETIC-REF-A</referencia>
+    <familia id="24">Piso</familia>
+    <operacion id="1">Venta</operacion>
+    <estado id="SM"/>
+    <status_id>activo</status_id>
+    <dormitorios>2</dormitorios>
+    <banos>1</banos>
+    <aseos>2</aseos>
+    <localizacion>
+      <poblacion id="TEST">Municipio ficticio</poblacion>
+      <provincia>Provincia ficticia</provincia>
+      <cp>01234</cp><pais>ES</pais><zona>Zona ficticia</zona>
+      <latitud>36.5</latitud><longitud>-6.2</longitud>
+    </localizacion>
+    <superficies><construida>90</construida><habitable>70</habitable><parcela>150</parcela></superficies>
+    <precio divisa="EUR">210000</precio>
+    <caracteristicas>
+      <caracteristica id="garaje">privado</caracteristica>
+      <caracteristica id="piscina">Comunitaria</caracteristica>
+      <caracteristica id="terraza">no acristalada</caracteristica>
+    </caracteristicas>
+    <descripciones>
+      <descripcion idioma="gb"><titulo>Synthetic apartment</titulo><descripcion>Only synthetic test data.</descripcion></descripcion>
+      <descripcion idioma="es"><titulo>Piso sintético</titulo><descripcion>Datos inventados exclusivamente para tests.</descripcion></descripcion>
+    </descripciones>
+    <imagenes>
+      <imagen url="https://images.example.test/secondary.jpg" principal="0"/>
+      <imagen url="https://images.example.test/main.jpg" principal="1"/>
+      <imagen url="https://images.example.test/secondary.jpg" principal="0"/>
+    </imagenes>
+  </propiedad>
+</properties>

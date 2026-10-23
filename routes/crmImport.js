@@ -12,7 +12,8 @@ import {
   maskFeedUrl
 } from "../utils/import/feedSecurity.js";
 import { FeedFetchError, fetchFeedXml as defaultFetchFeedXml } from "../utils/import/feedFetcher.js";
-import { analyzeFeedXml } from "../utils/importers/importerRegistry.js";
+import { analyzeFeedXml, detectFeedType } from "../utils/importers/importerRegistry.js";
+import { safeInmowebPreview, maskAnalysisFeedUrl, safeAnalysisErrorCode } from "../utils/import/inmowebPreview.js";
 import { getPublicationAvailability } from "../utils/propertyCreation.js";
 import { getLimiteFotosPlan, planTieneLimiteFotos } from "../utils/planLimits.js";
 import { getPlanParaFotos } from "../utils/publishEligibility.js";
@@ -30,7 +31,8 @@ import { createReappearedRestorer } from "../utils/import/syncRestoreReappeared.
 import { safeRestoreCode, validRestoreExternalId } from "../utils/import/reappearedRestoreState.js";
 
 const analyzeSchema = z.object({
-  feedUrl: z.string().trim().url().max(2000)
+  feedUrl: z.string().trim().url().max(2000),
+  feedType: z.enum(["generic_xml", "inmoweb", "auto"]).optional()
 }).strict();
 
 const importSchema = z.object({
@@ -50,7 +52,7 @@ function normalizarErrorFeed(error) {
     const status = error.code === "FEED_TIMEOUT" ? 504 : 400;
     return { status, error: error.message };
   }
-  if (["XML_INVALID", "XML_EMPTY", "UNSUPPORTED_FEED_TYPE"].includes(error?.code)) {
+  if (["XML_INVALID", "XML_EMPTY", "UNSUPPORTED_FEED_TYPE", "INMOWEB_FORMAT_UNRECOGNIZED", "INMOWEB_INVALID_PREVIEW_LIMIT"].includes(error?.code)) {
     return { status: 400, error: error.message };
   }
   return { status: 500, error: "No se pudo analizar el feed XML." };
@@ -316,10 +318,16 @@ export function createCrmImportRouter({
       const fotosIlimitadas = !planTieneLimiteFotos(planFotos);
       const limiteFotos = fotosIlimitadas ? null : getLimiteFotosPlan(planFotos);
       const fetched = await fetchFeedXml(feedUrl);
+      const feedType = parsed.data.feedType === "auto" ? detectFeedType(fetched.xml) : parsed.data.feedType || "generic_xml";
       const analyzed = analyzeFeedXml(fetched.xml, {
+        feedType,
         maxProperties: DEFAULT_MAX_PREVIEW_PROPERTIES,
         ...(fotosIlimitadas ? { maxPhotos: Infinity } : {})
       });
+      if (analyzed.feedType === "inmoweb") {
+        res.set("Cache-Control", "no-store");
+        return res.json(safeInmowebPreview(analyzed));
+      }
       const source = await ImportSourceModel.findOne({ usuarioId, feedUrlHash: feedHash(feedUrl) });
       const imported = source ? await PropiedadModel.find({ usuarioId, importSourceId: source._id, source: "crm" }) : [];
       const duplicateIds = new Set(imported.map(item => item.externalId));
@@ -361,12 +369,12 @@ export function createCrmImportRouter({
         properties
       });
     } catch (error) {
-      const safeUrl = maskFeedUrl(feedUrl);
+      const safeUrl = maskAnalysisFeedUrl(feedUrl);
       const response = normalizarErrorFeed(error);
       console.warn("[CRM Import Analyze]", {
         userId: usuarioId,
         feedUrl: safeUrl,
-        code: error?.code || error?.name || "ERROR",
+        code: safeAnalysisErrorCode(error),
         ...(error instanceof FeedFetchError && error.internalCode ? { internalCode: error.internalCode } : {}),
         status: response.status
       });

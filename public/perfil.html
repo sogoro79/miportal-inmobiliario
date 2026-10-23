@@ -458,6 +458,7 @@
     }
 
     .crm-import-muted { color: #999; }
+    #crmFeedType { display: block; max-width: 100%; min-height: 44px; margin: 8px 0 12px; padding: 8px; font: inherit; }
     .crm-sync-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid #d8edc6; min-width: 0; }
     .crm-sync-results { max-height: 420px; overflow-y: auto; overflow-wrap: anywhere; margin-top: 16px; font-size: 0.9rem; line-height: 1.6; }
     .crm-sync-masked { overflow-wrap: anywhere; margin-top: 12px; }
@@ -758,8 +759,14 @@
     <h3>Importar desde CRM</h3>
     <p>Pega la URL de tu feed XML para analizar tus inmuebles antes de importarlos.</p>
     <p>Por lote: hasta 10 inmuebles y 100 fotos, con un máximo de 120 segundos. Los límites comerciales de tu plan no cambian.</p>
+    <label for="crmFeedType">Formato del feed</label>
+    <select id="crmFeedType">
+      <option value="generic_xml">XML genérico</option>
+      <option value="inmoweb">InmoWeb — solo análisis</option>
+      <option value="auto">Detectar formato — InmoWeb solo análisis</option>
+    </select>
     <div class="crm-import-form">
-      <input type="url" id="crmFeedUrl" placeholder="https://tu-crm.com/feed.xml" autocomplete="off">
+      <input type="password" id="crmFeedUrl" aria-label="URL privada del feed XML" placeholder="URL del feed XML" autocomplete="off" spellcheck="false">
       <button class="btn-perfil green" id="btnAnalyzeCrmFeed" onclick="analizarFeedCrm()">Analizar feed</button>
     </div>
     <div class="crm-import-status" id="crmImportStatus"></div>
@@ -835,6 +842,7 @@
 <script src="/js/publish-flow.js"></script>
 <script src="/js/precios.js?v=1"></script>
 <script src="/js/crm-sync-ui.js?v=11"></script>
+<script src="/js/crm-readonly-preview.js?v=1"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");
@@ -1063,6 +1071,13 @@ let crmAnalyzedUrl = "";
 let crmImportBusy = false;
 
 function actualizarSeleccionCrm() {
+  const readOnly = crmPreviewData?.previewOnly === true;
+  document.getElementById("btnImportCrm").hidden = readOnly;
+  if (readOnly) {
+    document.getElementById("btnImportCrm").disabled = true;
+    document.getElementById("crmSelectedCount").textContent = "Solo análisis: importación y sincronización InmoWeb no habilitadas.";
+    return;
+  }
   const selected = [...document.querySelectorAll("#crmImportPreview input:checked")].map(input => input.value);
   const count = selected.length;
   const photos = (crmPreviewData?.properties || []).filter(property => selected.includes(property.externalId)).reduce((total, property) => total + (property.fotosImportables || 0), 0);
@@ -1073,6 +1088,12 @@ function actualizarSeleccionCrm() {
 
 document.getElementById("crmFeedUrl").addEventListener("input", actualizarSeleccionCrm);
 document.getElementById("crmImportPreview").addEventListener("change", actualizarSeleccionCrm);
+document.getElementById("crmFeedType").addEventListener("change", () => {
+  crmPreviewData = null;
+  document.getElementById("crmImportSummary").style.display = "none";
+  document.getElementById("crmImportTableWrap").style.display = "none";
+  actualizarSeleccionCrm();
+});
 
 function renderizarPreviewCrm(data) {
   crmPreviewData = data;
@@ -1080,6 +1101,15 @@ function renderizarPreviewCrm(data) {
   const tableWrap = document.getElementById("crmImportTableWrap");
   const tbody = document.getElementById("crmImportPreview");
   if (!summary || !tableWrap || !tbody) return;
+
+  if (data.previewOnly === true) {
+    summary.innerHTML = window.HomeClickCrmReadOnlyPreview.summary(data);
+    tbody.innerHTML = window.HomeClickCrmReadOnlyPreview.rows(data);
+    summary.style.display = "block";
+    tableWrap.style.display = data.properties?.length ? "block" : "none";
+    actualizarSeleccionCrm();
+    return;
+  }
 
   summary.innerHTML = textoImportacionCupo(data);
   summary.style.display = "block";
@@ -1124,11 +1154,12 @@ function lineasResumenCrm(data) {
 async function importarSeleccionadosCrm() {
   const selectedExternalIds = [...document.querySelectorAll("#crmImportPreview input:checked")].map(input => input.value);
   const button = document.getElementById("btnImportCrm");
-  if (button.disabled || crmImportBusy) return;
+  if (button.disabled || crmImportBusy || crmPreviewData?.previewOnly === true) return;
   crmImportBusy = true;
   button.disabled = true;
   document.getElementById("btnAnalyzeCrmFeed").disabled = true;
   document.getElementById("crmFeedUrl").disabled = true;
+  document.getElementById("crmFeedType").disabled = true;
   const results = document.getElementById("crmImportResults");
   results.textContent = "Importando los inmuebles seleccionados...";
   try {
@@ -1151,6 +1182,7 @@ async function importarSeleccionadosCrm() {
     crmImportBusy = false;
     document.getElementById("btnAnalyzeCrmFeed").disabled = false;
     document.getElementById("crmFeedUrl").disabled = false;
+    document.getElementById("crmFeedType").disabled = false;
     actualizarSeleccionCrm();
   }
 }
@@ -1179,6 +1211,8 @@ async function analizarFeedCrm() {
 
   button.disabled = true;
   button.textContent = "Analizando...";
+  const format = document.getElementById("crmFeedType");
+  format.disabled = true;
 
   try {
     const res = await fetch("/api/crm-import/analyze", {
@@ -1187,13 +1221,13 @@ async function analizarFeedCrm() {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + token
       },
-      body: JSON.stringify({ feedUrl })
+      body: JSON.stringify({ feedUrl, ...(format.value === "generic_xml" ? {} : { feedType: format.value }) })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "No se pudo analizar el feed.");
 
     crmAnalyzedUrl = feedUrl;
-    status.textContent = "Análisis completado. Selecciona los inmuebles que quieras importar.";
+    status.textContent = data.previewOnly ? "Análisis InmoWeb completado. Solo lectura: revisa los avisos y bloqueos." : "Análisis completado. Selecciona los inmuebles que quieras importar.";
     renderizarPreviewCrm(data);
   } catch (error) {
     status.classList.add("error");
@@ -1201,6 +1235,7 @@ async function analizarFeedCrm() {
   } finally {
     button.disabled = false;
     button.textContent = "Analizar feed";
+    format.disabled = false;
   }
 }
 
