@@ -251,7 +251,7 @@ test("responsive profile keeps wrapped content, bounded buttons and cache versio
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
   assert.match(html, /crm-sync-results[^}]*overflow-wrap: anywhere/);
   assert.match(html, /crm-sync-results \.btn-perfil[^}]*max-width: 100%; white-space: normal/);
-  assert.match(html, /crm-sync-ui\.js\?v=11/);
+  assert.match(html, /crm-sync-ui\.js\?v=12/);
 });
 
 for (const publicable of [true, false]) test(`real snapshot -> safe summary -> UI: publicable=${publicable}`, async () => {
@@ -275,6 +275,14 @@ test("legacy plan without individual eligibility requires resimulation", async (
   const h = await harness({ data });
   assert.equal(h.button, undefined);
   assert.equal(checkboxes(h.output).length, 0);
+});
+test("InmoWeb OFF shows activation pending with no NEW checkbox or button", async () => {
+  const data = { ...preview(), feedType: "inmoweb", snapshotComplete: false,
+    newImportEligible: false, newImportBlockedReason: "INMOWEB_NEW_DISABLED" };
+  const h = await harness({ data });
+  assert.equal(checkboxes(h.output).length, 0);
+  assert.equal(h.button, undefined);
+  assert.match(text(h.output), /Importación InmoWeb preparada\. Activación pendiente\./);
 });
 
 for (const status of [502, 503, 504]) for (const json of [false, true])

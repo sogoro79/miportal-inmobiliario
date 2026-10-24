@@ -53,6 +53,22 @@ function harness(initial, options = {}) {
 const legacy = () => ({ _id: "existing", usuarioId: "owner", feedType: "generic_xml", ...encryptFeedUrl(feedUrl, env) });
 const associated = () => ({ usuarioId: "owner", importSourceId: "existing", source: "crm", externalId: "LEGACY" });
 
+test("InmoWeb source uses the same encryption, one-source identity and shared lock while NEW stays off", async () => {
+  const h = harness();
+  const status = await h.manager.configure("owner", feedUrl, "inmoweb");
+  assert.equal(h.source.feedType, "inmoweb"); assert.equal(status.feedType, "inmoweb");
+  assert.equal(h.source.syncEnabled, false); assert.equal(decryptFeedUrl(h.source, env), feedUrl);
+  assert.equal(h.source.importLockToken, undefined);
+  assert.doesNotMatch(JSON.stringify(status), /private-token|secret-test|encryptedFeedUrl/);
+});
+test("source feedType cannot be changed beneath associated properties, even at identical URL", async () => {
+  const h = harness(legacy()); h.properties.push(associated()); const before = structuredClone(h.source);
+  await assert.rejects(() => h.manager.configure("owner", feedUrl, "inmoweb"), { code: "SYNC_SOURCE_URL_MISMATCH" });
+  assert.deepEqual(h.source, before);
+  const empty = harness(legacy()); await empty.manager.configure("owner", feedUrl, "inmoweb");
+  assert.equal(empty.source._id, "existing"); assert.equal(empty.source.feedType, "inmoweb");
+});
+
 test("misma URL con propiedades legacy permite cifrar conservando identidad", async () => {
   const initial = legacy();
   delete initial.encryptedFeedUrl;
@@ -228,8 +244,27 @@ test("UI configura y simula solo su id, limpia URL y nunca llama import", async 
   assert.deepEqual(JSON.parse(calls[2].options.body), { importSourceId: "own-id" });
   assert.ok(calls.every(item => item.options.headers.Authorization === "Bearer mock-token"));
   assert.ok(calls.every(item => !item.path.endsWith("/import")));
-  assert.deepEqual([...elements.keys()].sort(), ["crmSyncFeedUrl", "crmSyncSave", "crmSyncSimulate", "crmSyncStatus", "crmSyncMasked", "crmSyncResults"].sort());
+  assert.deepEqual([...elements.keys()].sort(), ["crmFeedType", "crmSyncFeedUrl", "crmSyncSave", "crmSyncSimulate", "crmSyncStatus", "crmSyncMasked", "crmSyncResults"].sort());
   assert.doesNotMatch(JSON.stringify([...elements.values()]), /private-token|secret-test/);
+});
+test("UI configures explicit InmoWeb type without importing and restores that type from source status", async () => {
+  const calls = [];
+  const { ui, elements, document } = uiHarness(async (path, options) => {
+    calls.push({ path, options });
+    return { ok: true, json: async () => ({ configured: true, importSourceId: "own-id", feedType: "inmoweb" }) };
+  });
+  ui.iniciar(() => "mock-token"); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(elements.get("crmFeedType").value, "inmoweb");
+  elements.get("crmSyncFeedUrl").value = feedUrl;
+  await elements.get("crmSyncSave").listeners.click();
+  assert.deepEqual(JSON.parse(calls[1].options.body), { feedUrl, feedType: "inmoweb" });
+  assert.equal(elements.get("crmSyncFeedUrl").value, "");
+  assert.equal(calls.length, 2); assert.equal(calls[1].options.method, "PUT");
+  document.getElementById("crmFeedType").value = "auto";
+  elements.get("crmSyncFeedUrl").value = feedUrl;
+  await elements.get("crmSyncSave").listeners.click();
+  assert.equal(calls.length, 2);
+  assert.match(elements.get("crmSyncStatus").textContent, /Selecciona XML genérico o InmoWeb/);
 });
 
 test("UI muestra mensaje seguro de mismatch sin hash ni configuracion original", async () => {

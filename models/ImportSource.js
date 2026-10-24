@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const schema = new mongoose.Schema({
   usuarioId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true, unique: true },
-  feedType: { type: String, enum: ["generic_xml"], required: true },
+  feedType: { type: String, enum: ["generic_xml", "inmoweb"], required: true },
   feedUrlHash: { type: String, required: true },
   feedUrlMasked: { type: String, required: true },
   encryptedFeedUrl: { type: String, select: false },

@@ -10,7 +10,7 @@
     : typeof p.habitaciones === "number" ? p.habitaciones : "No informadas";
   window.HomeClickCrmReadOnlyPreview = {
     summary(data) {
-      return `<strong>${escape(data.total)} inmuebles encontrados · InmoWeb · Solo análisis</strong><p>No se pueden importar ni sincronizar anuncios desde este preview.${data.previewTruncated ? " Se muestra un preview limitado; no representa el catálogo completo." : ""}</p><p>Los bloqueos impedirían importar. Los avisos requieren revisión, pero no bloquean por sí solos. El catálogo completo no está certificado para ocultaciones.</p>`;
+      return `<strong>${escape(data.total)} inmuebles encontrados · InmoWeb · Solo análisis</strong><p>Importación InmoWeb preparada. Activación pendiente.</p><p>No se pueden importar ni sincronizar anuncios desde este preview.${data.previewTruncated ? " Se muestra un preview limitado; no representa el catálogo completo." : ""}</p><p>Los bloqueos impedirían importar. Los avisos requieren revisión, pero no bloquean por sí solos. El catálogo completo no está certificado para ocultaciones.</p>`;
     },
     rows(data) {
       return (data.properties || []).map(p => `<tr>

@@ -100,7 +100,8 @@ test("InmoWeb is not activated implicitly, nor accepted by Phase 2 import", asyn
   await withApp(fixture, async (request, effects) => {
     assert.equal((await request({ feedUrl: testUrl })).status, 400);
     assert.equal((await request({ feedUrl: testUrl, feedType: "inmoweb", selectedExternalIds: ["0001"] }, "import")).status, 400);
-    assert.equal((await request({ feedUrl: testUrl, selectedExternalIds: ["0001"] }, "import")).status, 400);
+    const disabled = await request({ feedUrl: testUrl, selectedExternalIds: ["0001"] }, "import");
+    assert.equal(disabled.status, 409); assert.equal(disabled.body.code, "INMOWEB_NEW_DISABLED");
     assert.equal(effects.imports, 0);
     assert.equal(effects.sourceReads, 0);
   });
@@ -235,7 +236,7 @@ test("actual profile rendering hides import controls and restores the generic pr
 test("profile preserves generic default, hides URL, loads renderer and all inline scripts parse", () => {
   assert.match(profile, /<option value="generic_xml">XML genérico/);
   assert.match(profile, /type="password" id="crmFeedUrl"/);
-  assert.match(profile, /crm-readonly-preview\.js\?v=6/);
+  assert.match(profile, /crm-readonly-preview\.js\?v=7/);
   for (const [, attrs, source] of profile.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
     if (!/\bsrc=/.test(attrs)) new vm.Script(source);
   }

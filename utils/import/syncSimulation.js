@@ -6,7 +6,9 @@ import Usuario from "../../models/Usuario.js";
 import { getPublicationAvailability } from "../propertyCreation.js";
 import { hasReappearedMarkers } from "./reappearedEligibility.js";
 import { fetchFeedXml } from "./feedFetcher.js";
-import { buildSyncSnapshot, MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
+import { MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
+import { buildFeedSnapshot } from "../importers/importerRegistry.js";
+import { receivedNewSnapshotValid } from "./inmowebPolicy.js";
 import { createImportBudget } from "./importBudget.js";
 import { acquireSyncLock } from "./syncLock.js";
 import { prepareSyncPlan, snapshotDigest, safeRunSummary, runVersions, RUN_LIFETIME_MS } from "./syncPlan.js";
@@ -35,13 +37,13 @@ export function createSyncSimulator({
     let lock;
     let run;
     try {
-      lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now });
+      lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now, allowedFeedTypes: ["generic_xml", "inmoweb"] });
       run = await ImportSyncRunModel.create({ usuarioId, importSourceId, status: "blocked", mode: "simulation", startedAt,
         expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...runVersions,
         sourceIdentityHash: lock.source.feedUrlHash, errorCode: "SIMULATION_IN_PROGRESS" });
       const fetched = await fetchXml(lock.feedUrl, { budget });
       budget.assertActive();
-      const snapshot = buildSyncSnapshot(fetched.xml);
+      const snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
       let properties = PropiedadModel.find({ usuarioId, importSourceId, source: "crm" });
       if (properties?.select) properties = properties.select("+hiddenByMissingRunId");
       if (properties?.limit) properties = properties.limit(MAX_SYNC_PROPERTIES + 1);
@@ -86,18 +88,22 @@ export function createSyncSimulator({
         { usuarioId, importSourceId, reconciliations, causalRuns, user, visibleCount, now: now(),
           sourceIdentityHash: lock.source.feedUrlHash, snapshotDigest: snapshotDigest(snapshot), versions: runVersions });
       const finishedAt = now();
+      const validForNew = receivedNewSnapshotValid(snapshot) && existing.length <= MAX_SYNC_PROPERTIES;
+      const simulated = snapshot.snapshotComplete || validForNew;
       const final = { ...summary, plan, planTruncated: resultsTruncated, snapshotDigest: snapshotDigest(snapshot),
-        status: snapshot.snapshotComplete ? "simulated" : "blocked",
-        ...(snapshot.snapshotComplete ? {} : { errorCode: "SYNC_SNAPSHOT_INCOMPLETE" }),
+        ...(lock.source.feedType === "inmoweb" ? { feedType: "inmoweb", newSnapshotComplete: validForNew,
+          providerNormalizationVersion: snapshot.normalizationVersion } : {}),
+        status: simulated ? "simulated" : "blocked",
+        ...(simulated ? {} : { errorCode: "SYNC_SNAPSHOT_INCOMPLETE" }),
         finishedAt, durationMs: finishedAt.getTime() - startedAt.getTime(),
         snapshotComplete: snapshot.snapshotComplete, snapshotCount: snapshot.snapshotCount, warnings: snapshot.warnings };
       budget.assertActive();
       await lock.assert();
       await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final,
-        ...(snapshot.snapshotComplete ? { $unset: { errorCode: "" } } : {}) });
+        ...(simulated ? { $unset: { errorCode: "" } } : {}) });
       return safeRunSummary({ _id: run._id, usuarioId, importSourceId,
         sourceIdentityHash: lock.source.feedUrlHash, ...runVersions,
-        createdAt: startedAt, expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...final }, now());
+        createdAt: startedAt, expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...final }, now(), env);
     } catch (error) {
       const code = safeSimulationCode(error);
       const finishedAt = now();

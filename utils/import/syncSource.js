@@ -9,6 +9,7 @@ export function safeSourceStatus(source) {
   return {
     importSourceId: String(source._id),
     configured: Boolean(source.encryptedFeedUrl && source.feedUrlKeyVersion && source.activo !== false),
+    ...(source.feedType === "inmoweb" ? { feedType: "inmoweb" } : {}),
     feedUrlMasked: maskFeedUrl(source.feedUrlMasked),
     syncEnabled: false,
     lastSuccessfulSyncAt: source.lastSuccessfulSyncAt || null,
@@ -20,10 +21,11 @@ export function createSyncSourceManager({ ImportSourceModel = ImportSource, Prop
   return {
     async get(usuarioId) {
       let query = ImportSourceModel.findOne({ usuarioId });
-      if (query?.select) query = query.select("_id activo feedUrlMasked feedUrlKeyVersion +encryptedFeedUrl lastSuccessfulSyncAt lastSyncStatus");
+      if (query?.select) query = query.select("_id feedType activo feedUrlMasked feedUrlKeyVersion +encryptedFeedUrl lastSuccessfulSyncAt lastSyncStatus");
       return safeSourceStatus(await query);
     },
-    async configure(usuarioId, feedUrl) {
+    async configure(usuarioId, feedUrl, feedType = "generic_xml") {
+      if (!["generic_xml", "inmoweb"].includes(feedType)) throw Object.assign(new Error("Tipo de feed no soportado."), { code: "UNSUPPORTED_FEED_TYPE" });
       const parsed = parseAndValidateFeedUrl(feedUrl);
       // Validate the key before DNS or writes; configuration never downloads the feed.
       const encrypted = encryptFeedUrl(parsed.toString(), env);
@@ -43,18 +45,18 @@ export function createSyncSourceManager({ ImportSourceModel = ImportSource, Prop
         let query = ImportSourceModel.findOneAndUpdate({ usuarioId,
           $or: [{ importLockUntil: { $exists: false } }, { importLockUntil: null }, { importLockUntil: { $lte: start } }]
         }, { $set: { importLockToken: lockToken, importLockUntil: new Date(start.getTime() + 15 * 60 * 1000) },
-          $setOnInsert: { usuarioId, feedType: "generic_xml", ...encrypted, activo: true }
+          $setOnInsert: { usuarioId, feedType, ...encrypted, activo: true }
         }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
         if (query?.select) query = query.select("+encryptedFeedUrl");
         lockedSource = await query;
         if (!lockedSource) throw Object.assign(new Error("Source busy"), { code: "SYNC_SOURCE_BUSY" });
-        if (lockedSource.feedUrlHash !== encrypted.feedUrlHash) {
+        if (lockedSource.feedUrlHash !== encrypted.feedUrlHash || lockedSource.feedType !== feedType) {
           const associated = await PropiedadModel.exists({ usuarioId, importSourceId: lockedSource._id, source: "crm" });
           if (associated) throw Object.assign(new Error("Source URL mismatch"), { code: "SYNC_SOURCE_URL_MISMATCH" });
         }
         query = ImportSourceModel.findOneAndUpdate({ _id: lockedSource._id, usuarioId, importLockToken: lockToken,
           importLockUntil: { $gt: now() }
-        }, { $set: { ...encrypted, syncEnabled: false, activo: true } }, { new: true, runValidators: true });
+        }, { $set: { ...encrypted, feedType, syncEnabled: false, activo: true } }, { new: true, runValidators: true });
         if (query?.select) query = query.select("+encryptedFeedUrl");
         const source = await query;
         if (!source) throw Object.assign(new Error("Source busy"), { code: "SYNC_SOURCE_BUSY" });

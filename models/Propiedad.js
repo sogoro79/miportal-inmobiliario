@@ -32,6 +32,7 @@ const PropiedadSchema = new mongoose.Schema({
   provincia:     { type: String, default: "" },
   codigoPostal:  { type: String, default: "" },
   precio:        { type: Number, required: true },
+  moneda: { type: String, enum: ["EUR"] },
   periodicidadPrecio: { type: String, enum: ["mes", "semana", "dia", "temporada", "desconocida", null] },
   descripcion:   { type: String },
   tipoOperacion: { type: String, enum: ["venta", "alquiler"], required: true },

@@ -13,6 +13,8 @@ import { getPlanParaFotos } from "../publishEligibility.js";
 import { configureCloudinary, uploadBuffer, destroyByPublicId } from "../cloudinaryService.js";
 import { fetchImportImage } from "./imageFetcher.js";
 import { maskFeedUrl, parseAndValidateFeedUrl } from "./feedSecurity.js";
+import { assertInmowebNewEnabled } from "./inmowebPolicy.js";
+import { evaluateInmowebNewEligibility } from "./inmowebNewEligibility.js";
 
 export class ImportError extends Error {
   constructor(message, status = 400, code) {
@@ -60,12 +62,16 @@ export function createSelectedImporter({
   downloadImage = fetchImportImage,
   uploadImage = buffer => { configureCloudinary(); return uploadBuffer(buffer); },
   deleteImage = destroyByPublicId,
-  now = () => new Date()
+  now = () => new Date(), env = process.env
 } = {}) {
   return async ({ usuarioId, feedUrl, analyzed, selectedExternalIds, budget: suppliedBudget, internalContext }) => {
     const budget = suppliedBudget || createImportBudget({ now: () => now().getTime() });
     try {
       budget.assertActive();
+      assertInmowebNewEnabled(analyzed.feedType, env);
+      if (analyzed.feedType === "inmoweb" && !internalContext) {
+        throw new ImportError("InmoWeb requiere una simulación vigente.", 409, "INMOWEB_NEW_REQUIRES_SYNC");
+      }
       const hash = feedHash(feedUrl);
       const user = await budget.run(() => UsuarioModel.findById(usuarioId));
       if (!user || user.activo === false) throw new ImportError("Usuario no disponible.", 403);
@@ -91,6 +97,7 @@ export function createSelectedImporter({
         throw new ImportError("Contexto interno de importación inválido.", 409);
       }
       if (source && source.feedUrlHash !== hash) throw new ImportError("Solo se admite una fuente CRM por usuario en esta fase.");
+      if (source && (source.feedType || "generic_xml") !== analyzed.feedType) throw new ImportError("La fuente CRM ha cambiado.", 409);
       if (!source) {
         try {
           source = await budget.run(() => ImportSourceModel.create({ usuarioId, feedType: analyzed.feedType, feedUrlHash: hash,
@@ -136,6 +143,7 @@ export function createSelectedImporter({
           if (duplicateIds.has(externalId)) { results.push({ externalId, status: "skipped", reason: "duplicate" }); continue; }
           const properties = matches.get(externalId);
           const validation = validateImportProperty(properties[0]);
+          if (analyzed.feedType === "inmoweb" && !evaluateInmowebNewEligibility(properties[0]).eligible) validation.errors.push("Datos InmoWeb no válidos.");
           if (properties.length !== 1 || validation.errors.length) {
             results.push({ externalId, status: "skipped", reason: "invalid_data", errors: properties.length !== 1 ? ["Referencia repetida dentro del feed"] : validation.errors });
             continue;
@@ -156,9 +164,14 @@ export function createSelectedImporter({
             const fresh = await budget.run(() => getPublicationAvailability(freshUser, { usuarioId, PropiedadModel }));
             if (!fresh.puedePublicarAhora) throw new ImportError("El plan o el cupo disponible ha cambiado.");
             const maxPhotos = getLimiteFotosPlan(getPlanParaFotos(freshUser));
+            const photosToImport = plannedPhotos.get(externalId).slice(0, maxPhotos);
+            if (analyzed.feedType === "inmoweb" && properties[0].fotos.length > photosToImport.length) {
+              skippedImages = properties[0].fotos.length - photosToImport.length;
+              warnings.push("Se han omitido imágenes por el límite de fotos del plan.");
+            }
             await budget.run(() => ReconciliationModel.create({ propiedadId: propertyId, usuarioId, importSourceId: source._id, externalId, publicIds: [], state: "prepared" }));
             journaled = true;
-            for (const url of plannedPhotos.get(externalId).slice(0, maxPhotos)) {
+            for (const url of photosToImport) {
               budget.assertActive();
               attemptedImages += 1;
               let phase = "download";
@@ -191,6 +204,7 @@ export function createSelectedImporter({
             if (images.length > getLimiteFotosPlan(getPlanParaFotos(finalUser))) throw new ImportError("El límite de fotos del plan ha cambiado.");
             const date = now();
             const created = await persist({ usuarioId, body: validation.data, propertyId, budget,
+              ...(analyzed.feedType === "inmoweb" ? { sourceFeedType: "inmoweb" } : {}),
               imagenes: images.map(image => image.url), extra: { ...identity(externalId), visiblePublicamente: true, importedAt: date, lastImportedAt: date },
               ...(internalContext ? { transactionHooks: {
                 before: session => internalContext.beforePersist(session, externalId),

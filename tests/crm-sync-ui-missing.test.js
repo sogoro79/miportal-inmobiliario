@@ -262,7 +262,7 @@ test("run expires during accepted confirmation: zero POST, cleared and blocked s
 });
 test("responsive MISSING labels wrap and profile loads the new script version", () => {
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
-  assert.match(html, /crm-sync-ui\.js\?v=11/);
+  assert.match(html, /crm-sync-ui\.js\?v=12/);
   assert.match(html, /\.crm-sync-missing-label span\s*\{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/);
   assert.match(html, /\.crm-sync-results \.btn-perfil\s*\{[^}]*max-width: 100%;[^}]*white-space: normal/);
 });

@@ -7,7 +7,9 @@ import ImportReconciliation from "../../models/ImportReconciliation.js";
 import { createSelectedImporter } from "./selectedImport.js";
 import { analyzeGenericPropertyNodes, parseGenericPropertyNodes } from "../importers/genericXmlImporter.js";
 import { fetchFeedXml } from "./feedFetcher.js";
-import { buildSyncSnapshot, MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
+import { MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
+import { buildFeedSnapshot } from "../importers/importerRegistry.js";
+import { assertInmowebNewEnabled, receivedNewSnapshotValid } from "./inmowebPolicy.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { evaluateRunNewImportEligibility, snapshotDigest } from "./syncPlan.js";
 import { acquireSyncLock } from "./syncLock.js";
@@ -25,7 +27,7 @@ export const safeNewFailureCode = error => NEW_IMPORT_FAILURE_CODES.has(error?.c
 export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel = Usuario, ImportSourceModel = ImportSource,
   ImportSyncRunModel = ImportSyncRun, ReconciliationModel = ImportReconciliation,
   fetchXml = fetchFeedXml, importSelected, env = process.env, now = () => new Date(), budgetFactory = createImportBudget } = {}) {
-  const runImport = importSelected || createSelectedImporter({ PropiedadModel, UsuarioModel, ImportSourceModel, ReconciliationModel, now });
+  const runImport = importSelected || createSelectedImporter({ PropiedadModel, UsuarioModel, ImportSourceModel, ReconciliationModel, now, env });
   return async ({ usuarioId, runId, externalIds }) => {
     if (!/^[a-fA-F0-9]{24}$/.test(String(runId)) || !Array.isArray(externalIds) || externalIds.length < 1 ||
         externalIds.length > MAX_BATCH_PROPERTIES || new Set(externalIds).size !== externalIds.length || !externalIds.every(validRef)) {
@@ -44,7 +46,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       return run;
     }
     function checkRun(run, source, operationStarted = false) {
-      const eligibility = evaluateRunNewImportEligibility(operationStarted ? { ...run, newImport: undefined } : run, now(), usuarioId);
+      const eligibility = evaluateRunNewImportEligibility(operationStarted ? { ...run, newImport: undefined } : run, now(), usuarioId, env);
       if (!eligibility.newImportEligible) throw newImportError(eligibility.newImportBlockedReason);
       if (String(run.importSourceId) !== String(source._id) || run.sourceIdentityHash !== source.feedUrlHash) {
         throw newImportError("SYNC_NEW_SOURCE_CHANGED");
@@ -61,6 +63,8 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const initial = await budget.run(() => readRun());
       const source = await budget.run(() => ImportSourceModel.findOne({ _id: initial.importSourceId, usuarioId, activo: true }));
       if (!source) throw newImportError("SYNC_SOURCE_NOT_FOUND", 404);
+      if ((initial.feedType || "generic_xml") !== source.feedType) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
+      assertInmowebNewEnabled(source.feedType, env);
       if (initial.sourceIdentityHash !== source.feedUrlHash) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
       if (initial.newImport && initial.newImport.status !== "idle") {
         if (!sameSelection(initial.newImport.selectedExternalIds, selected)) throw newImportError("SYNC_NEW_SELECTION_MISMATCH");
@@ -80,14 +84,15 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       checkRun(initial, source);
       runFilter = { _id: runId, usuarioId, importSourceId: source._id, sourceIdentityHash: source.feedUrlHash,
         status: "simulated", "newImport.status": "importing", "newImport.selectedExternalIds": selected };
-      lock = await budget.run(() => acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId: source._id, env, now }),
+      lock = await budget.run(() => acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId: source._id, env, now,
+        allowedFeedTypes: ["generic_xml", "inmoweb"] }),
         { onLateResult: result => result.release() });
       const freshRun = await budget.run(() => readRun());
       checkRun(freshRun, lock.source);
       const fetched = await fetchXml(lock.feedUrl, { budget });
       budget.assertActive();
-      const snapshot = buildSyncSnapshot(fetched.xml);
-      if (!snapshot.snapshotComplete) throw newImportError("RUN_SNAPSHOT_INCOMPLETE");
+      const snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
+      if (!receivedNewSnapshotValid(snapshot)) throw newImportError("RUN_SNAPSHOT_INCOMPLETE");
       if (snapshotDigest(snapshot) !== freshRun.snapshotDigest) throw newImportError("SYNC_NEW_FEED_CHANGED");
       let query = PropiedadModel.find({ usuarioId, importSourceId: source._id, source: "crm" });
       if (query?.limit) query = query.limit(MAX_SYNC_PROPERTIES + 1);
@@ -108,9 +113,16 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         if (!entries[0].publishableByData) throw newImportError("SYNC_NEW_INVALID_DATA");
       }
       // Use Phase 2's actual parser, with the full validated snapshot ceiling rather than preview's 500.
-      const { nodes, warnings } = parseGenericPropertyNodes(fetched.xml, MAX_SYNC_PROPERTIES + 1);
-      if (warnings.length || nodes.length > MAX_SYNC_PROPERTIES) throw newImportError("RUN_SNAPSHOT_INCOMPLETE");
-      const analyzed = { feedType: "generic_xml", properties: analyzeGenericPropertyNodes(nodes, { maxPhotos: Infinity }) };
+      let analyzed;
+      if (lock.source.feedType === "inmoweb") {
+        analyzed = { feedType: "inmoweb", properties: snapshot.properties.map(p => ({
+          ...p.data, fotos: p.data.imagenes, errors: p.errors, warnings: p.warnings, publishableByData: p.publishableByData
+        })) };
+      } else {
+        const { nodes, warnings } = parseGenericPropertyNodes(fetched.xml, MAX_SYNC_PROPERTIES + 1);
+        if (warnings.length || nodes.length > MAX_SYNC_PROPERTIES) throw newImportError("RUN_SNAPSHOT_INCOMPLETE");
+        analyzed = { feedType: "generic_xml", properties: analyzeGenericPropertyNodes(nodes, { maxPhotos: Infinity }) };
+      }
       const remaining = selected.filter(id => !alreadyExists.some(item => item.externalId === id));
       if (remaining.some(id => analyzed.properties.filter(p => p.externalId === id).length !== 1)) throw newImportError("SYNC_NEW_INVALID_DATA");
       await budget.run(() => lock.assert());

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { inmowebNewEnabled } from "./inmowebPolicy.js";
 import { safeNewImportSummary } from "./newImportState.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { prepareMissingEligibility, safeMissingEligibility } from "./missingEligibility.js";
@@ -23,11 +24,15 @@ export const RUN_REASON_CODES = new Set([
   "PROPERTY_SYNC_DISABLED", "SYNC_BASELINE_INVALID", "MANUAL_OVERRIDE", "UNSUPPORTED_FIELD_CHANGE",
   "CRM_WITHDRAWAL", "AMBIGUOUS_IDENTITY", "SUSPICIOUS_REFERENCE_CHANGE", "INVALID_RECORD",
   "NEW_REQUIRES_MANUAL_IMPORT", "MISSING_REQUIRES_REVIEW", "SYNC_SNAPSHOT_INCOMPLETE", "SIMULATION_IN_PROGRESS",
-  "REAPPEARED_REQUIRES_REVIEW", ...REAPPEARED_BLOCK_CODES
+  "REAPPEARED_REQUIRES_REVIEW", ...REAPPEARED_BLOCK_CODES, "INMOWEB_ACTION_DISABLED"
 ]);
 
 export function snapshotDigest(snapshot) {
-  const records = snapshot.properties.map(item => [item.data.externalId, syncFingerprint(item.data), [...item.errors].sort()])
+  const fingerprint = data => snapshot.feedType === "inmoweb"
+    ? crypto.createHash("sha256").update(JSON.stringify({ normalizationVersion: snapshot.normalizationVersion,
+      values: Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) })).digest("hex")
+    : syncFingerprint(data);
+  const records = snapshot.properties.map(item => [item.data.externalId, fingerprint(item.data), [...item.errors].sort()])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])) || a[1].localeCompare(b[1]));
   return crypto.createHash("sha256").update(JSON.stringify({ version: SYNC_SNAPSHOT_VERSION,
     complete: snapshot.snapshotComplete, records, warnings: [...snapshot.warnings].sort() })).digest("hex");
@@ -47,6 +52,8 @@ export function prepareSyncPlan(snapshot, existing, context = {}) {
     if (item.type === "NEW") return { ...base, safeReasonCode: "NEW_REQUIRES_MANUAL_IMPORT",
       importNewEligible: item.publishableByData === true,
       importNewBlockCode: item.publishableByData === true ? null : "SYNC_NEW_INVALID_DATA" };
+    if (snapshot.feedType === "inmoweb") return { ...base, blocked: true, enrollmentEligible: false,
+      safeReasonCode: "INMOWEB_ACTION_DISABLED", ...(item.type === "REAPPEARED" ? { restoreEligible: false } : {}) };
     if (item.type === "MISSING") return { ...base, safeReasonCode: "MISSING_REQUIRES_REVIEW",
       ...prepareMissingEligibility(snapshot, matches, item.externalId, context) };
     if (item.type === "REAPPEARED") return { ...base, safeReasonCode: "REAPPEARED_REQUIRES_REVIEW",
@@ -98,6 +105,7 @@ export function evaluateRunApplyEligibility(run, now = new Date()) {
   const currentTime = new Date(now).getTime();
   const expired = !Number.isFinite(expiresAt) || !Number.isFinite(currentTime) || expiresAt <= currentTime;
   const applyBlockedReason = expired ? "RUN_EXPIRED"
+    : run.feedType === "inmoweb" ? "INMOWEB_ACTION_DISABLED"
     : isRunPlanTruncated(run) ? "RUN_PLAN_TRUNCATED"
     : run.snapshotComplete !== true ? "RUN_SNAPSHOT_INCOMPLETE"
     : run.status !== "simulated" ? "RUN_STATUS_NOT_APPLICABLE"
@@ -106,12 +114,14 @@ export function evaluateRunApplyEligibility(run, now = new Date()) {
   return { expired, applyEligible: applyBlockedReason === null, applyBlockedReason };
 }
 
-export function evaluateRunNewImportEligibility(run, now = new Date(), usuarioId) {
+export function evaluateRunNewImportEligibility(run, now = new Date(), usuarioId, env = process.env) {
   const expires = new Date(run.expiresAt || "invalid").getTime();
   const newImportBlockedReason = usuarioId && String(run.usuarioId) !== String(usuarioId) ? "SYNC_RUN_NOT_FOUND"
+    : run.feedType === "inmoweb" && !inmowebNewEnabled(env) ? "INMOWEB_NEW_DISABLED"
     : !Number.isFinite(expires) || !Number.isFinite(new Date(now).getTime()) || expires <= new Date(now).getTime() ? "RUN_EXPIRED"
     : isRunPlanTruncated(run) ? "RUN_PLAN_TRUNCATED"
-    : run.snapshotComplete !== true ? "RUN_SNAPSHOT_INCOMPLETE"
+    : (run.feedType === "inmoweb" ? run.snapshotComplete !== false || run.newSnapshotComplete !== true || run.providerNormalizationVersion !== 1
+      : run.snapshotComplete !== true) ? "RUN_SNAPSHOT_INCOMPLETE"
     : run.status !== "simulated" ? "RUN_STATUS_NOT_APPLICABLE"
     : run.blocked === true || run.errorCode || run.missingHide || run.reappearedRestore || !Array.isArray(run.plan) ? "RUN_BLOCKED"
     : !/^[a-f0-9]{64}$/.test(run.sourceIdentityHash || "") ||
@@ -122,12 +132,13 @@ export function evaluateRunNewImportEligibility(run, now = new Date(), usuarioId
 }
 
 // Read responses are deliberately independent of arbitrary/legacy document fields.
-export function safeRunSummary(run, now = new Date()) {
+export function safeRunSummary(run, now = new Date(), env = process.env) {
   const statuses = new Set(["running", "completed", "incomplete", "simulated", "applying", "applied", "blocked", "failed", "aborted"]);
   const summary = { runId: String(run._id), mode: "simulation", status: statuses.has(run.status) ? run.status : "blocked",
     createdAt: run.createdAt || run.startedAt, expiresAt: run.expiresAt || null,
     ...evaluateRunApplyEligibility(run, now), snapshotComplete: run.snapshotComplete === true,
-    ...evaluateRunNewImportEligibility(run, now),
+    ...evaluateRunNewImportEligibility(run, now, undefined, env),
+    ...(run.feedType === "inmoweb" ? { feedType: "inmoweb" } : {}),
     ...(run.newImport ? { newImport: safeNewImportSummary(run.newImport) } : {}),
     ...(run.missingHide ? { missingHide: safeMissingHideSummary(run.missingHide) } : {}),
     ...(run.reappearedRestore ? { reappearedRestore: safeRestoreSummary(run.reappearedRestore) } : {}),

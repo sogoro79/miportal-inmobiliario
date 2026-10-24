@@ -5,21 +5,21 @@ const LEASE_MS = 15 * 60 * 1000;
 export function syncError(code, status = 409) {
   return Object.assign(new Error("No se pudo completar la operacion de sincronizacion."), { code, status });
 }
-export async function acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now }) {
+export async function acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now, allowedFeedTypes = ["generic_xml"] }) {
   let query = ImportSourceModel.findOne({ _id: importSourceId, usuarioId, activo: true });
   if (query?.select) query = query.select("+encryptedFeedUrl");
   const original = await query;
   if (!original) throw syncError("SYNC_SOURCE_NOT_FOUND", 404);
   const feedUrl = decryptFeedUrl(original, env);
-  if (original.feedType !== "generic_xml") throw syncError("SYNC_SOURCE_NOT_CONFIGURED");
+  if (!allowedFeedTypes.includes(original.feedType)) throw syncError("SYNC_SOURCE_NOT_CONFIGURED");
   const token = crypto.randomUUID();
   const until = new Date(now().getTime() + LEASE_MS);
   const locked = await ImportSourceModel.findOneAndUpdate({ _id: importSourceId, usuarioId, activo: true,
-    feedUrlHash: original.feedUrlHash,
+    feedUrlHash: original.feedUrlHash, feedType: original.feedType,
     $or: [{ importLockUntil: { $exists: false } }, { importLockUntil: null }, { importLockUntil: { $lte: now() } }]
   }, { $set: { importLockToken: token, importLockUntil: until } }, { new: true });
   if (!locked) throw syncError("SYNC_SOURCE_BUSY");
-  const filter = () => ({ _id: importSourceId, usuarioId, activo: true, feedUrlHash: original.feedUrlHash,
+  const filter = () => ({ _id: importSourceId, usuarioId, activo: true, feedUrlHash: original.feedUrlHash, feedType: original.feedType,
     importLockToken: token, importLockUntil: { $gt: now() } });
   return {
     source: original, feedUrl, token,

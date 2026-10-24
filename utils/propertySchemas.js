@@ -36,6 +36,7 @@ const propiedadBaseSchema = {
   provincia: optionalCleanString(120),
   codigoPostal: optionalCleanString(20),
   precio: priceFromInput.pipe(z.number().min(0)),
+  moneda: z.literal("EUR").optional(),
   periodicidadPrecio: periodicidadPrecioSchema.nullable().optional(),
   descripcion: optionalCleanString(5000),
   tipoOperacion: tipoOperacionSchema,
@@ -74,7 +75,7 @@ export const propiedadCreateSchema = z.object(propiedadBaseSchema).superRefine((
   if (data.tipoOperacion === "venta" && data.periodicidadPrecio != null) ctx.addIssue({ code: "custom", path: ["periodicidadPrecio"], message: "No aplicable a venta." });
 });
 export const propiedadCrmCreateSchema = z.object({ ...propiedadBaseSchema,
-  direccion: optionalCleanString(300)
+  direccion: optionalCleanString(300), banos: optionalNumberFromInput.nullable()
 }).superRefine((data, ctx) => {
   if (!bedroomDataValid(data)) ctx.addIssue({ code: "custom", path: ["habitaciones"], message: "Datos de habitaciones inválidos." });
   if (!data.direccion?.trim() && !data.localidad?.trim()) {

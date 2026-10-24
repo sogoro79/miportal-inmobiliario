@@ -1,0 +1,36 @@
+# InmoWeb NEW: integration prepared, activation pending
+
+`INMOWEB_NEW_ENABLED` is OFF by default. Only the exact string `true` enables
+the server-side NEW path. No environment value is changed by this implementation.
+Keep it OFF until a separately authorized controlled test.
+
+Configure the encrypted source with `PUT /api/crm-import/sync/source`, providing
+`feedUrl` and `feedType: inmoweb`. There is still one source per user. Changing
+the URL hash or feed type is forbidden while CRM properties reference that source.
+No full URL, provider credential or plaintext URL belongs in this document.
+
+The simulation stores a NEW-only presence check independently of
+`snapshotComplete`, which remains false for InmoWeb. Missing catalogue entries
+cannot authorize hiding. UPDATE, enrollment and REAPPEARED remain unsupported for
+InmoWeb even when NEW is explicitly enabled.
+
+`POST /api/crm-import/sync/import-new` retains the body `{ runId, externalIds }`.
+It reacquires the existing source lease, downloads through the pinned fetcher,
+rechecks the canonical snapshot digest and data eligibility, then delegates to
+the same selected importer, images, plan/capacity fences and reconciliation journal
+used by generic XML. Persistence and NEW receipts are atomic per property, not
+globally across the batch. Technical limits remain 10 properties / 100 importable
+images / 120 seconds. Plan photo caps are reported as omitted images for InmoWeb.
+
+The current analysis UI remains read-only. With the gate OFF, a simulation cannot
+offer an active NEW selector and backend execution rejects with
+`INMOWEB_NEW_DISABLED` before fetching images or claiming the import operation.
+
+Before a first real test: review this integration, authorize activation separately,
+use one eligible reference and a fresh source-owned simulation, confirm plan/quota
+and expected image count, then verify the persistent receipt and public-location
+privacy. Never retry an indeterminate outcome; consult the run and reconciliation.
+Any cleanup needs its own explicit authorization and identity validation.
+
+Automated tests use synthetic XML, injected image/upload implementations and
+in-memory transactional model mocks. They do not access production services.

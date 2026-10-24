@@ -9,6 +9,7 @@
     const messages = {
       ALREADY_EXISTS: "Este anuncio ya existe. No se ha creado un duplicado.",
       SYNC_NEW_NOT_NEW: "Alguna referencia ya no es nueva. Vuelve a simular.",
+      INMOWEB_NEW_DISABLED: "Importación InmoWeb preparada. Activación pendiente.",
       PLAN_LIMIT: "No hay cupo suficiente en tu plan para importar estos anuncios.",
       SYNC_NEW_PLAN_LIMIT: "No hay cupo suficiente en tu plan para importar estos anuncios.",
       SYNC_NEW_PLAN_REQUIRED: "Necesitas activar un plan para importar estos anuncios.",
@@ -822,7 +823,7 @@
         }
       }
       const recognizedNewCodes = new Set([
-        "SYNC_NEW_PLAN_LIMIT", "SYNC_NEW_PLAN_REQUIRED", "SYNC_NEW_SELECTION_INVALID", "SYNC_NEW_SELECTION_MISMATCH",
+        "INMOWEB_NEW_DISABLED", "SYNC_NEW_PLAN_LIMIT", "SYNC_NEW_PLAN_REQUIRED", "SYNC_NEW_SELECTION_INVALID", "SYNC_NEW_SELECTION_MISMATCH",
         "SYNC_NEW_SOURCE_CHANGED", "SYNC_NEW_RUN_CHANGED", "SYNC_NEW_FEED_CHANGED", "SYNC_NEW_NOT_NEW",
         "SYNC_NEW_INVALID_DATA", "SYNC_NEW_RECONCILIATION_PENDING", "SYNC_NEW_IN_PROGRESS", "SYNC_NEW_UNCONFIRMED",
         "SYNC_NEW_ALREADY_ATTEMPTED", "SYNC_NEW_FAILED", "SYNC_RUN_NOT_FOUND", "SYNC_SOURCE_NOT_FOUND",
@@ -841,6 +842,10 @@
     }
     function showSource(data) {
       sourceId = data.configured ? data.importSourceId : null;
+      if (data.feedType === "inmoweb") {
+        const selector = document.getElementById("crmFeedType");
+        if (selector) selector.value = "inmoweb";
+      }
       masked.textContent = data.feedUrlMasked ? `Fuente: ${data.feedUrlMasked}` : "No hay fuente configurada para simular.";
       simulate.disabled = !sourceId || busy;
     }
@@ -857,7 +862,9 @@
     save.addEventListener("click", () => action(async () => {
       const feedUrl = input.value.trim();
       if (!feedUrl) throw new Error("Introduce una URL pública de feed XML.");
-      const data = await api("PUT", "source", { feedUrl });
+      const feedType = document.getElementById("crmFeedType")?.value;
+      if (feedType === "auto") throw new Error("Selecciona XML genérico o InmoWeb para configurar la fuente.");
+      const data = await api("PUT", "source", { feedUrl, ...(feedType === "inmoweb" ? { feedType } : {}) });
       input.value = "";
       output.replaceChildren();
       showSource(data);

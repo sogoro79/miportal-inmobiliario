@@ -7,6 +7,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { Readable, Writable, PassThrough } from "node:stream";
 import Usuario from "../models/Usuario.js";
+import Propiedad from "../models/Propiedad.js";
 import ImportSyncRun from "../models/ImportSyncRun.js";
 import { createCrmImportRouter } from "../routes/crmImport.js";
 import { createSyncNewImporter } from "../utils/import/syncImportNew.js";
@@ -20,6 +21,12 @@ import { securityRateLimits } from "../utils/security.js";
 import { createMissingHider } from "../utils/import/syncHideMissing.js";
 import { createSyncApplier } from "../utils/import/syncApply.js";
 import { managedFingerprint } from "../utils/import/syncBaseline.js";
+import { buildFeedSnapshot } from "../utils/importers/importerRegistry.js";
+import { receivedNewSnapshotValid } from "../utils/import/inmowebPolicy.js";
+import { createSyncSimulator } from "../utils/import/syncSimulation.js";
+import { createReappearedRestorer } from "../utils/import/syncRestoreReappeared.js";
+import { acquireSyncLock } from "../utils/import/syncLock.js";
+import { getLimiteFotosPlan } from "../utils/planLimits.js";
 
 const U = "507f1f77bcf86cd799439099", S = "507f1f77bcf86cd799439098", R = "507f1f77bcf86cd799439096";
 const env = { CRM_FEED_URL_KEY_V1: crypto.randomBytes(32).toString("base64") };
@@ -125,13 +132,15 @@ function update(doc, operation) {
   }
   for (const key of Object.keys(operation.$unset || {})) delete doc[key];
 }
-function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
+function harness({ count = 1, photos = 0, plan = "vip", feedXml, feedType = "generic_xml", inmowebEnabled = false } = {}) {
+  const testEnv = { ...env, ...(inmowebEnabled ? { INMOWEB_NEW_ENABLED: "true" } : {}) };
   let clock = new Date(), feed = feedXml ?? xml(count, photos), txn;
-  const snapshot = buildSyncSnapshot(feed);
-  const state = { source: { _id: S, usuarioId: U, activo: true, feedType: "generic_xml",
+  const snapshot = buildFeedSnapshot(feed, { feedType });
+  const state = { source: { _id: S, usuarioId: U, activo: true, feedType,
     ...encryptFeedUrl("https://feed.example/catalog.xml?token=secret", env) },
     run: { _id: R, usuarioId: U, importSourceId: S, status: "simulated", expiresAt: new Date(+clock + 1200000),
       ...runVersions, snapshotDigest: snapshotDigest(snapshot), snapshotComplete: snapshot.snapshotComplete,
+      ...(feedType === "inmoweb" ? { feedType, newSnapshotComplete: receivedNewSnapshotValid(snapshot), providerNormalizationVersion: snapshot.normalizationVersion } : {}),
       ...prepareSyncPlan(snapshot, []) },
     user: { _id: U, plan, planActivo: true, trialAccepted: true, activo: true, publicationVersion: 0 },
     properties: [], reconciliations: [] };
@@ -213,6 +222,7 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
     async deleteOne(filter) { state.reconciliations = state.reconciliations.filter(p => !matches(p, filter)); }
   };
   const runs = {
+    async create(data) { state.run = { _id: R, ...structuredClone(data) }; return structuredClone(state.run); },
     findOne(filter) { return query(session => matches(current(session).run, filter) ? current(session).run : null); },
     async updateOne(filter, op, options = {}) {
       if (op.$push) faults.beforeReceipt?.(op.$push["newImport.results"], state, current(options.session));
@@ -226,22 +236,146 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml } = {}) {
     }
   };
   const selected = createSelectedImporter({ PropiedadModel: properties, UsuarioModel: users, ImportSourceModel: sources,
-    ReconciliationModel: reconciliations, now: () => new Date(clock),
-    downloadImage: async () => { effects.downloads++; await faults.download?.(state); if (faults.photo) throw new Error("private url"); return Buffer.from("test"); },
+    ReconciliationModel: reconciliations, now: () => new Date(clock), env: testEnv,
+    downloadImage: async url => { effects.downloads++; await faults.download?.(state, url); if (faults.photo) throw new Error("private url"); return Buffer.from("test"); },
     uploadImage: async () => {
-      effects.uploads++; const publicId = `test-resource-${effects.uploads}`;
+      effects.uploads++; if (faults.upload) throw new Error("simulated upload failure");
+      const publicId = `test-resource-${effects.uploads}`;
       effects.uploadedPublicIds.push(publicId);
       return { url: `https://cloudinary.example/${publicId}.jpg`, publicId };
     },
     deleteImage: async publicId => { effects.deletes++; effects.deletedPublicIds.push(publicId); return { ok: true }; } });
   const dependencies = { PropiedadModel: properties, UsuarioModel: users, ImportSourceModel: sources,
-    ImportSyncRunModel: runs, ReconciliationModel: reconciliations, env, now: () => new Date(clock), importSelected: selected,
+    ImportSyncRunModel: runs, ReconciliationModel: reconciliations, env: testEnv, now: () => new Date(clock), importSelected: selected,
     fetchXml: async (url, { budget }) => { effects.fetch++; await budget.run(() => faults.fetch?.(state)); return { xml: feed }; },
     budgetFactory: () => createImportBudget({ timeoutMs: faults.timeout || MAX_BATCH_MS }) };
   const run = createSyncNewImporter(dependencies);
   return { state, effects, faults, dependencies, run, request: { usuarioId: U, runId: R, externalIds: ["N-0"] },
     feed(value) { feed = value; }, advance(ms) { clock = new Date(+clock + ms); } };
 }
+
+const inmowebFixture = fs.readFileSync(new URL("./fixtures/crm/inmoweb-synthetic.xml", import.meta.url), "utf8");
+function inmoXml(count = 1, photos = 0) {
+  const record = inmowebFixture.match(/<propiedad\b[\s\S]*?<\/propiedad>/)[0];
+  return `<properties>${Array.from({ length: count }, (_, i) => record.replace('id="0001"', `id="IW-${i}"`)
+    .replace(/<imagenes>[\s\S]*?<\/imagenes>/, `<imagenes>${Array.from({ length: photos }, (_, n) =>
+      `<imagen url="https://images.example/${i}/${n}.jpg" principal="${n === 1 ? 1 : 0}"/>`).join("")}</imagenes>`)).join("")}</properties>`;
+}
+function inmoHarness({ enabled = true, count = 1, photos = 0, feedXml, plan = "vip" } = {}) {
+  const h = harness({ feedXml: feedXml ?? inmoXml(count, photos), feedType: "inmoweb", inmowebEnabled: enabled, plan });
+  h.request.externalIds = Array.from({ length: count }, (_, i) => `IW-${i}`);
+  return h;
+}
+test("InmoWeb OFF blocks before lock, fetch, images, receipt or property writes", async () => {
+  const h = inmoHarness({ enabled: false, photos: 2 }); const before = structuredClone(h.state);
+  await assert.rejects(() => h.run(h.request), { code: "INMOWEB_NEW_DISABLED" });
+  assert.deepEqual(h.state, before);
+  assert.deepEqual([h.effects.fetch, h.effects.acquire, h.effects.downloads, h.effects.uploads, h.effects.writes.length], [0, 0, 0, 0, 0]);
+  const safe = safeRunSummary(h.state.run, new Date(), h.dependencies.env);
+  assert.equal(safe.newImportEligible, false); assert.equal(safe.newImportBlockedReason, "INMOWEB_NEW_DISABLED");
+  assert.equal(safe.snapshotComplete, false); assert.equal(safe.applyEligible, false);
+});
+test("InmoWeb synthetic ON reuses Phase 2, publication fence, one lease and atomic per-property receipt", async () => {
+  const feedXml = inmoXml(1, 3).replace('<titulo>Piso sintético</titulo>', `<titulo>${"Texto comercial largo ".repeat(12)}</titulo>`)
+    .replace('<estado id="SM"/>', '<estado/>').replace('<dormitorios>2</dormitorios>', '<dormitorios/>')
+    .replace('<banos>1</banos>', '<banos/>').replace('<operacion id="1">', '<operacion id="2">');
+  const h = inmoHarness({ feedXml }); const urls = []; h.faults.download = (_, url) => urls.push(url);
+  const result = await h.run(h.request), p = h.state.properties[0];
+  assert.equal(result.newImport.counts.imported, 1); assert.equal(p.externalId, "IW-0");
+  assert.equal(p.referencia, "SYNTHETIC-REF-A"); assert.equal(p.importSourceId, S); assert.equal(p.usuarioId, U); assert.equal(p.source, "crm");
+  assert.equal(p.precisionUbicacion, "aproximada"); assert.equal(p.direccion, ""); assert.equal(p.ubicacionPublica, "Zona ficticia, Municipio ficticio");
+  assert.equal(p.periodicidadPrecio, "desconocida"); assert.equal(p.estado, "no_informado"); assert.equal(p.habitaciones, null);
+  assert.equal(p.habitacionesEstado, "desconocido"); assert.equal(p.banos, null); assert.equal(p.moneda, "EUR");
+  const persistedModel = new Propiedad(p); await persistedModel.validate();
+  assert.equal(persistedModel.banos, null); assert.equal(persistedModel.habitaciones, null); assert.equal(persistedModel.syncEnabled, false);
+  assert.equal(p.superficie, 90); assert.equal(p.superficieParcela, 150); assert.equal(p.precio, 210000);
+  assert.equal(p.garaje, true); assert.equal(p.piscina, true); assert.equal(p.terraza, true);
+  assert.equal(p.titulo, "Piso en alquiler en Zona ficticia, Municipio ficticio");
+  assert.equal(urls[0], "https://images.example/0/1.jpg"); assert.equal(p.imagenes.length, 3);
+  assert.equal(h.effects.acquire, 1); assert.equal(h.effects.release, 1); assert.equal(h.state.user.publicationVersion, 1);
+  assert.equal(h.state.reconciliations.length, 0); assert.equal(h.state.run.newImport.results[0].propertyId, p._id);
+  assert.equal(h.state.run.snapshotComplete, false);
+  const before = structuredClone(h.effects); assert.equal((await h.run(h.request)).alreadyImported, true); assert.deepEqual(h.effects, before);
+});
+for (const [name, change] of [
+  ["disappeared", xml => xml.replace('id="IW-0"', 'id="OTHER"')],
+  ["ineligible", xml => xml.replace('<familia id="24">', '<familia id="999">')],
+  ["price changed", xml => xml.replace('>210000</precio>', '>211000</precio>')],
+  ["reference changed", xml => xml.replace('SYNTHETIC-REF-A', 'SYNTHETIC-REF-B')],
+  ["plot surface changed", xml => xml.replace('<parcela>150</parcela>', '<parcela>151</parcela>')],
+  ["public zone changed", xml => xml.replace('Zona ficticia', 'Otra zona ficticia')],
+  ["duplicate ID", xml => xml.replace('</properties>', xml.match(/<propiedad\b[\s\S]*?<\/propiedad>/)[0] + '</properties>')]
+]) test(`InmoWeb fresh ${name} aborts before images/persistence`, async () => {
+  const h = inmoHarness({ photos: 2 }); h.feed(change(inmoXml(1, 2)));
+  await assert.rejects(() => h.run(h.request));
+  assert.equal(h.effects.downloads, 0); assert.equal(h.effects.uploads, 0); assert.equal(h.state.properties.length, 0);
+  assert.equal(h.state.run.newImport, undefined); assert.equal(h.state.source.importLockToken, undefined);
+});
+test("InmoWeb existing identity is ALREADY_EXISTS, never a second property", async () => {
+  const h = inmoHarness({ photos: 2 }); h.state.properties.push({ _id: U, usuarioId: U, importSourceId: S, source: "crm", externalId: "IW-0" });
+  const result = await h.run(h.request); assert.equal(result.newImport.counts.imported, 0);
+  assert.equal(result.newImport.counts.alreadyExists, 1); assert.equal(h.effects.downloads, 0); assert.equal(h.state.properties.length, 1);
+});
+for (const mode of ["full", "inactive", "reconciliation"]) test(`InmoWeb shares ${mode} protection without images`, async () => {
+  const h = inmoHarness({ plan: mode === "full" ? "gratis" : "vip", photos: 1 });
+  if (mode === "full") h.state.properties.push({ usuarioId: U }, { usuarioId: U });
+  if (mode === "inactive") h.state.user.planActivo = false;
+  if (mode === "reconciliation") h.state.reconciliations.push({ usuarioId: U, importSourceId: S, externalId: "IW-0" });
+  await assert.rejects(() => h.run(h.request), { code: mode === "full" ? "SYNC_NEW_PLAN_LIMIT"
+    : mode === "inactive" ? "SYNC_NEW_PLAN_REQUIRED" : "SYNC_NEW_RECONCILIATION_PENDING" });
+  assert.equal(h.effects.downloads, 0); assert.equal(h.effects.uploads, 0);
+});
+test("InmoWeb per-plan photo cap is reported, not silently truncated", async () => {
+  const limit = getLimiteFotosPlan("gratis"), h = inmoHarness({ plan: "gratis", photos: limit + 2 });
+  const result = await h.run(h.request);
+  assert.equal(result.newImport.counts.importedImages, limit); assert.equal(result.newImport.counts.skippedImages, 2);
+  assert.ok(result.newImport.results[0].imageWarnings > 0);
+});
+test("InmoWeb retains 10 properties/100 images/120s and rejects excess", async () => {
+  const h = inmoHarness({ count: 10, photos: 10 });
+  assert.equal((await h.run(h.request)).newImport.counts.imported, 10); assert.equal(h.effects.uploads, 100);
+  const many = inmoHarness({ count: 11 }); await assert.rejects(() => many.run(many.request), { code: "SYNC_NEW_SELECTION_INVALID" });
+  const photos = inmoHarness({ count: 2, photos: 51 }); await assert.rejects(() => photos.run(photos.request));
+  assert.equal(photos.effects.uploads, 0); assert.deepEqual([MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS], [10, 100, 120000]);
+});
+for (const mode of ["photo", "upload", "failCreate", "unconfirmed"]) test(`InmoWeb shared image/persistence failure ${mode}`, async () => {
+  const h = inmoHarness({ photos: 2 }); h.faults[mode] = true;
+  if (mode === "unconfirmed") {
+    await assert.rejects(() => h.run(h.request), { code: "SYNC_NEW_UNCONFIRMED" });
+    assert.equal(h.effects.deletes, 0); assert.equal(h.state.reconciliations[0].state, "unknown");
+    const calls = h.effects.uploads; await assert.rejects(() => h.run(h.request), { code: "SYNC_NEW_UNCONFIRMED" }); assert.equal(h.effects.uploads, calls);
+  } else {
+    const result = await h.run(h.request);
+    assert.equal(result.newImport.counts.imported, mode === "failCreate" ? 0 : 1);
+    if (mode === "failCreate") { assert.equal(h.effects.deletes, 2); assert.equal(h.state.properties.length, 0); }
+    else { assert.equal(result.newImport.counts.importedImages, 0); assert.equal(result.newImport.counts.skippedImages, 2); }
+    assert.equal(h.state.reconciliations.length, 0);
+  }
+});
+test("InmoWeb shares one timeout budget, releases only its lease and does not persist", async () => {
+  const h = inmoHarness(); h.faults.timeout = 10; h.faults.fetch = () => new Promise(resolve => setTimeout(resolve, 30));
+  await assert.rejects(() => h.run(h.request), { code: "IMPORT_TIMEOUT" });
+  assert.equal(h.state.source.importLockToken, undefined); assert.equal(h.state.properties.length, 0); assert.equal(h.effects.downloads, 0);
+});
+test("InmoWeb transactional callback retries do not repeat image uploads", async () => {
+  const h = inmoHarness({ photos: 2 }); h.faults.retry = true;
+  assert.equal((await h.run(h.request)).newImport.counts.imported, 1);
+  assert.equal(h.effects.uploads, 2); assert.equal(h.effects.downloads, 2);
+  assert.equal(h.state.properties.length, 1); assert.equal(h.state.run.newImport.results.length, 1);
+});
+test("InmoWeb simulation persists presence evidence but cannot produce MISSING or enable other actions", async () => {
+  const h = inmoHarness({ enabled: false }); h.state.properties.push({ usuarioId: U, importSourceId: S, source: "crm", externalId: "ABSENT" });
+  const response = await createSyncSimulator(h.dependencies)({ usuarioId: U, importSourceId: S });
+  assert.equal(response.status, "simulated"); assert.equal(response.snapshotComplete, false); assert.equal(response.missingCount, 0);
+  assert.equal(response.newCount, 1); assert.equal(response.newImportEligible, false); assert.equal(response.applyEligible, false);
+  assert.equal(h.state.run.newSnapshotComplete, true); assert.equal(h.state.run.providerNormalizationVersion, 1);
+  assert.deepEqual(response, safeRunSummary(h.state.run, h.dependencies.now(), h.dependencies.env));
+  await assert.rejects(() => acquireSyncLock({ ...h.dependencies, usuarioId: U, importSourceId: S }), { code: "SYNC_SOURCE_NOT_CONFIGURED" });
+  for (const factory of [createSyncApplier, createMissingHider, createReappearedRestorer]) {
+    await assert.rejects(() => factory(h.dependencies)(h.request));
+  }
+  assert.equal(h.effects.downloads, 0); assert.equal(h.effects.uploads, 0); assert.equal(h.effects.writes.filter(w => w.model === "property").length, 0);
+});
 
 test("NEW blocked for UPDATE imports through actual Phase 2, one lock and transactional receipt", async () => {
   const h = harness({ photos: 2 });
@@ -575,6 +709,24 @@ test("HTTP NEW requires auth, strict body and req.user ownership, GET returns re
     const result = await http(app, "GET", `/api/crm-import/sync/runs/${R}`, {});
     assert.equal(result.body.newImport.status, "completed");
     assert.equal(result.body.newImport.counts.imported, 1);
+  } finally { Usuario.findById = old; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
+});
+test("HTTP InmoWeb OFF rejects NEW safely, GET preserves pending activation and no work starts", async () => {
+  const old = Usuario.findById, secret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = "test"; Usuario.findById = async () => ({ _id: U, activo: true });
+  const h = inmoHarness({ enabled: false }), app = express(), pass = (req, res, next) => next(); app.use(express.json());
+  app.use("/api/crm-import", createCrmImportRouter({ ...h.dependencies, importNewSync: h.run,
+    newImportRateLimitMiddleware: pass, newImportUserRateLimitMiddleware: pass }));
+  const body = { runId: R, externalIds: ["IW-0"] };
+  try {
+    const result = await http(app, "POST", "/api/crm-import/sync/import-new", body);
+    assert.equal(result.status, 409); assert.equal(result.body.code, "INMOWEB_NEW_DISABLED");
+    assert.equal(result.body.error, "Importación InmoWeb preparada. Activación pendiente.");
+    assert.doesNotMatch(JSON.stringify(result.body), /feed\.example|secret|encrypted|stack/);
+    assert.equal((await http(app, "POST", "/api/crm-import/sync/import-new", { ...body, INMOWEB_NEW_ENABLED: true })).status, 400);
+    const read = await http(app, "GET", `/api/crm-import/sync/runs/${R}`, {});
+    assert.equal(read.body.newImportEligible, false); assert.equal(read.body.applyEligible, false); assert.equal(read.body.snapshotComplete, false);
+    assert.equal(h.effects.acquire, 0); assert.equal(h.effects.fetch, 0); assert.equal(h.effects.writes.length, 0);
   } finally { Usuario.findById = old; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
 });
 test("NEW uses independent user/IP 5 per hour rate limits", () => {

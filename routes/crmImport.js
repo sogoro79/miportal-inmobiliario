@@ -29,6 +29,7 @@ import { createMissingHider } from "../utils/import/syncHideMissing.js";
 import { safeMissingHideCode } from "../utils/import/missingHideState.js";
 import { createReappearedRestorer } from "../utils/import/syncRestoreReappeared.js";
 import { safeRestoreCode, validRestoreExternalId } from "../utils/import/reappearedRestoreState.js";
+import { assertInmowebNewEnabled } from "../utils/import/inmowebPolicy.js";
 
 const analyzeSchema = z.object({
   feedUrl: z.string().trim().url().max(2000),
@@ -91,16 +92,17 @@ export function createCrmImportRouter({
   importRateLimitMiddleware = securityRateLimits.crmImport,
   importUserRateLimitMiddleware = securityRateLimits.crmImportByUser,
   rateLimitMiddleware = securityRateLimits.crmImportAnalyze,
-  userRateLimitMiddleware = securityRateLimits.crmImportAnalyzeByUser
+  userRateLimitMiddleware = securityRateLimits.crmImportAnalyzeByUser,
+  env = process.env
 } = {}) {
   const router = express.Router();
-  const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel });
-  const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
+  const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel, env });
+  const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, env });
   const runEnrollment = enrollSync || createSyncEnroller({ ImportSourceModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runApply = applySync || createSyncApplier({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runNewImport = importNewSync || createSyncNewImporter({ ImportSourceModel, ImportSyncRunModel,
-    PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
-  const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel });
+    PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, env });
+  const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel, env });
   const runMissingHide = hideMissingSync || createMissingHider({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
   const runRestore = restoreReappearedSync || createReappearedRestorer({ ImportSourceModel, ImportSyncRunModel,
@@ -123,9 +125,9 @@ export function createCrmImportRouter({
   });
 
   router.put("/sync/source", requireAuth, userRateLimitMiddleware, rateLimitMiddleware, async (req, res) => {
-    const parsed = analyzeSchema.safeParse(req.body || {});
+    const parsed = analyzeSchema.extend({ feedType: z.enum(["generic_xml", "inmoweb"]).optional() }).safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: "Indica solamente una URL pública de feed válida." });
-    try { return res.json(await sourceManager.configure(req.user.id, parsed.data.feedUrl)); }
+    try { return res.json(await sourceManager.configure(req.user.id, parsed.data.feedUrl, parsed.data.feedType || "generic_xml")); }
     catch (error) { return sourceError(res, error); }
   });
 
@@ -187,6 +189,7 @@ export function createCrmImportRouter({
       return res.status(status).json({ code, error: code === "SYNC_NEW_UNCONFIRMED" || code === "SYNC_NEW_IN_PROGRESS"
         ? "El resultado no está confirmado o sigue en curso. Consulta el estado de la simulación antes de volver a intentarlo."
         : code === "RUN_EXPIRED" ? "Esta simulación ha caducado. Vuelve a simular."
+        : code === "INMOWEB_NEW_DISABLED" ? "Importación InmoWeb preparada. Activación pendiente."
         : "No se pudieron importar los anuncios nuevos. Revisa el estado y vuelve a simular." });
     }
   });
@@ -267,7 +270,7 @@ export function createCrmImportRouter({
       if (query?.lean) query = query.lean();
       const run = await query;
       if (!run) return res.status(404).json({ error: "Simulación no encontrada." });
-      return res.json(safeRunSummary(run));
+      return res.json(safeRunSummary(run, new Date(), env));
     } catch {
       return res.status(500).json({ error: "No se pudo consultar la simulación." });
     }
@@ -282,12 +285,17 @@ export function createCrmImportRouter({
     const budget = createImportBudget();
     try {
       const fetched = await fetchFeedXml(parsed.data.feedUrl, { budget });
+      if (detectFeedType(fetched.xml) === "inmoweb") {
+        assertInmowebNewEnabled("inmoweb", env);
+        throw new ImportError("InmoWeb requiere una simulación vigente.", 409, "INMOWEB_NEW_REQUIRES_SYNC");
+      }
       const analyzed = analyzeFeedXml(fetched.xml, { maxProperties: DEFAULT_MAX_PREVIEW_PROPERTIES, maxPhotos: Infinity });
       return res.json(await runImport({ usuarioId: req.user.id, ...parsed.data, analyzed, budget }));
     } catch (error) {
-      const response = error instanceof ImportError || error.code === "IMPORT_TIMEOUT" ? { status: error.status, error: error.message } : normalizarErrorFeed(error);
+      const response = error instanceof ImportError || error.code === "IMPORT_TIMEOUT" || error.code === "INMOWEB_NEW_DISABLED" ? { status: error.status, error: error.message } : normalizarErrorFeed(error);
       console.warn("[CRM Import]", { feedUrl: maskFeedUrl(parsed.data.feedUrl), code: error instanceof ImportError ? "IMPORT_REJECTED" : error?.code || "IMPORT_FAILED", status: response.status });
-      return res.status(response.status).json({ error: response.error });
+      return res.status(response.status).json({ error: response.error,
+        ...(["INMOWEB_NEW_DISABLED", "INMOWEB_NEW_REQUIRES_SYNC"].includes(error.code) ? { code: error.code } : {}) });
     } finally {
       budget.dispose();
     }
