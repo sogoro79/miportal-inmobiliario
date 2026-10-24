@@ -9,7 +9,7 @@ import { analyzeGenericPropertyNodes, parseGenericPropertyNodes } from "../impor
 import { fetchFeedXml } from "./feedFetcher.js";
 import { MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
 import { buildFeedSnapshot } from "../importers/importerRegistry.js";
-import { assertInmowebNewEnabled, receivedNewSnapshotValid } from "./inmowebPolicy.js";
+import { assertInmowebNewSelectionAllowed, receivedNewSnapshotValid } from "./inmowebPolicy.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { evaluateRunNewImportEligibility, snapshotDigest } from "./syncPlan.js";
 import { acquireSyncLock } from "./syncLock.js";
@@ -64,7 +64,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const source = await budget.run(() => ImportSourceModel.findOne({ _id: initial.importSourceId, usuarioId, activo: true }));
       if (!source) throw newImportError("SYNC_SOURCE_NOT_FOUND", 404);
       if ((initial.feedType || "generic_xml") !== source.feedType) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
-      assertInmowebNewEnabled(source.feedType, env);
+      assertInmowebNewSelectionAllowed(source.feedType, selected, env);
       if (initial.sourceIdentityHash !== source.feedUrlHash) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
       if (initial.newImport && initial.newImport.status !== "idle") {
         if (!sameSelection(initial.newImport.selectedExternalIds, selected)) throw newImportError("SYNC_NEW_SELECTION_MISMATCH");

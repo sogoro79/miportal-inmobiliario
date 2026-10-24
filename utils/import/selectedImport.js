@@ -13,7 +13,7 @@ import { getPlanParaFotos } from "../publishEligibility.js";
 import { configureCloudinary, uploadBuffer, destroyByPublicId } from "../cloudinaryService.js";
 import { fetchImportImage } from "./imageFetcher.js";
 import { maskFeedUrl, parseAndValidateFeedUrl } from "./feedSecurity.js";
-import { assertInmowebNewEnabled } from "./inmowebPolicy.js";
+import { assertInmowebNewSelectionAllowed } from "./inmowebPolicy.js";
 import { evaluateInmowebNewEligibility } from "./inmowebNewEligibility.js";
 
 export class ImportError extends Error {
@@ -68,7 +68,7 @@ export function createSelectedImporter({
     const budget = suppliedBudget || createImportBudget({ now: () => now().getTime() });
     try {
       budget.assertActive();
-      assertInmowebNewEnabled(analyzed.feedType, env);
+      assertInmowebNewSelectionAllowed(analyzed.feedType, selectedExternalIds, env);
       if (analyzed.feedType === "inmoweb" && !internalContext) {
         throw new ImportError("InmoWeb requiere una simulación vigente.", 409, "INMOWEB_NEW_REQUIRES_SYNC");
       }

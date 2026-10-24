@@ -25,6 +25,7 @@ import { buildFeedSnapshot } from "../utils/importers/importerRegistry.js";
 import { receivedNewSnapshotValid } from "../utils/import/inmowebPolicy.js";
 import { createSyncSimulator } from "../utils/import/syncSimulation.js";
 import { createReappearedRestorer } from "../utils/import/syncRestoreReappeared.js";
+import { createSyncEnroller } from "../utils/import/syncEnroll.js";
 import { acquireSyncLock } from "../utils/import/syncLock.js";
 import { getLimiteFotosPlan } from "../utils/planLimits.js";
 
@@ -132,8 +133,9 @@ function update(doc, operation) {
   }
   for (const key of Object.keys(operation.$unset || {})) delete doc[key];
 }
-function harness({ count = 1, photos = 0, plan = "vip", feedXml, feedType = "generic_xml", inmowebEnabled = false } = {}) {
-  const testEnv = { ...env, ...(inmowebEnabled ? { INMOWEB_NEW_ENABLED: "true" } : {}) };
+function harness({ count = 1, photos = 0, plan = "vip", feedXml, feedType = "generic_xml", inmowebEnabled = false, inmowebAllowedExternalIds } = {}) {
+  const testEnv = { ...env, ...(inmowebEnabled ? { INMOWEB_NEW_ENABLED: "true" } : {}),
+    ...(inmowebAllowedExternalIds !== undefined ? { INMOWEB_NEW_ALLOWED_EXTERNAL_IDS: inmowebAllowedExternalIds } : {}) };
   let clock = new Date(), feed = feedXml ?? xml(count, photos), txn;
   const snapshot = buildFeedSnapshot(feed, { feedType });
   const state = { source: { _id: S, usuarioId: U, activo: true, feedType,
@@ -261,8 +263,10 @@ function inmoXml(count = 1, photos = 0) {
     .replace(/<imagenes>[\s\S]*?<\/imagenes>/, `<imagenes>${Array.from({ length: photos }, (_, n) =>
       `<imagen url="https://images.example/${i}/${n}.jpg" principal="${n === 1 ? 1 : 0}"/>`).join("")}</imagenes>`)).join("")}</properties>`;
 }
-function inmoHarness({ enabled = true, count = 1, photos = 0, feedXml, plan = "vip" } = {}) {
-  const h = harness({ feedXml: feedXml ?? inmoXml(count, photos), feedType: "inmoweb", inmowebEnabled: enabled, plan });
+function inmoHarness({ enabled = true, count = 1, photos = 0, feedXml, plan = "vip",
+  allowlist = Array.from({ length: count }, (_, i) => `IW-${i}`).join(",") } = {}) {
+  const h = harness({ feedXml: feedXml ?? inmoXml(count, photos), feedType: "inmoweb", inmowebEnabled: enabled, plan,
+    inmowebAllowedExternalIds: allowlist });
   h.request.externalIds = Array.from({ length: count }, (_, i) => `IW-${i}`);
   return h;
 }
@@ -274,6 +278,41 @@ test("InmoWeb OFF blocks before lock, fetch, images, receipt or property writes"
   const safe = safeRunSummary(h.state.run, new Date(), h.dependencies.env);
   assert.equal(safe.newImportEligible, false); assert.equal(safe.newImportBlockedReason, "INMOWEB_NEW_DISABLED");
   assert.equal(safe.snapshotComplete, false); assert.equal(safe.applyEligible, false);
+});
+for (const [name, allowlist, count] of [["empty allowlist", "", 1], ["unlisted ID", "OTHER", 1],
+  ["wildcard", "*", 1], ["partially authorized batch", "IW-0", 2]]) {
+  test(`InmoWeb ${name} denies the entire request before all side effects`, async () => {
+    const h = inmoHarness({ allowlist, count, photos: 1 });
+    const before = structuredClone(h.state), effects = structuredClone(h.effects);
+    await assert.rejects(() => h.run(h.request), { code: "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED", status: 409 });
+    assert.deepEqual(h.state, before); assert.deepEqual(h.effects, effects);
+  });
+}
+test("InmoWeb batch with both exact IDs authorized continues through the existing mock pipeline", async () => {
+  const h = inmoHarness({ count: 2, allowlist: " , IW-0, , IW-1 , ", photos: 1 });
+  const result = await h.run(h.request);
+  assert.equal(result.newImport.counts.imported, 2);
+  assert.equal(h.effects.acquire, 1); assert.equal(h.effects.downloads, 2);
+});
+test("InmoWeb completed replay still requires the operational allowlist", async () => {
+  const h = inmoHarness();
+  await h.run(h.request);
+  h.dependencies.env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS = "OTHER";
+  const before = structuredClone(h.state), effects = structuredClone(h.effects);
+  await assert.rejects(() => h.run(h.request), { code: "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED" });
+  assert.deepEqual(h.state, before); assert.deepEqual(h.effects, effects);
+});
+test("both NEW gates enabled never enable InmoWeb UPDATE, MISSING, REAPPEARED or enrollment", async () => {
+  const h = inmoHarness();
+  const safe = safeRunSummary(h.state.run, h.dependencies.now(), h.dependencies.env);
+  assert.equal(safe.applyEligible, false); assert.equal(safe.snapshotComplete, false);
+  for (const factory of [createSyncApplier, createMissingHider, createReappearedRestorer]) {
+    await assert.rejects(() => factory(h.dependencies)(h.request));
+  }
+  await assert.rejects(() => createSyncEnroller(h.dependencies)({ usuarioId: U, importSourceId: S,
+    externalIds: ["IW-0"] }), { code: "SYNC_SOURCE_NOT_CONFIGURED" });
+  assert.equal(h.effects.fetch, 0); assert.equal(h.effects.acquire, 0);
+  assert.equal(h.effects.downloads, 0); assert.equal(h.effects.uploads, 0); assert.equal(h.effects.writes.length, 0);
 });
 test("InmoWeb synthetic ON reuses Phase 2, publication fence, one lease and atomic per-property receipt", async () => {
   const feedXml = inmoXml(1, 3).replace('<titulo>Piso sintético</titulo>', `<titulo>${"Texto comercial largo ".repeat(12)}</titulo>`)
@@ -727,6 +766,25 @@ test("HTTP InmoWeb OFF rejects NEW safely, GET preserves pending activation and 
     const read = await http(app, "GET", `/api/crm-import/sync/runs/${R}`, {});
     assert.equal(read.body.newImportEligible, false); assert.equal(read.body.applyEligible, false); assert.equal(read.body.snapshotComplete, false);
     assert.equal(h.effects.acquire, 0); assert.equal(h.effects.fetch, 0); assert.equal(h.effects.writes.length, 0);
+  } finally { Usuario.findById = old; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
+});
+test("HTTP InmoWeb rejects a partially authorized batch with a safe code and no side effects", async () => {
+  const old = Usuario.findById, secret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = "test"; Usuario.findById = async () => ({ _id: U, activo: true });
+  const h = inmoHarness({ count: 2, allowlist: "IW-0", photos: 1 });
+  const before = structuredClone(h.state), effects = structuredClone(h.effects);
+  const app = express(), pass = (req, res, next) => next(); app.use(express.json());
+  app.use("/api/crm-import", createCrmImportRouter({ ...h.dependencies, importNewSync: h.run,
+    newImportRateLimitMiddleware: pass, newImportUserRateLimitMiddleware: pass }));
+  try {
+    const result = await http(app, "POST", "/api/crm-import/sync/import-new", h.request);
+    assert.equal(result.status, 400);
+    const denied = await http(app, "POST", "/api/crm-import/sync/import-new", { runId: R, externalIds: ["IW-0", "IW-1"] });
+    assert.equal(denied.status, 409);
+    assert.deepEqual(denied.body, { code: "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED",
+      error: "La selección no está autorizada para la prueba InmoWeb." });
+    assert.doesNotMatch(JSON.stringify(denied.body), /IW-0|IW-1|feed\.example|secret|encrypted|stack|ALLOWED_EXTERNAL_IDS/);
+    assert.deepEqual(h.state, before); assert.deepEqual(h.effects, effects);
   } finally { Usuario.findById = old; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
 });
 test("NEW uses independent user/IP 5 per hour rate limits", () => {

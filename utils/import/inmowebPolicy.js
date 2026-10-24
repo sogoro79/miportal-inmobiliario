@@ -10,6 +10,21 @@ export function assertInmowebNewEnabled(feedType, env = process.env) {
   }
 }
 
+export function assertInmowebNewSelectionAllowed(feedType, externalIds, env = process.env) {
+  assertInmowebNewEnabled(feedType, env);
+  if (feedType !== "inmoweb") return;
+  const configured = env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS;
+  const allowed = new Set(typeof configured === "string"
+    ? configured.split(",").map(id => id.trim()).filter(id => id && !id.includes("*"))
+    : []);
+  if (!Array.isArray(externalIds) || !externalIds.length ||
+      externalIds.some(id => typeof id !== "string" || !allowed.has(id))) {
+    throw Object.assign(new Error("La selección no está autorizada para la prueba InmoWeb."), {
+      code: "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED", status: 409
+    });
+  }
+}
+
 // This certifies only the received records, never that absent records can be hidden.
 export function receivedNewSnapshotValid(snapshot) {
   if (snapshot.feedType !== "inmoweb") return snapshot.snapshotComplete === true;

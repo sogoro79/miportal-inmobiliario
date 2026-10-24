@@ -190,6 +190,7 @@ export function createCrmImportRouter({
         ? "El resultado no está confirmado o sigue en curso. Consulta el estado de la simulación antes de volver a intentarlo."
         : code === "RUN_EXPIRED" ? "Esta simulación ha caducado. Vuelve a simular."
         : code === "INMOWEB_NEW_DISABLED" ? "Importación InmoWeb preparada. Activación pendiente."
+        : code === "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED" ? "La selección no está autorizada para la prueba InmoWeb."
         : "No se pudieron importar los anuncios nuevos. Revisa el estado y vuelve a simular." });
     }
   });
