@@ -841,9 +841,9 @@
 </nav>
 
 <script src="/js/publish-flow.js"></script>
-<script src="/js/precios.js?v=1"></script>
+<script src="/js/precios.js?v=2"></script>
 <script src="/js/crm-sync-ui.js?v=11"></script>
-<script src="/js/crm-readonly-preview.js?v=3"></script>
+<script src="/js/crm-readonly-preview.js?v=4"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");
@@ -1051,10 +1051,10 @@ function inicializarImportadorCrm(usuario) {
   if (esUsuarioProfesional(usuario)) window.HomeClickCrmSync.iniciar(() => token);
 }
 
-function formatearPrecioCrm(precio, tipoOperacion = "") {
+function formatearPrecioCrm(precio, tipoOperacion = "", periodicidadPrecio) {
   const numero = Number(precio);
   if (!Number.isFinite(numero)) return "—";
-  return formatearPrecioPropiedad(numero, tipoOperacion);
+  return formatearPrecioPropiedad(numero, tipoOperacion, periodicidadPrecio);
 }
 
 function textoImportacionCupo(data) {
@@ -1126,7 +1126,7 @@ function renderizarPreviewCrm(data) {
         <td>${escaparHtml(propiedad.externalId || "—")}</td>
         <td>${escaparHtml(propiedad.titulo || "Sin título")}</td>
         <td>${escaparHtml(propiedad.tipoOperacion || "—")}</td>
-        <td>${escaparHtml(formatearPrecioCrm(propiedad.precio, propiedad.tipoOperacion))}</td>
+        <td>${escaparHtml(formatearPrecioCrm(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio))}</td>
         <td>${escaparHtml(propiedad.localidad || "—")}</td>
         <td>${propiedad.fotosDisponibles || 0} disponibles / ${propiedad.fotosImportables || 0} importables</td>
         <td class="${propiedad.errors?.length ? "crm-import-muted" : ""}">${escaparHtml(estado)}</td>
@@ -1336,7 +1336,7 @@ async function cargarPropiedades() {
 
   cont.innerHTML = mias.map(p => {
     const img     = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600";
-    const precio  = formatearPrecioPropiedad(p.precio, p.tipoOperacion);
+    const precio  = formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio);
     const tipo    = p.tipoOperacion === "venta" ? "Venta" : "Alquiler";
     const tipoCls = p.tipoOperacion === "venta" ? "tag-venta" : "tag-alquiler";
     const hab     = p.habitaciones ? `🛏 ${p.habitaciones} hab.` : "";

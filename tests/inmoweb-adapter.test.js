@@ -68,8 +68,9 @@ for (const [id, expected] of [["1", "venta"], ["2", "alquiler"], ["6", null], ["
     assert.equal(p.data.tipoOperacion, expected);
     if (expected === null) assert.ok(p.errors.includes("INMOWEB_UNSUPPORTED_OPERATION"));
     if (expected === "alquiler") {
-      assert.equal(p.data.periodicidadPrecio, null);
-      assert.ok(p.errors.includes("INMOWEB_RENT_PERIOD_UNKNOWN"));
+      assert.equal(p.data.periodicidadPrecio, "desconocida");
+      assert.ok(p.warnings.includes("INMOWEB_RENT_PERIOD_UNKNOWN"));
+      assert.ok(!p.errors.includes("INMOWEB_RENT_PERIOD_UNKNOWN"));
     }
   });
 }

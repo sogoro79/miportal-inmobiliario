@@ -31,6 +31,7 @@ const PropiedadSchema = new mongoose.Schema({
   provincia:     { type: String, default: "" },
   codigoPostal:  { type: String, default: "" },
   precio:        { type: Number, required: true },
+  periodicidadPrecio: { type: String, enum: ["mes", "semana", "dia", "temporada", "desconocida", null] },
   descripcion:   { type: String },
   tipoOperacion: { type: String, enum: ["venta", "alquiler"], required: true },
   habitaciones:  { type: Number, default: 0 },
@@ -104,6 +105,11 @@ const PropiedadSchema = new mongoose.Schema({
   fechaExpiracion: { type: Date, default: null },
   videoUrl: { type: String, default: "" },
 }, { timestamps: true });
+
+PropiedadSchema.pre("validate", function () {
+  if (this.tipoOperacion === "venta" && (this.isNew || this.periodicidadPrecio !== undefined)) this.periodicidadPrecio = null;
+  else if (this.isNew && this.periodicidadPrecio == null) this.periodicidadPrecio = "desconocida";
+});
 
 PropiedadSchema.index({ usuarioId: 1, importSourceId: 1, externalId: 1 }, {
   unique: true,

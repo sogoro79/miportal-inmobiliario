@@ -145,7 +145,7 @@
 <script src="/js/header.js" defer></script>
 <script src="/js/seo-slug.js"></script>
 <script src="/js/public-location.js?v=1"></script>
-<script src="/js/precios.js?v=1"></script>
+<script src="/js/precios.js?v=2"></script>
 
 <!-- HEADER -->
 <div class="favoritos-header">
@@ -202,7 +202,7 @@ async function cargarFavoritos() {
 
     cont.innerHTML = data.map(p => {
       const img     = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600";
-      const precio  = formatearPrecioPropiedad(p.precio, p.tipoOperacion);
+      const precio  = formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio);
       const tipo    = p.tipoOperacion === "venta" ? "Venta" : "Alquiler";
       const tipoCls = p.tipoOperacion === "venta" ? "tag-venta" : "tag-alquiler";
       const hab     = p.habitaciones ? `🛏 ${p.habitaciones} hab.` : "";

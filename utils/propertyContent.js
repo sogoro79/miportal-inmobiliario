@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 
 export const CONTENT_FIELDS = Object.freeze([
-  "titulo", "referencia", "descripcion", "precio", "tipoOperacion", "direccion", "localidad",
+  "titulo", "referencia", "descripcion", "precio", "tipoOperacion", "direccion", "localidad", "periodicidadPrecio",
   "provincia", "codigoPostal", "ubicacionPublica", "precisionUbicacion", "lat", "lng", "habitaciones", "banos", "superficie",
   "superficieParcela", "tipoInmueble", "estado", "estadoComercial", "estadoPropiedad",
   "certificadoEnergetico", "imagenes", "garaje", "piscina", "terraza", "escaparate",

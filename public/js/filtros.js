@@ -80,6 +80,7 @@ async function cargarPropiedades() {
     const max   = document.getElementById("f_max")?.value;
     const hab   = document.getElementById("f_hab")?.value;
     const sort       = document.getElementById("f_sort")?.value;
+    const periodicidad = tipo === "alquiler" ? document.getElementById("f_periodicidad")?.value || "mes" : null;
     const banos      = document.getElementById("f_banos")?.value;
     const supMin     = document.getElementById("f_sup_min")?.value;
     const supMax     = document.getElementById("f_sup_max")?.value;
@@ -91,6 +92,7 @@ async function cargarPropiedades() {
 
     const params = new URLSearchParams();
     if (tipo)         params.append("tipo", tipo);
+    if (periodicidad) params.append("periodicidadPrecio", periodicidad);
     if (seoZoneContext) params.append("zona", seoZoneContext.slug);
     if (texto)        params.append("texto", texto);
     if (min)          params.append("min", min);
@@ -109,6 +111,7 @@ async function cargarPropiedades() {
     if (!res.ok) throw new Error("Error");
 
     let data = await res.json();
+    if (periodicidad) data = data.filter(p => periodicidadEfectiva(p) === periodicidad);
 
     // Ordenación en frontend
     if (sort === "precio_asc")  data.sort((a, b) => a.precio - b.precio);
@@ -154,7 +157,7 @@ function renderLista(lista) {
 
   cont.innerHTML = lista.map(p => {
     const img = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600";
-    const precio = formatearPrecioPropiedad(p.precio, p.tipoOperacion);
+    const precio = formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio);
     const hab        = p.habitaciones ? `🛏 ${p.habitaciones} hab.` : "";
     const banos      = p.banos ? `🚿 ${p.banos} baño${p.banos > 1 ? "s" : ""}` : "";
     const superficie = p.superficie ? `📐 ${p.superficie} m²` : "";
@@ -203,7 +206,7 @@ function resetFiltros() {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
-  ["f_hab", "f_sort", "f_banos", "f_tipo_inmueble", "f_estado"].forEach(id => {
+  ["f_hab", "f_sort", "f_banos", "f_tipo_inmueble", "f_estado", "f_periodicidad"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.selectedIndex = 0;
   });

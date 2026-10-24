@@ -62,7 +62,7 @@ async function cargarPropiedad() {
    SEO
 ================================ */
 function actualizarSEO() {
-  const precioTexto = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion);
+  const precioTexto = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio);
   const zonaTexto = window.HomeClickLocation.buildPublicLocation(propiedad);
   const canonicalPath = typeof getPropiedadSeoUrl === "function"
     ? getPropiedadSeoUrl(propiedad)
@@ -110,6 +110,7 @@ function actualizarSEO() {
       "@type": "Offer",
       "price": propiedad.precio,
       "priceCurrency": "EUR",
+      ...(especificacionPrecio(propiedad) ? { priceSpecification: especificacionPrecio(propiedad) } : {}),
       "availability": "https://schema.org/InStock"
     }
   };
@@ -168,7 +169,7 @@ function renderPropiedad() {
   const contenedor = document.getElementById("contenedor");
   const tipo = propiedad.tipoOperacion === "venta" ? "Venta" : "Alquiler";
   const tipoCls = propiedad.tipoOperacion === "venta" ? "tag-venta" : "tag-alquiler";
-  const precio = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion);
+  const precio = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio);
   const hab = propiedad.habitaciones ? `🛏 ${propiedad.habitaciones} habitaciones` : "";
   const estadoPropiedad = propiedad.estadoPropiedad || (propiedad.estado === "obra_nueva" ? "Obra nueva" : propiedad.estado === "segunda_mano" ? "Segunda mano" : "");
 

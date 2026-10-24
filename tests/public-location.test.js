@@ -97,7 +97,7 @@ test("InmoWeb derives approximate location and does not enable any action", () =
 
 test("adding optional location fields does not invalidate historical MISSING fingerprints", () => {
   const property = { titulo: "Legacy", direccion: "Calle", imagenes: [] };
-  const oldFields = CONTENT_FIELDS.filter(k => !["ubicacionPublica", "precisionUbicacion"].includes(k));
+  const oldFields = CONTENT_FIELDS.filter(k => !["ubicacionPublica", "precisionUbicacion", "periodicidadPrecio"].includes(k));
   const expected = crypto.createHash("sha256").update(JSON.stringify(oldFields.map(k => [k, property[k] === undefined ? ["absent"] : ["value", property[k]]]))).digest("hex");
   assert.equal(missingContentFingerprint(property), expected);
   assert.notEqual(missingContentFingerprint({ ...property, precisionUbicacion: "aproximada" }), expected);

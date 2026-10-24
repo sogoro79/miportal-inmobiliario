@@ -60,6 +60,12 @@
       border-radius: 20px;
     }
 
+    /* Keep desktop filters accessible despite the shared mobile defaults. */
+    @media (min-width: 769px) {
+      .contenedor-comprar { grid-template-columns: 260px minmax(0, 1fr); }
+      aside.filtros { display: block; position: sticky; inset: auto; top: 90px; z-index: auto; overflow: visible; }
+    }
+
     /* ===== FILTROS ===== */
     .filtros {
       background: #fff;
@@ -414,7 +420,13 @@
     <div class="filtro-sep"></div>
 
     <div class="filtro-grupo">
-      <label>Precio (€/mes)</label>
+      <label for="f_periodicidad">Periodicidad del precio</label>
+      <select id="f_periodicidad" onchange="cargarPropiedades()">
+        <option value="mes">Mensual</option><option value="semana">Semanal</option>
+        <option value="dia">Diario</option><option value="temporada">Temporada</option>
+        <option value="desconocida">Periodicidad no informada</option>
+      </select>
+      <label>Precio (€ por el periodo seleccionado)</label>
       <div class="filtro-row">
         <input type="number" id="f_min" placeholder="Mín €">
         <input type="number" id="f_max" placeholder="Máx €">
@@ -616,8 +628,8 @@ function toggleCheck(labelId) {
 <script src="/js/seo-slug.js" defer></script>
 <script src="/js/public-location.js?v=1" defer></script>
 <script src="/js/seo-zonas.js" defer></script>
-<script src="/js/precios.js?v=1" defer></script>
-<script src="/js/filtros.js?v=3" defer></script>
+<script src="/js/precios.js?v=2" defer></script>
+<script src="/js/filtros.js?v=4" defer></script>
 <script src="/js/cookies.js"></script>
 </body>
 </html>

@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { pricePeriodFilter, applyPricePeriodEdit, priceAlertFilter, formatearPrecioPropiedad } from "../utils/pricePeriod.js";
+import { periodicidadPrecioSchema } from "../utils/propertySchemas.js";
 import { propiedadCreateSchema, propiedadUpdateSchema, propiedadCrmUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
 import express from "express";
 import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
@@ -71,6 +73,7 @@ const propiedadesQuerySchema = z.object({
   tipo: tipoOperacionSchema.optional(),
   min: optionalNumberFromInput,
   max: optionalNumberFromInput,
+  periodicidadPrecio: periodicidadPrecioSchema.optional(),
   hab: optionalNumberFromInput,
   texto: optionalCleanString(120),
   zona: z.enum(getSeoZoneSlugs()).optional(),
@@ -283,10 +286,15 @@ router.get("/", validateQuery(propiedadesQuerySchema), async (req, res) => {
 
     if (tipo) filtro.tipoOperacion = tipo;
 
-    if (min || max) {
+    if (min !== undefined || max !== undefined) {
       filtro.precio = {};
-      if (min) filtro.precio.$gte = Number(min);
-      if (max) filtro.precio.$lte = Number(max);
+      if (min !== undefined) filtro.precio.$gte = Number(min);
+      if (max !== undefined) filtro.precio.$lte = Number(max);
+    }
+
+    if (req.query.periodicidadPrecio || ((min !== undefined || max !== undefined) && tipo !== "venta")) {
+      const period = pricePeriodFilter(req.query.periodicidadPrecio || "mes");
+      condicionesTexto.push(tipo === "alquiler" ? period : { $or: [{ tipoOperacion: { $ne: "alquiler" } }, { $and: [{ tipoOperacion: "alquiler" }, period] }] });
     }
 
     if (hab) filtro.habitaciones = { $gte: Number(hab) };
@@ -353,6 +361,7 @@ router.get("/destacadas", async (req, res) => {
       titulo: 1,
       precio: 1,
       tipoOperacion: 1,
+      periodicidadPrecio: 1,
       tipoInmueble: 1,
       direccion: 1,
       ubicacionPublica: 1, precisionUbicacion: 1, provincia: 1, codigoPostal: 1,
@@ -413,6 +422,7 @@ router.get("/ultimas", async (req, res) => {
         titulo: 1,
         precio: 1,
         tipoOperacion: 1,
+        periodicidadPrecio: 1,
         tipoInmueble: 1,
         direccion: 1,
         ubicacionPublica: 1, precisionUbicacion: 1, provincia: 1, codigoPostal: 1,
@@ -459,6 +469,7 @@ router.get("/relacionadas/:id", async (req, res) => {
       titulo: 1,
       precio: 1,
       tipoOperacion: 1,
+      periodicidadPrecio: 1,
       tipoInmueble: 1,
       direccion: 1,
       ubicacionPublica: 1, precisionUbicacion: 1, provincia: 1, codigoPostal: 1,
@@ -679,7 +690,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       </p>
 
       <p>
-        Precio: ${propiedad.precio} €
+        Precio: ${formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio)}
       </p>
 
       <br>
@@ -699,12 +710,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       fotos: urlsSubidas.length
     });
 
-    const alertasCoincidentes = await Alerta.find({
-      activa: true,
-      tipoOperacion: propiedad.tipoOperacion,
-      precioMax: { $gte: propiedad.precio },
-      habitaciones: { $lte: propiedad.habitaciones }
-    });
+    const alertasCoincidentes = await Alerta.find(priceAlertFilter(propiedad));
 
     console.log("Alertas encontradas:", alertasCoincidentes);
 
@@ -773,6 +779,9 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
       { path: ["localidad"], message: "Falta una ubicación válida." }) : propiedadUpdateSchema;
     const bodyValido = await validateBodyOrCleanup(updateSchema, req, res, urlsSubidas);
     if (!bodyValido) return;
+    if (req.body.tipoOperacion === "alquiler" && propiedad.tipoOperacion !== "alquiler" && req.body.periodicidadPrecio == null) {
+      return res.status(400).json({ error: "Selecciona la periodicidad del alquiler." });
+    }
     guardManualPropertyRevision(propiedad, req.body.expectedContentRevision);
 
     const {
@@ -788,6 +797,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     propiedad.codigoPostal = codigoPostal !== undefined ? codigoPostal : propiedad.codigoPostal;
     propiedad.precio       = precio !== undefined ? Number(precio) : propiedad.precio;
     propiedad.descripcion  = descripcion || propiedad.descripcion;
+    applyPricePeriodEdit(propiedad, req.body);
     propiedad.tipoOperacion = tipoOperacion || propiedad.tipoOperacion;
     const {
       banos,

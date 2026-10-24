@@ -1,6 +1,7 @@
 import { z, optionalCleanString, optionalNumberFromInput, priceFromInput, numberFromInput } from "./validation.js";
 
 const tipoOperacionSchema = z.enum(["venta", "alquiler"]);
+export const periodicidadPrecioSchema = z.enum(["mes", "semana", "dia", "temporada", "desconocida"]);
 const tipoInmuebleSchema = z.enum([
   "piso", "apartamento", "atico", "duplex", "estudio",
   "casa", "chalet", "adosado", "casa_campo", "casa_madera",
@@ -34,6 +35,7 @@ const propiedadBaseSchema = {
   provincia: optionalCleanString(120),
   codigoPostal: optionalCleanString(20),
   precio: priceFromInput.pipe(z.number().min(0)),
+  periodicidadPrecio: periodicidadPrecioSchema.nullable().optional(),
   descripcion: optionalCleanString(5000),
   tipoOperacion: tipoOperacionSchema,
   habitaciones: numberFromInput.pipe(z.number().int().min(0)),
@@ -62,7 +64,10 @@ const propiedadBaseSchema = {
   imagenesExistentes: z.any().optional()
 };
 
-export const propiedadCreateSchema = z.object(propiedadBaseSchema);
+export const propiedadCreateSchema = z.object(propiedadBaseSchema).superRefine((data, ctx) => {
+  if (data.tipoOperacion === "alquiler" && data.periodicidadPrecio == null) ctx.addIssue({ code: "custom", path: ["periodicidadPrecio"], message: "Selecciona la periodicidad del alquiler." });
+  if (data.tipoOperacion === "venta" && data.periodicidadPrecio != null) ctx.addIssue({ code: "custom", path: ["periodicidadPrecio"], message: "No aplicable a venta." });
+});
 export const propiedadCrmCreateSchema = z.object({ ...propiedadBaseSchema,
   direccion: optionalCleanString(300)
 }).superRefine((data, ctx) => {

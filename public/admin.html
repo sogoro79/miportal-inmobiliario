@@ -2208,6 +2208,9 @@
         <div class="admin-form-field">
           <label for="editPrecio">Precio</label>
           <input type="text" id="editPrecio" inputmode="decimal">
+          <label for="editPeriodicidad">Periodicidad del alquiler (no aplicable a venta)</label>
+          <select id="editPeriodicidad"><option value="">Selecciona...</option><option value="mes">Mensual</option><option value="semana">Semanal</option>
+            <option value="dia">Diario</option><option value="temporada">Temporada</option><option value="desconocida">No indicada</option></select>
         </div>
         <div class="admin-form-field">
           <label for="editTipoOperacion">Tipo de operación</label>
@@ -2315,9 +2318,11 @@
 </div>
 
 <script src="/js/seo-slug.js"></script>
+<script src="/js/precios.js?v=2"></script>
 <script src="/js/public-location.js?v=1"></script>
 <script>
 let adminToken = localStorage.getItem('adminToken');
+let periodicidadAdminInicial, operacionAdminInicial;
 if (adminToken) mostrarPanel();
 
 async function loginAdmin() {
@@ -4198,7 +4203,7 @@ function renderRecomendacionesRedes() {
 
   contenedor.innerHTML = recomendaciones.map(p => {
     const operacion = p.tipoOperacion === 'alquiler' ? 'Alquiler' : 'Venta';
-    const precio = formatearPrecioRedes(p.precio, p.tipoOperacion) || 'Consultar precio';
+    const precio = formatearPrecioRedes(p.precio, p.tipoOperacion, p.periodicidadPrecio) || 'Consultar precio';
     const zona = zonaPropiedadRedes(p);
     const textoBotonPublicado = textoBotonPublicacionRedes(p);
 
@@ -4291,7 +4296,7 @@ function renderCalendarioRedes() {
 
   contenedor.innerHTML = calendario.map(p => {
     const operacion = p.tipoOperacion === 'alquiler' ? 'Alquiler' : 'Venta';
-    const precio = formatearPrecioRedes(p.precio, p.tipoOperacion) || 'Consultar precio';
+    const precio = formatearPrecioRedes(p.precio, p.tipoOperacion, p.periodicidadPrecio) || 'Consultar precio';
     const zona = zonaPropiedadRedes(p);
     const ultima = fechaRedesTexto(p.redesUltimaPublicacionAt);
     const proxima = fechaRedesTexto(p.redesProximaPublicacionAt);
@@ -4359,7 +4364,7 @@ function renderTablaPropiedades() {
       <tr>
         <td class="tabla-title-cell" data-label="Título"><span class="cell-title-text">${escapeHtml(p.titulo || 'Sin título')}</span></td>
         <td class="tabla-muted-cell" data-label="Ubicación">${window.HomeClickLocation.locationHtml(p)}</td>
-        <td data-label="Precio">${formatoPrecioAdmin(p.precio)} €</td>
+        <td data-label="Precio">${formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio)}</td>
         <td data-label="Operación">${tipo}</td>
         <td data-label="Fecha">${fecha}${textoCaducidad ? `<br><span class="tabla-muted-cell">${escapeHtml(textoCaducidad)}</span>` : ''}</td>
         <td data-label="Redes">${renderEstadoRedesPropiedad(p)}</td>
@@ -4597,16 +4602,10 @@ function normalizarNumeroRedes(valor) {
   return Number(normalizado);
 }
 
-function formatearPrecioRedes(precio, operacion) {
+function formatearPrecioRedes(precio, operacion, periodicidadPrecio) {
   const numero = normalizarNumeroRedes(precio);
-  if (!Number.isFinite(numero) || numero <= 0) return '';
-  const esAlquiler = operacion === 'alquiler' || /\/mes|\bmes\b/i.test(String(precio || ''));
-  const precioFormateado = numero.toLocaleString('es-ES', {
-    useGrouping: true,
-    minimumFractionDigits: numero % 1 ? 2 : 0,
-    maximumFractionDigits: 2
-  });
-  return `${precioFormateado} €${esAlquiler ? '/mes' : ''}`;
+  if (!Number.isFinite(numero) || numero < 0) return '';
+  return formatearPrecioPropiedad(numero, operacion, periodicidadPrecio);
 }
 
 function pluralizarRedes(cantidad, singular, plural) {
@@ -4647,7 +4646,7 @@ function propiedadesPublicasParaRedes() {
 
 function textoSelectorPropiedadRedes(propiedad) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'Alquiler' : 'Venta';
-  const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion) || 'precio a consultar';
+  const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio) || 'precio a consultar';
   const zona = ubicacionPrincipalRedes(window.HomeClickLocation.buildPublicLocation(propiedad));
   return `${propiedad.titulo || 'Sin título'} · ${operacion} · ${precio} · ${zona}`;
 }
@@ -4689,7 +4688,7 @@ function zonaPropiedadRedes(propiedad) {
 
 function crearPublicacionFacebookPropiedad(propiedad) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'alquiler' : 'venta';
-  const precio = formatearPrecioRedes(propiedad.precio, operacion);
+  const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio);
   const zona = zonaPropiedadRedes(propiedad);
   const url = urlPropiedadSeoAdmin(propiedad);
   const detalles = [
@@ -4714,7 +4713,7 @@ function crearPublicacionFacebookPropiedad(propiedad) {
 
 function crearPublicacionWhatsappPropiedad(propiedad) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'alquiler' : 'venta';
-  const precio = formatearPrecioRedes(propiedad.precio, operacion);
+  const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio);
   const zona = zonaPropiedadRedes(propiedad);
   const url = urlPropiedadSeoAdmin(propiedad);
 
@@ -4728,7 +4727,7 @@ function crearPublicacionWhatsappPropiedad(propiedad) {
 
 function crearPublicacionInstagramPropiedad(propiedad) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'alquiler' : 'venta';
-  const precio = formatearPrecioRedes(propiedad.precio, operacion);
+  const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio);
   const zona = zonaPropiedadRedes(propiedad);
   const url = urlPropiedadSeoAdmin(propiedad);
   const detalles = [
@@ -4856,7 +4855,7 @@ function dibujarRectRedondeado(ctx, x, y, width, height, radius) {
 
 function datosCreatividadInstagram(propiedad = {}) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'alquiler' : 'venta';
-  const precio = formatearPrecioRedes(propiedad.precio, operacion) || 'Consultar precio';
+  const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio) || 'Consultar precio';
   const zona = zonaPropiedadRedes(propiedad);
   const detalles = [
     propiedad.habitaciones ? `${propiedad.habitaciones} hab.` : '',
@@ -5089,7 +5088,7 @@ function seleccionarPropiedadesPostSemanal() {
 function crearPostSemanalRedes(propiedades = []) {
   const iconos = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
   const bloques = propiedades.map((propiedad, index) => {
-    const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion);
+    const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio);
     const ubicacion = direccionResumen(window.HomeClickLocation.buildPublicLocation(propiedad));
     const url = urlPropiedadSeoAdmin(propiedad);
     return [
@@ -5123,9 +5122,9 @@ function textoCiudadesPostSemanal(propiedades = []) {
 
 function crearPostSemanalInstagram(propiedades = []) {
   const bloques = propiedades.map(propiedad => {
-    const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion)
+    const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio)
       .replace(/\s€/g, '\u00a0€')
-      .replace(/€\/mes/g, '€\u2060/mes');
+      .replace(/€(?=\/)/g, '€\u2060');
     const icono = propiedad.tipoOperacion === 'alquiler' ? '🔑' : '🏡';
     return `${icono} ${limpiarTituloPostSemanal(propiedad, { incluirExtras: false })}${precio ? ` — ${precio}` : ''}`;
   });
@@ -5334,8 +5333,11 @@ function editarPropiedadAdmin(id) {
   document.getElementById('editPropiedadId').value = propiedad._id;
   document.getElementById('editPropiedadId').dataset.contentRevision = String(propiedad.contentRevision ?? 0);
   document.getElementById('editTitulo').value = propiedad.titulo || '';
-  document.getElementById('editPrecio').value = propiedad.precio ? formatoPrecioAdmin(propiedad.precio) : '';
+  document.getElementById('editPrecio').value = propiedad.precio != null ? formatoPrecioAdmin(propiedad.precio) : '';
   document.getElementById('editTipoOperacion').value = propiedad.tipoOperacion || 'venta';
+  document.getElementById('editPeriodicidad').value = periodicidadEfectiva(propiedad) || '';
+  periodicidadAdminInicial = document.getElementById('editPeriodicidad').value;
+  operacionAdminInicial = propiedad.tipoOperacion;
   document.getElementById('editTipoInmueble').value = propiedad.tipoInmueble === 'local_comercial'
     ? 'local'
     : (propiedad.tipoInmueble || 'piso');
@@ -5364,6 +5366,9 @@ async function guardarPropiedadAdmin() {
     titulo: document.getElementById('editTitulo').value,
     precio: document.getElementById('editPrecio').value,
     tipoOperacion: document.getElementById('editTipoOperacion').value,
+    ...(document.getElementById('editTipoOperacion').value === 'alquiler' &&
+      (operacionAdminInicial !== 'alquiler' || document.getElementById('editPeriodicidad').value !== periodicidadAdminInicial)
+      ? { periodicidadPrecio: document.getElementById('editPeriodicidad').value } : {}),
     tipoInmueble: document.getElementById('editTipoInmueble').value,
     plantaLocal: tipoAdmitePlantaAdmin(document.getElementById('editTipoInmueble').value)
       ? document.getElementById('editPlantaLocal').value
@@ -5511,7 +5516,7 @@ async function exportarPropiedades() {
   const datos = propiedades.map(p => ({
     Título: p.titulo || '',
     [p.direccion && p.precisionUbicacion !== 'aproximada' ? 'Dirección' : 'Ubicación']: window.HomeClickLocation.buildPublicLocation(p),
-    Precio: p.precio || 0,
+    Precio: formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio),
     Tipo: p.tipoOperacion || '',
     Habitaciones: p.habitaciones || '',
     Baños: p.banos || '',

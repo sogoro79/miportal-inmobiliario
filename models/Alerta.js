@@ -10,6 +10,7 @@ const alertaSchema = new mongoose.Schema({
   ciudad: String,
   precioMin: Number,
   precioMax: Number,
+  periodicidadPrecio: { type: String, enum: ["mes", "semana", "dia", "temporada", "desconocida", null] },
   habitaciones: Number,
   activa: {
     type: Boolean,

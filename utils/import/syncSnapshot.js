@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { PRICE_PERIODS } from "../pricePeriod.js";
 import { parseGenericPropertyNodes } from "../importers/genericXmlImporter.js";
 import { normalizeSpanishPrice } from "../prices.js";
 import { normalizedKey, normalizeCrmPropertyType, normalizeCrmCondition } from "./propertyNormalization.js";
@@ -10,7 +11,7 @@ export const MAX_SYNC_PROPERTIES = 2000;
 export const SYNC_FINGERPRINT_VERSION = 1;
 export const SYNC_FIELDS = Object.freeze([
   "externalId", "titulo", "descripcion", "precio", "tipoOperacion", "direccion", "localidad",
-  "provincia", "codigoPostal", "lat", "lng", "habitaciones", "banos", "superficie",
+  "provincia", "codigoPostal", "lat", "lng", "habitaciones", "banos", "superficie", "periodicidadPrecio",
   "tipoInmueble", "estado", "estadoComercial", "imagenes", "garaje", "piscina", "terraza", "crmWithdrawal"
 ]);
 
@@ -19,6 +20,7 @@ const aliases = {
   titulo: ["titulo", "title", "name", "headline"],
   descripcion: ["descripcion", "description", "desc"],
   precio: ["precio", "price", "amount"],
+  periodicidadPrecio: ["periodicidadPrecio", "pricePeriod"],
   tipoOperacion: ["tipoOperacion", "operation", "operacion", "type", "transaction"],
   direccion: ["direccion", "address", "street"],
   localidad: ["localidad", "city", "town", "municipality", "location"],
@@ -113,6 +115,7 @@ export function normalizeSyncProperty(node) {
           if (value.length > max) throw new Error("TEXT_TOO_LONG");
         }
       }
+      if (field === "periodicidadPrecio" && value !== null && !PRICE_PERIODS.includes(value)) throw new Error("INVALID_PERIOD");
       data[field] = value;
     } catch { errors.push(`INVALID_${field}`); }
   }
@@ -139,6 +142,8 @@ export function normalizeSyncProperty(node) {
   for (const field of ["precio", "lat", "lng", "habitaciones", "banos", "superficie", "tipoOperacion", "tipoInmueble", "estado", "estadoComercial", "garaje", "piscina", "terraza"]) {
     if (Object.hasOwn(data, field) && data[field] === "") errors.push(`INVALID_${field}`);
   }
+  if (data.tipoOperacion === "venta" && Object.hasOwn(data, "periodicidadPrecio")) data.periodicidadPrecio = null;
+  if (data.tipoOperacion === "alquiler" && data.periodicidadPrecio === null) data.periodicidadPrecio = "desconocida";
   return { data, errors: [...new Set(errors)] };
 }
 

@@ -19,13 +19,13 @@ The global preview remains read-only, with importEnabled/syncEnabled false.
 
 ## Rental period
 
-Propiedad has no periodicity field. public/js/precios.js unconditionally renders
-alquiler as EUR/month; detail SEO and listing/profile cards consume that helper.
-The InmoWeb normalized preview's periodicidadPrecio=null is not persisted.
-All InmoWeb rentals therefore stay blocked with INMOWEB_RENT_PERIOD_UNKNOWN.
+Propiedad now supports explicit price periods. InmoWeb rentals normalize to
+periodicidadPrecio=desconocida, never mes; public formatting has no time suffix.
+INMOWEB_RENT_PERIOD_UNKNOWN is a warning, not a data block. This does not enable
+NEW or any other InmoWeb action. Sale periodicity is null/not applicable.
 Do not infer monthly pricing from text, price magnitude or operation ID.
-Adding a persistent periodicity field is a separate future change requiring
-end-to-end schema, persistence, display, SEO, filtering and alert decisions.
+Filtering, ordering and budget alerts isolate the effective period. See
+PRICE_PERIODS.md for the persisted contract and legacy compatibility.
 
 ## Optional / warnings
 

@@ -41,14 +41,14 @@ for (const [file, render] of [["home-destacadas", "renderDestacadaHome"], ["home
 }
 
 test("páginas cargan helper de precios antes del código consumidor", () => {
-  for (const [file, consumer] of [["propiedad", "/js/propiedad.js?v=3"], ["comprar", "/js/filtros.js?v=3"], ["alquiler", "/js/filtros.js?v=3"], ["index", "/js/home-destacadas.js?v=3"]]) {
+  for (const [file, consumer] of [["propiedad", "/js/propiedad.js?v=4"], ["comprar", "/js/filtros.js?v=4"], ["alquiler", "/js/filtros.js?v=4"], ["index", "/js/home-destacadas.js?v=4"]]) {
     const html = read(`public/${file}.html`);
-    assert.ok(html.indexOf('/js/precios.js?v=1') >= 0);
-    assert.ok(html.indexOf('/js/precios.js?v=1') < html.indexOf(consumer));
+    assert.ok(html.indexOf('/js/precios.js?v=2') >= 0);
+    assert.ok(html.indexOf('/js/precios.js?v=2') < html.indexOf(consumer));
   }
   for (const file of ["perfil", "favoritos"]) {
     const html = read(`public/${file}.html`);
-    assert.ok(html.indexOf('/js/precios.js?v=1') < html.indexOf('formatearPrecioPropiedad('));
+    assert.ok(html.indexOf('/js/precios.js?v=2') < html.indexOf('formatearPrecioPropiedad('));
   }
   for (const file of ["perfil", "filtros", "propiedad"]) assert.match(read(`public/js/${file}.js`), /formatearPrecioPropiedad\(/);
 });

@@ -13,7 +13,7 @@ function relacionadasDireccionCorta(propiedad = {}) {
 
 function renderPropiedadRelacionada(p) {
   const imagen = p.imagenes?.[0] || "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=700";
-  const precio = formatearPrecioPropiedad(p.precio, p.tipoOperacion);
+  const precio = formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio);
   const operacion = p.tipoOperacion === "alquiler" ? "Alquiler" : "Venta";
   const operacionClase = p.tipoOperacion === "alquiler" ? "alquiler" : "venta";
   const hab = p.habitaciones ? `${p.habitaciones} hab.` : "";

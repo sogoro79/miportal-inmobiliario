@@ -187,6 +187,7 @@ function matchesMongoCondition(value, condition) {
     if ("$exists" in condition) {
       return condition.$exists ? value !== undefined : value === undefined;
     }
+    if ("$type" in condition && condition.$type === 10) return value === null;
     if ("$ne" in condition) {
       return value !== condition.$ne;
     }
@@ -199,6 +200,8 @@ function matchesMongoCondition(value, condition) {
     if ("$gt" in condition) {
       return value !== undefined && value !== null && value > condition.$gt;
     }
+    if ("$gte" in condition || "$lte" in condition) return typeof value === "number" &&
+      (!("$gte" in condition) || value >= condition.$gte) && (!("$lte" in condition) || value <= condition.$lte);
     if ("$not" in condition) {
       return !matchesMongoCondition(value, condition.$not);
     }
@@ -2224,4 +2227,51 @@ test("ficha API pública retira dirección y coordenadas aproximadas", async () 
     assert.equal(p.direccion, ''); assert.equal(p.lat, null); assert.equal(p.lng, null);
     assert.equal(p.ubicacionPublica, 'Costa Ballena, Rota');
   } finally { Propiedad.findByIdAndUpdate = original; }
+});
+
+test("GET rental filters isolate each price period and include monthly legacy only", async () => {
+  const original=Propiedad.find;
+  const properties=[undefined,"mes","semana","dia","temporada","desconocida",null].map((period,index)=>({
+    _id:String(index),tipoOperacion:"alquiler",precio:100,...(period===undefined?{}:{periodicidadPrecio:period}) }));
+  Propiedad.find=filter=>({sort(){return this;},lean:async()=>properties.filter(p=>matchesMongoFilter(p,filter))});
+  try{
+    for(const [period,count]of[["mes",2],["semana",1],["dia",1],["temporada",1],["desconocida",2]]){
+      const res=await request(`/propiedades?tipo=alquiler&periodicidadPrecio=${period}&max=200`);
+      assert.equal(res.status,200,res.text);const data=JSON.parse(res.text);assert.equal(data.length,count);
+      assert.ok(data.every(p=>period==="mes"?p.periodicidadPrecio===undefined||p.periodicidadPrecio==="mes":period==="desconocida"?p.periodicidadPrecio===null||p.periodicidadPrecio==="desconocida":p.periodicidadPrecio===period));
+    }
+    const invalid=await request('/propiedades?tipo=alquiler&periodicidadPrecio=constructor');assert.equal(invalid.status,400);
+  }finally{Propiedad.find=original;}
+});
+
+for (const admin of [false,true]) for(const explicit of [false,true]) test(`PUT ${admin?'admin':'owner'} ${explicit?'updates':'preserves'} rental period`,async()=>{
+  const saved={user:Usuario.findById,property:Propiedad.findById};
+  const owner="507f1f77bcf86cd799439099",adminId="507f1f77bcf86cd799439012";
+  const property={_id:"507f1f77bcf86cd799439088",usuarioId:owner,source:"crm",syncEnabled:true,contentRevision:2,
+    titulo:"Prueba",descripcion:"Antes",direccion:"Calle",localidad:"Rota",tipoOperacion:"alquiler",periodicidadPrecio:"semana",habitaciones:0,imagenes:[],save:async()=>property};
+  Usuario.findById=()=>Promise.resolve({_id:admin?adminId:owner,activo:true,role:admin?'admin':'user',plan:'gratis'});
+  Propiedad.findById=()=>Promise.resolve(property);
+  const token=jwt.sign({id:admin?adminId:owner,...(admin?{role:'admin'}:{})},'test-secret');
+  try{
+    const response=await request(`${admin?'/admin':''}/propiedades/${property._id}`,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',
+      'X-Forwarded-For':`203.0.113.${240+Number(admin)*2+Number(explicit)}`},body:{descripcion:'Nueva',...(explicit?{periodicidadPrecio:'dia'}:{})}});
+    assert.equal(response.status,200,response.text);
+    assert.equal(property.periodicidadPrecio,explicit?'dia':'semana');
+    assert.equal(property.habitaciones,0);assert.equal(property.contentRevision,3);
+    assert.deepEqual(Object.keys(property.syncOverrides).sort(),explicit?['descripcion','periodicidadPrecio']:['descripcion']);
+  }finally{Usuario.findById=saved.user;Propiedad.findById=saved.property;}
+});
+
+test("rental budget alert requires an explicit period and persists it",async()=>{
+  const saved={user:Usuario.findById,save:Alerta.prototype.save};let writes=0;
+  Usuario.findById=()=>Promise.resolve({_id:'507f1f77bcf86cd799439099',activo:true});
+  Alerta.prototype.save=async function(){writes++;return this;};
+  try{
+    const options={method:'POST',headers:{...authHeaderFor(),'Content-Type':'application/json','X-Forwarded-For':'203.0.113.245'}};
+    const denied=await request('/alertas',{...options,body:{tipoOperacion:'alquiler',precioMax:1500}});
+    assert.equal(denied.status,400,denied.text);assert.equal(writes,0);
+    const accepted=await request('/alertas',{...options,body:{tipoOperacion:'alquiler',precioMax:1500,periodicidadPrecio:'semana'}});
+    assert.equal(accepted.status,201,accepted.text);assert.equal(writes,1);
+    assert.equal(JSON.parse(accepted.text).periodicidadPrecio,'semana');
+  }finally{Usuario.findById=saved.user;Alerta.prototype.save=saved.save;}
 });

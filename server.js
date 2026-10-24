@@ -2,6 +2,7 @@
 // CONFIG INICIAL
 // =============================
 import dotenv from "dotenv";
+import { formatearPrecioPropiedad } from "./utils/pricePeriod.js";
 import { buildPublicLocation } from "./utils/publicLocation.js";
 dotenv.config();
 
@@ -136,7 +137,7 @@ function resumirDescripcion(propiedad = {}) {
     || [
       propiedad.titulo,
       `en ${buildPublicLocation(propiedad)}`,
-      propiedad.precio ? `Precio ${Number(propiedad.precio).toLocaleString("es-ES")} €` : ""
+      propiedad.precio != null ? `Precio ${formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio)}` : ""
     ].filter(Boolean).join(". ");
 
   return base.length > 165 ? `${base.slice(0, 162).trim()}...` : base;

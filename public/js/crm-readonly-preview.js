@@ -2,7 +2,7 @@
   const escape = value => String(value ?? "—").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function price(p) {
     if (typeof p.precio !== "number" || !Number.isFinite(p.precio)) return "—";
-    return `${p.precio.toLocaleString("es-ES", { useGrouping: true })} ${p.moneda || "(moneda desconocida)"}`;
+    return formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio).replace(" €", ` ${p.moneda || "(moneda desconocida)"}`);
   }
   const eligibilityLabels = new Map([["eligible", "Apto para futura importación"], ["review", "Requiere revisión"], ["blocked", "No apto"]]);
   window.HomeClickCrmReadOnlyPreview = {

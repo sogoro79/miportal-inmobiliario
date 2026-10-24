@@ -121,7 +121,7 @@ test("multiple properties retain canonical identity and safe issues", async () =
 });
 
 for (const [from, to, code, severity] of [
-  ['<operacion id="1">', '<operacion id="2">', 'INMOWEB_RENT_PERIOD_UNKNOWN', 'blocking'],
+  ['<operacion id="1">', '<operacion id="2">', 'INMOWEB_RENT_PERIOD_UNKNOWN', 'warning'],
   ['>210000</precio>', '>1</precio>', 'INMOWEB_PRICE_REVIEW_REQUIRED', 'warning'],
   ['<estado id="SM"/>', '<estado/>', 'INMOWEB_CONDITION_UNKNOWN', 'blocking'],
   ['<familia id="24">', '<familia id="999">', 'INMOWEB_UNSUPPORTED_FAMILY', 'blocking'],
@@ -186,13 +186,15 @@ test("preview sanitizes inline contacts/links and hides private fields", () => {
 });
 
 test("UI renders read-only data without monthly assumptions, unsafe HTML or checkboxes", () => {
-  const ctx = { window: {} }; vm.runInNewContext(renderer, ctx);
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(new URL('../public/js/precios.js', import.meta.url), 'utf8'), ctx);
+  vm.runInNewContext(renderer, ctx);
   const data = preview(fixture.replace('<operacion id="1">', '<operacion id="2">'));
   data.properties[0].titulo = '<script>unsafe()</script>';
   const html = ctx.window.HomeClickCrmReadOnlyPreview.rows(data);
   assert.match(html, /Periodicidad desconocida/);
   assert.match(html, /EUR/); assert.doesNotMatch(html, /€\/mes|<input|<script>/);
-  assert.match(html, /&lt;script&gt;/); assert.match(html, /Bloqueo:/);
+  assert.match(html, /&lt;script&gt;/); assert.match(html, /Aviso:/);
   assert.match(ctx.window.HomeClickCrmReadOnlyPreview.summary(data), /No se pueden importar ni sincronizar/);
 });
 
@@ -216,6 +218,7 @@ test("actual profile rendering hides import controls and restores the generic pr
     document: { getElementById: element, querySelectorAll: () => [] },
     textoImportacionCupo: () => "Plan genérico", escaparHtml: value => String(value), formatearPrecioCrm: () => "10 €"
   });
+  vm.runInContext(fs.readFileSync(new URL('../public/js/precios.js', import.meta.url), 'utf8'), ctx);
   vm.runInContext(renderer, ctx);
   vm.runInContext(profile.slice(profile.indexOf("function actualizarSeleccionCrm"), profile.indexOf("function lineasResumenCrm")), ctx);
   ctx.renderizarPreviewCrm(preview(fixture));
@@ -232,7 +235,7 @@ test("actual profile rendering hides import controls and restores the generic pr
 test("profile preserves generic default, hides URL, loads renderer and all inline scripts parse", () => {
   assert.match(profile, /<option value="generic_xml">XML genérico/);
   assert.match(profile, /type="password" id="crmFeedUrl"/);
-  assert.match(profile, /crm-readonly-preview\.js\?v=3/);
+  assert.match(profile, /crm-readonly-preview\.js\?v=4/);
   for (const [, attrs, source] of profile.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
     if (!/\bsrc=/.test(attrs)) new vm.Script(source);
   }

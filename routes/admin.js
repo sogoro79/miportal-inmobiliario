@@ -1,4 +1,5 @@
 import express from 'express';
+import { PRICE_PERIODS, applyPricePeriodEdit } from '../utils/pricePeriod.js';
 import { buildPublicLocation, applyLocationEdit } from '../utils/publicLocation.js';
 import { capturePropertyContent, markManualContentChanges } from '../utils/propertyContent.js';
 import { guardManualPropertyRevision, isPropertyRevisionConflict } from '../utils/propertyRevision.js';
@@ -996,6 +997,7 @@ router.get('/usuarios/:id/estadisticas', requireAdmin, async (req, res) => {
       titulo: 1,
       referencia: 1,
       precio: 1,
+      periodicidadPrecio: 1, tipoOperacion: 1,
       direccion: 1,
       ubicacionPublica: 1, precisionUbicacion: 1, localidad: 1, provincia: 1,
       estadoComercial: 1,
@@ -1023,6 +1025,7 @@ router.get('/usuarios/:id/estadisticas', requireAdmin, async (req, res) => {
         titulo: propiedad.titulo,
         referencia: propiedad.referencia || '',
         precio: propiedad.precio || 0,
+        periodicidadPrecio: propiedad.periodicidadPrecio, tipoOperacion: propiedad.tipoOperacion,
         direccion: propiedad.direccion || '',
         ubicacionPublica: buildPublicLocation(propiedad),
         precisionUbicacion: propiedad.precisionUbicacion,
@@ -1129,6 +1132,13 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
       propiedad.precio = precioNormalizado;
     }
 
+    if (req.body.periodicidadPrecio !== undefined && req.body.periodicidadPrecio !== null && !PRICE_PERIODS.includes(req.body.periodicidadPrecio)) {
+      return res.status(400).json({ error: 'Periodicidad de precio inválida' });
+    }
+    if (tipoOperacion === 'alquiler' && propiedad.tipoOperacion !== 'alquiler' && req.body.periodicidadPrecio == null) {
+      return res.status(400).json({ error: 'Selecciona la periodicidad del alquiler.' });
+    }
+    applyPricePeriodEdit(propiedad, req.body);
     if (tipoOperacion !== undefined) {
       if (!['venta', 'alquiler'].includes(tipoOperacion)) {
         return res.status(400).json({ error: 'Tipo de operación inválido' });

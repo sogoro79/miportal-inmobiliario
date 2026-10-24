@@ -123,6 +123,7 @@
 
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     .form-group { display: flex; flex-direction: column; gap: 7px; }
+    #periodicidadGrupo[hidden] { display: none; }
     .form-group.full { grid-column: 1 / -1; }
 
     .form-group label {
@@ -306,6 +307,14 @@
       <div class="form-group">
         <label>Precio (€) *</label>
         <input type="text" id="precio" inputmode="decimal" placeholder="Ej: 185.000">
+      </div>
+      <div class="form-group" id="periodicidadGrupo" hidden>
+        <label for="periodicidadPrecio">Periodicidad del alquiler *</label>
+        <select id="periodicidadPrecio">
+          <option value="">Selecciona...</option><option value="mes">Mensual</option>
+          <option value="semana">Semanal</option><option value="dia">Diario</option>
+          <option value="temporada">Temporada</option><option value="desconocida">Periodicidad no indicada</option>
+        </select>
       </div>
 
       <div class="form-group">
@@ -582,6 +591,13 @@ let geoSeleccionada = { localidad: "", provincia: "", codigoPostal: "" };
 let geoSeleccionValida = false;
 let direccionSeleccionada = "";
 let ubicacionCrmSinDireccion = false;
+let periodicidadInicial;
+let operacionInicial;
+function mostrarPeriodicidad() {
+  const alquiler = document.getElementById("tipoOperacion").value === "alquiler";
+  document.getElementById("periodicidadGrupo").hidden = !alquiler;
+}
+document.getElementById("tipoOperacion").addEventListener("change", mostrarPeriodicidad);
 let imgFiles = [];
 let imagenesExistentes = [];
 let usuarioActualPublicar = null;
@@ -873,9 +889,13 @@ if (propiedadIdEditar) {
       };
       geoSeleccionValida = Boolean(geoSeleccionada.localidad || geoSeleccionada.provincia || geoSeleccionada.codigoPostal);
       direccionSeleccionada = p.direccion || "";
-      document.getElementById("precio").value        = p.precio ? Number(p.precio).toLocaleString("es-ES") : "";
+      document.getElementById("precio").value        = p.precio != null ? Number(p.precio).toLocaleString("es-ES") : "";
       document.getElementById("descripcion").value   = p.descripcion || "";
       document.getElementById("tipoOperacion").value = p.tipoOperacion || "";
+      operacionInicial = p.tipoOperacion;
+      periodicidadInicial = p.tipoOperacion === "alquiler" ? p.periodicidadPrecio === undefined ? "mes" : p.periodicidadPrecio || "desconocida" : "";
+      document.getElementById("periodicidadPrecio").value = periodicidadInicial;
+      mostrarPeriodicidad();
       document.getElementById("habitaciones").value  = p.habitaciones ?? "";
       document.getElementById("banos").value         = p.banos || "1";
       document.getElementById("superficie").value    = p.superficie || "";
@@ -1116,6 +1136,7 @@ async function publicar() {
   if (!titulo) camposFaltantes.push("título");
   if (!direccion && !(propiedadIdEditar && ubicacionCrmSinDireccion)) camposFaltantes.push("dirección");
   if (!precio) camposFaltantes.push("precio");
+  if (tipoOperacion === "alquiler" && !document.getElementById("periodicidadPrecio").value) camposFaltantes.push("periodicidad del alquiler");
   if (!tipoOperacion) camposFaltantes.push("tipo de operación");
 
   if (camposFaltantes.length) {
@@ -1165,6 +1186,8 @@ async function publicar() {
     }
   }
   fd.append("precio", precio);
+  const periodicidad = document.getElementById("periodicidadPrecio").value;
+  if (tipoOperacion === "alquiler" && (!propiedadIdEditar || periodicidad !== periodicidadInicial || tipoOperacion !== operacionInicial)) fd.append("periodicidadPrecio", periodicidad);
   fd.append("descripcion", document.getElementById("descripcion").value.trim());
   fd.append("videoUrl", document.getElementById("videoUrl").value.trim());
   fd.append("tipoOperacion", tipoOperacion);

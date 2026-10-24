@@ -115,7 +115,7 @@ function harness({ xml = feed(), fetcher, properties = [property()], beforePrope
 }
 
 test("managed fields exactly match V1, with deterministic versioned fingerprints", () => {
-  assert.deepEqual([...SYNC_APPLY_V1_FIELDS], ["precio", "titulo", "descripcion", "habitaciones", "banos", "superficie", "garaje", "piscina", "terraza"]);
+  assert.deepEqual([...SYNC_APPLY_V1_FIELDS], ["precio", "titulo", "descripcion", "habitaciones", "banos", "superficie", "garaje", "piscina", "terraza", "periodicidadPrecio"]);
   const data = { precio: 245000, titulo: "Casa", descripcion: "Texto", habitaciones: 0, piscina: false };
   assert.equal(managedFingerprint(data), managedFingerprint(Object.fromEntries(Object.entries(data).reverse())));
   assert.equal(managedFingerprint({ ...data, titulo: " Casa " }), managedFingerprint(data));

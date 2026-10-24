@@ -47,8 +47,8 @@ logged when later integrating real preview.
   captacion/unknown/empty remain unavailable, never inferred as active.
 - Currency is explicit; only EUR is supported. Prices are not converted or
   corrected. Prices <= 1 produce a review warning and retain their value.
-- Rental periodicity is null and blocks publication. The public price renderer
-  currently labels alquiler as monthly; product policy must be resolved first.
+- Rental periodicity is explicitly desconocida and adds a data warning, not a
+  block. Public formatting does not infer a monthly price for this value.
 - Missing bedrooms remain null and block; missing bathrooms remain null with a
   warning only. Explicit zero survives. Missing built area/images also warn only.
   Toilets are metadata, never added to bathrooms.
@@ -80,7 +80,7 @@ MISSING/reappearance evidence, identity, ownership, reconciliation and locks.
 
 Read-only preview now supplies safe response shaping and messages. Do not pass
 raw metadata (especially translations/features) to the UI unchecked.
-Before NEW, resolve rental period/unknown values, reuse Phase 2
+Before NEW, preserve unknown rental periods and other unknown values, reuse Phase 2
 validation and ensure the adapter's nulls are not silently replaced by defaults.
 Keep source URL hashes and the one-source-per-user protection unchanged.
 Before UPDATE, version normalization and adapt baseline/digest consumers while

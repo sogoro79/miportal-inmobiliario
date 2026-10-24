@@ -3,6 +3,7 @@ import Alerta from "../models/Alerta.js";
 import { requireAuth } from "../middleware/auth.js";
 import { optionalCleanString, optionalNumberFromInput, validateBody, z } from "../utils/validation.js";
 import { securityRateLimits } from "../utils/security.js";
+import { periodicidadPrecioSchema } from "../utils/propertySchemas.js";
 
 const router = express.Router();
 
@@ -11,8 +12,10 @@ const alertaCreateSchema = z.object({
   ciudad: optionalCleanString(120),
   precioMin: optionalNumberFromInput,
   precioMax: optionalNumberFromInput,
+  periodicidadPrecio: periodicidadPrecioSchema.optional(),
   habitaciones: optionalNumberFromInput
-}).strict();
+}).strict().refine(data => data.tipoOperacion !== "alquiler" || (data.precioMin === undefined && data.precioMax === undefined) || Boolean(data.periodicidadPrecio),
+  { path: ["periodicidadPrecio"], message: "Selecciona la periodicidad del presupuesto." });
 
 /* Crear alerta */
 router.post("/", requireAuth, securityRateLimits.alertCreate, validateBody(alertaCreateSchema), async (req, res) => {
@@ -22,6 +25,7 @@ router.post("/", requireAuth, securityRateLimits.alertCreate, validateBody(alert
       ciudad: req.body.ciudad,
       precioMin: req.body.precioMin,
       precioMax: req.body.precioMax,
+      periodicidadPrecio: req.body.tipoOperacion === "alquiler" ? req.body.periodicidadPrecio || "desconocida" : null,
       habitaciones: req.body.habitaciones,
       usuarioId: req.user.id
     });

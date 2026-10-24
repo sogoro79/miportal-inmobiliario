@@ -15,8 +15,7 @@ export function evaluateInmowebNewEligibility(property = {}) {
   if (property.moneda !== "EUR") block("INMOWEB_UNSUPPORTED_CURRENCY");
   if (typeof property.precio !== "number" || !Number.isFinite(property.precio) || property.precio < 0) block("INMOWEB_INVALID_PRICE");
   else if (property.precio <= 1) warnings.add("INMOWEB_PRICE_REVIEW_REQUIRED");
-  // No persisted periodicity exists yet; even a supplied value must not silently become monthly.
-  if (property.tipoOperacion === "alquiler") block("INMOWEB_RENT_PERIOD_UNKNOWN");
+  if (property.tipoOperacion === "alquiler" && (property.periodicidadPrecio == null || property.periodicidadPrecio === "desconocida")) warnings.add("INMOWEB_RENT_PERIOD_UNKNOWN");
   if (typeof property.localidad !== "string" || !property.localidad.trim()) block("INMOWEB_LOCATION_INSUFFICIENT");
   if (property.habitaciones === null || property.habitaciones === undefined || property.habitaciones === "") block("INMOWEB_BEDROOMS_UNKNOWN");
   if (property.banos === null || property.banos === undefined || property.banos === "") warnings.add("INMOWEB_BATHROOMS_UNKNOWN");

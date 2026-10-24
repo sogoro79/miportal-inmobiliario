@@ -285,6 +285,7 @@
 <div id="main-header"></div>
 <script src="/js/header.js" defer></script>
 <script src="/js/seo-slug.js"></script>
+<script src="/js/precios.js?v=2"></script>
 
 <div class="chat-wrap">
   <a href="javascript:history.back()" class="volver-chat">← Volver</a>
@@ -359,12 +360,12 @@ function renderPropiedadContext(propiedad) {
   }
 
   const imagen = escapeHtml(propiedad.imagen || "https://via.placeholder.com/240x180?text=Sin+imagen");
-  const precio = Number(propiedad.precio || 0).toLocaleString("es-ES");
+  const precio = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion, propiedad.periodicidadPrecio);
   cont.innerHTML = `
     <img src="${imagen}" alt="">
     <div class="property-context-info">
       <strong>${escapeHtml(propiedad.titulo || "Propiedad")}</strong>
-      <div class="property-context-price">${precio} €</div>
+      <div class="property-context-price">${precio}</div>
       <div class="property-context-address">${escapeHtml(propiedad.ubicacionPublica || direccionCorta(propiedad.direccion || ""))}</div>
     </div>
     <a class="property-context-link" href="${escapeHtml(typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(propiedad) : `/propiedad/propiedad-${encodeURIComponent(propiedad._id)}`)}">Ver anuncio</a>

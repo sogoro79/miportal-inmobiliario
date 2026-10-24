@@ -6,6 +6,7 @@ import {
   rejectUnsafeXml
 } from "../import/feedSecurity.js";
 import { normalizeSpanishPrice } from "../prices.js";
+import { PRICE_PERIODS } from "../pricePeriod.js";
 import { normalizeCrmPropertyType, normalizeCrmCondition } from "../import/propertyNormalization.js";
 
 const parser = new XMLParser({
@@ -191,6 +192,8 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   const tipoOperacion = normalizeOperacion(operacionRaw);
   const precioRaw = firstText(item, ["precio", "price", "amount"]);
   const precio = normalizeSpanishPrice(precioRaw);
+  const periodRaw = firstText(item, ["periodicidadPrecio", "pricePeriod"]);
+  const periodicidadPrecio = tipoOperacion === "alquiler" ? periodRaw || "desconocida" : null;
   const direccion = firstText(item, ["direccion", "address", "street"]);
   const localidad = firstText(item, ["localidad", "city", "town", "municipality", "location"]);
   const provincia = firstText(item, ["provincia", "province", "state"]);
@@ -228,6 +231,7 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   if (!titulo) errors.push("Falta el título.");
   if (!tipoOperacion) errors.push("No se pudo detectar si es venta o alquiler.");
   if (!Number.isFinite(precio)) errors.push("Falta el precio o no es válido.");
+  if (tipoOperacion === "alquiler" && !PRICE_PERIODS.includes(periodicidadPrecio)) errors.push("Periodicidad de precio inválida.");
   if (!direccion && !localidad) warnings.push("No se encontró una ubicación clara.");
   if (!fotos.length) warnings.push("No se encontraron fotos.");
 
@@ -238,6 +242,7 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
     descripcion,
     tipoOperacion,
     precio: Number.isFinite(precio) ? precio : null,
+    periodicidadPrecio,
     direccion,
     localidad,
     provincia,

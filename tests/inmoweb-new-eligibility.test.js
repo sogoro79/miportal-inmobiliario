@@ -22,7 +22,6 @@ test("complete sale is future eligible, without authorizing any action", () => {
 });
 
 for (const [name, from, to, code] of [
-  ["rental without periodicity", '<operacion id="1">Venta', '<operacion id="2">Alquiler', "INMOWEB_RENT_PERIOD_UNKNOWN"],
   ["empty condition", '<estado id="SM"/>', '<estado/>', "INMOWEB_CONDITION_UNKNOWN"],
   ["missing title", '<titulo>Piso sintético</titulo>', '<titulo/>', "INMOWEB_SPANISH_TITLE_MISSING"],
   ["unknown type", '<familia id="24">', '<familia id="999">', "INMOWEB_UNSUPPORTED_FAMILY"],
@@ -72,6 +71,15 @@ test("warnings never override blockers and duplicate IDs remain blocked", () => 
   assert.deepEqual(p, before);
 });
 
+test("InmoWeb rental without periodicity is future eligible with a warning, never import-enabled", () => {
+  const analyzed = analyze(xml.replace('<operacion id="1">Venta', '<operacion id="2">Alquiler'));
+  assert.equal(analyzed.properties[0].periodicidadPrecio, "desconocida");
+  const result = evaluateInmowebNewEligibility(analyzed.properties[0]);
+  assert.equal(result.eligible, true);
+  assert.ok(result.warnings.includes("INMOWEB_RENT_PERIOD_UNKNOWN"));
+  assert.equal(safeInmowebPreview(analyzed).importEnabled, false);
+});
+
 test("unknown condition is blocked rather than falling through the creation default", () => {
   assert.equal(propiedadCrmCreateSchema.safeParse({ ...base, estado: undefined }).success, true);
   assert.equal(buildPropiedadCreateData({ ...base, estado: undefined }).estado, "segunda_mano");
@@ -100,6 +108,7 @@ test("currency and identity remain required without falling back to a reference"
 
 test("preview renders all three safe labels without creating action controls", () => {
   const ctx = vm.createContext({ window: {} });
+  vm.runInContext(fs.readFileSync(new URL('../public/js/precios.js', import.meta.url), 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(new URL('../public/js/crm-readonly-preview.js', import.meta.url), 'utf8'), ctx);
   for (const [status, label] of [["eligible", "Apto para futura importación"], ["review", "Requiere revisión"], ["blocked", "No apto"]]) {
     const html = ctx.window.HomeClickCrmReadOnlyPreview.rows({ properties: [{ futureNewStatus: status }] });

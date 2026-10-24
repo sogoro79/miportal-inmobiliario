@@ -72,7 +72,6 @@ function normalizeRecord(record) {
   const precio = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : null;
   if (precio === null) block("INMOWEB_INVALID_PRICE");
   if (precio !== null && precio <= 1) warnings.push("INMOWEB_PRICE_REVIEW_REQUIRED");
-  if (tipoOperacion === "alquiler") block("INMOWEB_RENT_PERIOD_UNKNOWN");
 
   const translations = new Map();
   for (const entry of array(record.descripciones?.descripcion)) {
@@ -124,7 +123,7 @@ function normalizeRecord(record) {
   const imagenes = [...new Set([...photos.filter(p => p.primary), ...photos.filter(p => !p.primary)].map(p => p.url))];
   const data = {
     externalId, referencia: text(record.referencia), titulo: spanish?.titulo || "", descripcion: spanish?.descripcion || "",
-    tipoOperacion, tipoInmueble, estado, estadoComercial, precio, moneda, periodicidadPrecio: null,
+    tipoOperacion, tipoInmueble, estado, estadoComercial, precio, moneda, periodicidadPrecio: tipoOperacion === "alquiler" ? "desconocida" : null,
     habitaciones, banos, superficie: surfaces.construida, superficieParcela: surfaces.parcela,
     direccion, localidad: text(location.poblacion), provincia: text(location.provincia),
     codigoPostal: text(location.cp), pais: text(location.pais), zona: text(location.zona),

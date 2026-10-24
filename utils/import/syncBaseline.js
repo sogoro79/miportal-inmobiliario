@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
+import { PRICE_PERIODS } from "../pricePeriod.js";
 import { isDeepStrictEqual } from "node:util";
 
 export const SYNC_APPLY_V1_FIELDS = Object.freeze([
-  "precio", "titulo", "descripcion", "habitaciones", "banos", "superficie", "garaje", "piscina", "terraza"
+  "precio", "titulo", "descripcion", "habitaciones", "banos", "superficie", "garaje", "piscina", "terraza", "periodicidadPrecio"
 ]);
 export const SYNC_APPLY_FIELDS_VERSION = 1;
 export const SYNC_NORMALIZATION_VERSION = 1;
@@ -23,7 +24,8 @@ function tagged(value) {
 }
 
 export function managedFingerprint(data) {
-  const values = SYNC_APPLY_V1_FIELDS.map(field => [field, tagged(normalizedManagedValue(data[field], field))]);
+  const values = SYNC_APPLY_V1_FIELDS.filter(field => field !== "periodicidadPrecio" || data[field] !== undefined)
+    .map(field => [field, tagged(normalizedManagedValue(data[field], field))]);
   return crypto.createHash("sha256").update(JSON.stringify({ version: SYNC_APPLY_FIELDS_VERSION,
     normalizationVersion: SYNC_NORMALIZATION_VERSION, values })).digest("hex");
 }
@@ -32,6 +34,7 @@ export function validManagedData(data) {
   return SYNC_APPLY_V1_FIELDS.every(field => {
     const value = normalizedManagedValue(data[field], field);
     if (value === undefined) return true;
+    if (field === "periodicidadPrecio") return value === null || PRICE_PERIODS.includes(value);
     if (textFields.has(field)) return field === "descripcion" && value === null ||
       typeof value === "string" && value.length <= (field === "titulo" ? 160 : 5000) && (field !== "titulo" || value.length > 0);
     if (booleanFields.has(field)) return typeof value === "boolean";

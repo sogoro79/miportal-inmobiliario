@@ -408,6 +408,8 @@ router.get("/conversaciones/:id", requireAuth, async (req, res) => {
           _id: prop._id,
           titulo: prop.titulo,
           precio: prop.precio,
+          tipoOperacion: prop.tipoOperacion,
+          periodicidadPrecio: prop.periodicidadPrecio,
           direccion: isApproximate(prop) ? "" : prop.direccion,
           ubicacionPublica: buildPublicLocation(prop),
           imagen: prop.imagenes?.[0] || ""

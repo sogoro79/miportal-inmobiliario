@@ -68,7 +68,7 @@ export function safeInmowebPreview(analyzed) {
       return {
         externalId: safeText(p.externalId, 200, false), referencia: safeText(p.referencia, 80, false),
         titulo: safeText(p.titulo), tipoOperacion: safeText(p.tipoOperacion, 30),
-        precio: number(p.precio), moneda: safeText(p.moneda, 10), periodicidadPrecio: null,
+        precio: number(p.precio), moneda: safeText(p.moneda, 10), periodicidadPrecio: p.tipoOperacion === "alquiler" ? "desconocida" : null,
         tipoInmueble: safeText(p.tipoInmueble, 40), estado: safeText(p.estado, 30),
         localidad: safeText(p.localidad, 120), provincia: safeText(p.provincia, 120),
         ubicacionPublica: safeText(p.ubicacionPublica, 300), precisionUbicacion: "aproximada",

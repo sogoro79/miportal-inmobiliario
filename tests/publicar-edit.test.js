@@ -5,13 +5,18 @@ import vm from "node:vm";
 import { propiedadUpdateSchema } from "../utils/propertySchemas.js";
 
 const publicarHtml = fs.readFileSync(new URL("../public/publicar.html", import.meta.url), "utf8");
+test("sale hides the period group despite the generic flex style", () => {
+  assert.match(publicarHtml, /#periodicidadGrupo\[hidden\]\s*\{\s*display:\s*none/);
+});
 
-async function submit({ edit = true, certificate = "", originalCertificate = "", networkError = false, status = 400 } = {}) {
+async function submit({ edit = true, certificate = "", originalCertificate = "", networkError = false, status = 400,
+  operation = "venta", period = "", initialPeriod, reject = false } = {}) {
   const nodes = new Map();
-  const values = { titulo: "Estudio de prueba", direccion: "Calle Test", precio: "130000", tipoOperacion: "venta",
+  const values = { titulo: "Estudio de prueba", direccion: "Calle Test", precio: "130000", tipoOperacion: operation, periodicidadPrecio: period,
     tipoInmueble: "estudio", habitaciones: "0", banos: "1", superficie: "40",
     descripcion: "Descripcion editada", certificadoEnergetico: certificate };
   const requests = [];
+  const errors = [];
   const document = { getElementById(id) {
     if (!nodes.has(id)) nodes.set(id, { value: values[id] || "", checked: false, style: {}, textContent: "", disabled: false });
     return nodes.get(id);
@@ -22,10 +27,11 @@ async function submit({ edit = true, certificate = "", originalCertificate = "",
   await vm.runInNewContext(`${mode}\n${publicarHtml.slice(start, end)}\npublicar();`, {
     window: { location: { search: edit ? "?editar=test-property" : "" } }, URLSearchParams, document,
     certificadoEnergeticoInicial: originalCertificate,
+    periodicidadInicial: initialPeriod, operacionInicial: operation,
     revisionPropiedadInicial: 2,
     obtenerTokenPublicar: () => "test-token", usuarioActualPublicar: { _id: "test-user" },
     refrescarUsuarioPublicar: async () => ({ _id: "test-user" }), usuarioPuedePublicar: () => true,
-    mostrarErrorPublicacion: message => assert.fail(message),
+    mostrarErrorPublicacion: message => { if (!reject) assert.fail(message); errors.push(message); },
     geoSeleccionValida: false, direccionSeleccionada: "", latSel: 1, lngSel: 1,
     imgFiles: edit ? [] : [{}], imagenesExistentes: [], tipoAdmitePlanta: () => true,
     tipoAdmitePlantasYSotano: () => false,
@@ -40,8 +46,8 @@ async function submit({ edit = true, certificate = "", originalCertificate = "",
       return { ok: status < 400, status };
     }
   });
-  assert.equal(requests.length, 1);
-  return { request: requests[0], button: document.getElementById("btnPublicar") };
+  assert.equal(requests.length, reject ? 0 : 1);
+  return { request: requests[0], button: document.getElementById("btnPublicar"), errors };
 }
 
 for (const [name, edit, certificate, originalCertificate, expected] of [
@@ -65,6 +71,21 @@ test("schema mantiene certificado omitido o permitido y rechaza vacio e invalido
   assert.equal(propiedadUpdateSchema.safeParse({ descripcion: "Nueva descripcion" }).success, true);
   assert.equal(propiedadUpdateSchema.safeParse({ certificadoEnergetico: "C" }).success, true);
   for (const value of ["", "INVALID"]) assert.equal(propiedadUpdateSchema.safeParse({ certificadoEnergetico: value }).success, false);
+});
+
+for (const period of ["mes", "semana", "dia", "temporada", "desconocida"]) test(`manual form submits explicit rental period ${period}`, async () => {
+  const {request}=await submit({edit:false,operation:"alquiler",period});
+  assert.equal(request.body.get("periodicidadPrecio"),period);
+});
+test("manual rental form refuses empty selection without POST",async()=>{
+  const {errors}=await submit({edit:false,operation:"alquiler",reject:true});
+  assert.ok(errors.some(e=>e.includes("periodicidad")));
+});
+test("edit form omits unchanged legacy/monthly period and sends an effective change",async()=>{
+  const same=await submit({operation:"alquiler",period:"mes",initialPeriod:"mes"});
+  assert.equal(same.request.body.has("periodicidadPrecio"),false);
+  const changed=await submit({operation:"alquiler",period:"semana",initialPeriod:"mes"});
+  assert.equal(changed.request.body.get("periodicidadPrecio"),"semana");
 });
 
 for (const edit of [true, false]) {

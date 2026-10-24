@@ -43,6 +43,7 @@ export function buildPropiedadCreateData(body = {}, {
     provincia: body.provincia || "",
     codigoPostal: body.codigoPostal || "",
     precio: Number(body.precio),
+    periodicidadPrecio: body.tipoOperacion === "alquiler" ? body.periodicidadPrecio || "desconocida" : null,
     descripcion: body.descripcion,
     videoUrl: body.videoUrl || "",
     tipoOperacion: body.tipoOperacion,
