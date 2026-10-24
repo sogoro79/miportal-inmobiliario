@@ -4,6 +4,7 @@ import { MAX_SYNC_PROPERTIES } from "../syncSnapshot.js";
 import { evaluateInmowebNewEligibility } from "../inmowebNewEligibility.js";
 import { buildPublicLocation } from "../../publicLocation.js";
 import { normalizeSpanishPrice } from "../../prices.js";
+import { canonicalizeInmowebTitle } from "../inmowebTitle.js";
 
 export const INMOWEB_NORMALIZATION_VERSION = 1;
 const families = new Map(Object.entries({
@@ -132,6 +133,9 @@ function normalizeRecord(record) {
   };
   data.precisionUbicacion = "aproximada";
   data.ubicacionPublica = buildPublicLocation(data);
+  const canonicalTitle = canonicalizeInmowebTitle(data);
+  data.titulo = canonicalTitle.titulo;
+  if (canonicalTitle.normalized) warnings.push("INMOWEB_TITLE_NORMALIZED");
   const toilets = number(record.aseos, "TOILETS", true);
   const eligibility = evaluateInmowebNewEligibility({ ...data, errors, warnings });
   return { data, metadata: { operationId, familyId, conditionId, commercialStatus,

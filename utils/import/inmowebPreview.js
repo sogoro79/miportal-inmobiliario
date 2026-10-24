@@ -1,7 +1,9 @@
 import { maskFeedUrl } from "./feedSecurity.js";
 import { evaluateInmowebNewEligibility } from "./inmowebNewEligibility.js";
+import { canonicalizeInmowebTitle } from "./inmowebTitle.js";
 
 const messages = new Map(Object.entries({
+  INMOWEB_TITLE_NORMALIZED: "Título adaptado automáticamente a partir de tipo, operación y ubicación.",
   INMOWEB_LOCATION_INSUFFICIENT: "Falta una localidad válida para ubicar el inmueble.",
   INMOWEB_RENT_PERIOD_UNKNOWN: "El alquiler no indica periodicidad; no se asume un precio mensual.",
   INMOWEB_CONDITION_UNKNOWN: "No se ha informado si es obra nueva o segunda mano.",
@@ -67,7 +69,7 @@ export function safeInmowebPreview(analyzed) {
       });
       return {
         externalId: safeText(p.externalId, 200, false), referencia: safeText(p.referencia, 80, false),
-        titulo: safeText(p.titulo), tipoOperacion: safeText(p.tipoOperacion, 30),
+        titulo: safeText(canonicalizeInmowebTitle(p).titulo), tipoOperacion: safeText(p.tipoOperacion, 30),
         precio: number(p.precio), moneda: safeText(p.moneda, 10), periodicidadPrecio: p.tipoOperacion === "alquiler" ? "desconocida" : null,
         tipoInmueble: safeText(p.tipoInmueble, 40), estado: safeText(p.estado, 30),
         localidad: safeText(p.localidad, 120), provincia: safeText(p.provincia, 120),

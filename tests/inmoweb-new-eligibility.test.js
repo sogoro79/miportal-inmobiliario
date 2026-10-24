@@ -93,8 +93,8 @@ test("explicit zero bedrooms remains valid; malformed optional values still bloc
   assert.ok(p.errors.includes("INMOWEB_INVALID_BATHROOMS"));
 });
 
-test("existing title length and numeric limits are not bypassed by future eligibility", () => {
-  for (const change of [{ titulo: "x".repeat(161) }, { habitaciones: -1 }, { precio: -1 }]) {
+test("unrecoverable titles and numeric limits are not bypassed by future eligibility", () => {
+  for (const change of [{ titulo: "x".repeat(161), tipoInmueble: null }, { habitaciones: -1 }, { precio: -1 }]) {
     const p = { ...base, ...change };
     assert.equal(evaluateInmowebNewEligibility(p).eligible, false);
   }

@@ -1,9 +1,12 @@
 import { propiedadCrmCreateSchema, estadoSchema, tipoInmuebleSchema } from "../propertySchemas.js";
+import { canonicalizeInmowebTitle } from "./inmowebTitle.js";
 
 // Future data eligibility only: this does not authorize or execute an import.
 export function evaluateInmowebNewEligibility(property = {}) {
   const blocking = new Set(property.errors || []);
   const warnings = new Set(property.warnings || []);
+  const canonicalTitle = canonicalizeInmowebTitle(property);
+  if (canonicalTitle.normalized) warnings.add("INMOWEB_TITLE_NORMALIZED");
   const block = code => blocking.add(code);
   if (typeof property.externalId !== "string" || !property.externalId.trim() || property.externalId.length > 200 ||
       /https?:\/\/|[<>&?=\u0000-\u001f]/i.test(property.externalId)) block("INMOWEB_INVALID_ID");
@@ -21,7 +24,7 @@ export function evaluateInmowebNewEligibility(property = {}) {
   if (property.banos === null || property.banos === undefined || property.banos === "") warnings.add("INMOWEB_BATHROOMS_UNKNOWN");
   if (property.superficie === null || property.superficie === undefined || property.superficie === "") warnings.add("INMOWEB_BUILT_AREA_UNKNOWN");
   if (!(property.fotos || property.imagenes || []).length) warnings.add("INMOWEB_IMAGES_MISSING");
-  if (!propiedadCrmCreateSchema.safeParse(property).success) block("INMOWEB_PUBLICATION_DATA_INVALID");
+  if (!propiedadCrmCreateSchema.safeParse({ ...property, titulo: canonicalTitle.titulo }).success) block("INMOWEB_PUBLICATION_DATA_INVALID");
   // Adapter errors remain authoritative (e.g. duplicate IDs or malformed optional numbers).
   for (const code of blocking) warnings.delete(code);
   return { eligible: blocking.size === 0, blockingIssues: [...blocking], warnings: [...warnings] };
