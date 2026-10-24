@@ -37,7 +37,7 @@ function renderPropiedadLocal(p) {
           <div class="seo-local-price">${precio}</div>
           ${estadoComercialLocal(p.estadoComercial)}
           <h2>${escapeHtml(p.titulo)}</h2>
-          <p class="seo-local-address">${escapeHtml(p.direccion || "")}</p>
+          <p class="seo-local-address">${window.HomeClickLocation.locationHtml(p)}</p>
           <p class="seo-local-meta">${[hab, banos, superficie].filter(Boolean).join(" · ")}</p>
         </div>
       </a>

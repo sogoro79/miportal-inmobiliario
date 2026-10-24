@@ -77,7 +77,7 @@ async function cargarPropiedades() {
         <div class="info">
           <div class="precio">${formatearPrecioPropiedad(p.precio, p.tipoOperacion)}</div>
           ${p.referencia ? `<div>Ref. ${p.referencia}</div>` : ""}
-          <div>${p.direccion}</div>
+          <div>${window.HomeClickLocation.locationHtml(p)}</div>
           ${caducidad ? `<div>${caducidad}</div>` : ""}
           <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
             ${estadoPropiedad ? `<span>${estadoPropiedad}</span>` : ""}

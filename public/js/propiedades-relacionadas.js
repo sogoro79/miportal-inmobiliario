@@ -8,16 +8,7 @@ function relacionadasEscape(value = "") {
 }
 
 function relacionadasDireccionCorta(propiedad = {}) {
-  if (propiedad.ciudad || propiedad.localidad) {
-    return propiedad.ciudad || propiedad.localidad;
-  }
-
-  return String(propiedad.direccion || "")
-    .split(",")
-    .map(p => p.trim())
-    .filter(Boolean)
-    .slice(0, 2)
-    .join(", ");
+  return window.HomeClickLocation.buildPublicLocation(propiedad);
 }
 
 function renderPropiedadRelacionada(p) {

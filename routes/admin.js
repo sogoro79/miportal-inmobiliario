@@ -1,4 +1,5 @@
 import express from 'express';
+import { buildPublicLocation, applyLocationEdit } from '../utils/publicLocation.js';
 import { capturePropertyContent, markManualContentChanges } from '../utils/propertyContent.js';
 import { guardManualPropertyRevision, isPropertyRevisionConflict } from '../utils/propertyRevision.js';
 import { savePropertyWithCapacity, isCapacityTransitionError } from '../utils/propertyCapacityTransition.js';
@@ -996,6 +997,7 @@ router.get('/usuarios/:id/estadisticas', requireAdmin, async (req, res) => {
       referencia: 1,
       precio: 1,
       direccion: 1,
+      ubicacionPublica: 1, precisionUbicacion: 1, localidad: 1, provincia: 1,
       estadoComercial: 1,
       visitas: 1,
       contactos: 1,
@@ -1022,6 +1024,8 @@ router.get('/usuarios/:id/estadisticas', requireAdmin, async (req, res) => {
         referencia: propiedad.referencia || '',
         precio: propiedad.precio || 0,
         direccion: propiedad.direccion || '',
+        ubicacionPublica: buildPublicLocation(propiedad),
+        precisionUbicacion: propiedad.precisionUbicacion,
         estadoComercial: propiedad.estadoComercial || 'Disponible',
         visitas: propiedad.visitas || 0,
         contactos: propiedad.contactos || 0,
@@ -1101,10 +1105,20 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
     } = req.body;
 
     if (titulo !== undefined) propiedad.titulo = limpiarTexto(titulo, 160);
-    if (direccion !== undefined) propiedad.direccion = limpiarTexto(direccion, 300);
+    if (req.body.precisionUbicacion !== undefined && !['exacta', 'aproximada'].includes(req.body.precisionUbicacion)) {
+      return res.status(400).json({ error: 'Precisión de ubicación inválida' });
+    }
+    applyLocationEdit(propiedad, {
+      ...(direccion !== undefined ? { direccion: limpiarTexto(direccion, 300) } : {}),
+      ...(req.body.ubicacionPublica !== undefined ? { ubicacionPublica: limpiarTexto(req.body.ubicacionPublica, 300) } : {}),
+      ...(req.body.precisionUbicacion !== undefined ? { precisionUbicacion: req.body.precisionUbicacion } : {})
+    });
     if (localidad !== undefined) propiedad.localidad = limpiarTexto(localidad, 120);
     if (provincia !== undefined) propiedad.provincia = limpiarTexto(provincia, 120);
     if (codigoPostal !== undefined) propiedad.codigoPostal = limpiarTexto(codigoPostal, 20);
+    if (direccion !== undefined && !propiedad.direccion?.trim() && (propiedad.source !== 'crm' || !propiedad.localidad?.trim())) {
+      return res.status(400).json({ error: 'Falta una ubicación válida' });
+    }
     if (descripcion !== undefined) propiedad.descripcion = limpiarTexto(descripcion, 5000);
 
     if (precio !== undefined) {

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { propiedadCreateSchema, propiedadUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
+import { propiedadCreateSchema, propiedadUpdateSchema, propiedadCrmUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
 import express from "express";
 import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
 import { guardManualPropertyRevision, isPropertyRevisionConflict } from "../utils/propertyRevision.js";
@@ -36,6 +36,7 @@ import {
 } from "../utils/planLimits.js";
 import { getSeoZoneSlugs } from "../utils/seoZones.js";
 import { buildZonaMunicipalFilter } from "../utils/geoZones.js";
+import { buildPublicLocation, publicPropertyLocations, applyLocationEdit } from "../utils/publicLocation.js";
 import {
   filtroEstadoDisponibleMongo,
   propiedadDisponiblePublicamente
@@ -314,7 +315,10 @@ router.get("/", validateQuery(propiedadesQuerySchema), async (req, res) => {
       condicionesTexto.push({
         $or: [
           { titulo: { $regex: texto, $options: "i" } },
-          { direccion: { $regex: texto, $options: "i" } }
+          { direccion: { $regex: texto, $options: "i" }, precisionUbicacion: { $ne: "aproximada" } },
+          { ubicacionPublica: { $regex: texto, $options: "i" } },
+          { localidad: { $regex: texto, $options: "i" } },
+          { provincia: { $regex: texto, $options: "i" } }
         ]
       });
     }
@@ -329,7 +333,7 @@ router.get("/", validateQuery(propiedadesQuerySchema), async (req, res) => {
     }
 
     const propiedades = await Propiedad.find(filtro).sort({ createdAt: -1 }).lean();
-    res.json(await limitarFotosPublicasPorPlan(propiedades));
+    res.json(publicPropertyLocations(await limitarFotosPublicasPorPlan(propiedades)));
 
   } catch (err) {
     console.error("Error al obtener propiedades:", {
@@ -351,6 +355,7 @@ router.get("/destacadas", async (req, res) => {
       tipoOperacion: 1,
       tipoInmueble: 1,
       direccion: 1,
+      ubicacionPublica: 1, precisionUbicacion: 1, provincia: 1, codigoPostal: 1,
       ciudad: 1,
       localidad: 1,
       habitaciones: 1,
@@ -390,7 +395,7 @@ router.get("/destacadas", async (req, res) => {
       candidatas.filter(propiedad => propiedadDisponiblePublicamente(propiedad))
     ).slice(0, 6);
 
-    res.json(await limitarFotosPublicasPorPlan(propiedades));
+    res.json(publicPropertyLocations(await limitarFotosPublicasPorPlan(propiedades)));
   } catch (err) {
     console.error("Error obteniendo propiedades destacadas:", err.message);
     res.status(500).json({ error: "Error al obtener propiedades destacadas" });
@@ -410,6 +415,7 @@ router.get("/ultimas", async (req, res) => {
         tipoOperacion: 1,
         tipoInmueble: 1,
         direccion: 1,
+        ubicacionPublica: 1, precisionUbicacion: 1, provincia: 1, codigoPostal: 1,
         ciudad: 1,
         localidad: 1,
         habitaciones: 1,
@@ -424,7 +430,7 @@ router.get("/ultimas", async (req, res) => {
       .limit(8)
       .lean();
 
-    res.json(await limitarFotosPublicasPorPlan(propiedades));
+    res.json(publicPropertyLocations(await limitarFotosPublicasPorPlan(propiedades)));
   } catch (err) {
     console.error("Error obteniendo últimos anuncios:", err.message);
     res.status(500).json({ error: "Error al obtener últimos anuncios" });
@@ -455,6 +461,7 @@ router.get("/relacionadas/:id", async (req, res) => {
       tipoOperacion: 1,
       tipoInmueble: 1,
       direccion: 1,
+      ubicacionPublica: 1, precisionUbicacion: 1, provincia: 1, codigoPostal: 1,
       ciudad: 1,
       localidad: 1,
       habitaciones: 1,
@@ -511,7 +518,7 @@ router.get("/relacionadas/:id", async (req, res) => {
       agregar(await limitarFotosPublicasPorPlan(await buscar({})));
     }
 
-    res.json(relacionadas);
+    res.json(publicPropertyLocations(relacionadas));
   } catch (err) {
     console.error("Error obteniendo propiedades relacionadas:", err.message);
     res.status(500).json({ error: "Error al obtener propiedades relacionadas" });
@@ -579,7 +586,7 @@ router.get("/:id", async (req, res) => {
         { upsert: true }
       ).catch(err => console.warn("No se pudo registrar visita diaria:", err.message));
     }
-    res.json(await limitarFotosPublicasPorPlan(propiedad));
+    res.json(publicPropertyLocations(await limitarFotosPublicasPorPlan(propiedad)));
   } catch (err) {
     res.status(400).json({ message: "ID inválido" });
   }
@@ -668,7 +675,7 @@ router.post("/", requireAuth, securityRateLimits.propertyUpload, uploadImagenes,
       </p>
 
       <p>
-        Dirección: ${escapeEmailHtml(propiedad.direccion)}
+        ${propiedad.direccion && propiedad.precisionUbicacion !== "aproximada" ? "Dirección" : "Ubicación"}: ${escapeEmailHtml(buildPublicLocation(propiedad))}
       </p>
 
       <p>
@@ -761,7 +768,10 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     const contenidoAnterior = capturePropertyContent(propiedad);
     const imagenesOriginales = [...(propiedad.imagenes || [])];
 
-    const bodyValido = await validateBodyOrCleanup(propiedadUpdateSchema, req, res, urlsSubidas);
+    const updateSchema = propiedad.source === "crm" ? propiedadCrmUpdateSchema.refine(data =>
+      Boolean((data.direccion ?? propiedad.direccion)?.trim() || (data.localidad ?? propiedad.localidad)?.trim()),
+      { path: ["localidad"], message: "Falta una ubicación válida." }) : propiedadUpdateSchema;
+    const bodyValido = await validateBodyOrCleanup(updateSchema, req, res, urlsSubidas);
     if (!bodyValido) return;
     guardManualPropertyRevision(propiedad, req.body.expectedContentRevision);
 
@@ -772,7 +782,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
 
     propiedad.titulo       = titulo || propiedad.titulo;
     propiedad.referencia   = req.body.referencia !== undefined ? req.body.referencia : propiedad.referencia;
-    propiedad.direccion    = direccion || propiedad.direccion;
+    applyLocationEdit(propiedad, req.body);
     propiedad.localidad    = localidad !== undefined ? localidad : propiedad.localidad;
     propiedad.provincia    = provincia !== undefined ? provincia : propiedad.provincia;
     propiedad.codigoPostal = codigoPostal !== undefined ? codigoPostal : propiedad.codigoPostal;

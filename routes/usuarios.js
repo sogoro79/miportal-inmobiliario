@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { publicPropertyLocations } from "../utils/publicLocation.js";
 import express from "express";
 import Usuario from "../models/Usuario.js";
 import Propiedad from "../models/Propiedad.js";
@@ -155,7 +156,7 @@ router.get("/:id/favoritos", requireAuth, async (req, res) => {
 
     const usuario = await Usuario.findById(req.params.id).populate("favoritos");
     if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
-    res.json(usuario.favoritos);
+    res.json(publicPropertyLocations(usuario.favoritos));
   } catch (e) {
     res.status(500).json({ error: "Error en servidor" });
   }

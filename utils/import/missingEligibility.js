@@ -15,7 +15,9 @@ const validId = value => /^[a-fA-F0-9]{24}$/.test(id(value));
 const validHash = value => /^[a-f0-9]{64}$/.test(value || "");
 
 export function missingContentFingerprint(property) {
-  const content = CONTENT_FIELDS.map(field => [field, property[field] === undefined ? ["absent"] : ["value", property[field]]]);
+  // Preserve fingerprints of legacy runs whose documents predate optional location fields.
+  const content = CONTENT_FIELDS.filter(field => !["ubicacionPublica", "precisionUbicacion"].includes(field) || property[field] !== undefined)
+    .map(field => [field, property[field] === undefined ? ["absent"] : ["value", property[field]]]);
   return crypto.createHash("sha256").update(JSON.stringify(content)).digest("hex");
 }
 

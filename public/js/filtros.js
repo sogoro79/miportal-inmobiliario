@@ -183,7 +183,7 @@ function renderLista(lista) {
       <div class="card-precio">${precio}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">${estadoComercialBadge(p.estadoComercial)}</div>
       <div class="card-titulo">${p.titulo}</div>
-      <div class="card-direccion">📍 ${p.direccion}</div>
+      <div class="card-direccion">📍 ${window.HomeClickLocation.locationHtml(p)}</div>
       ${hab || banos || superficie ? `
         <div class="card-hab">
           ${[hab, banos, superficie].filter(Boolean).join('<span style="color:#ddd">|</span>')}

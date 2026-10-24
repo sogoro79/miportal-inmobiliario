@@ -2190,3 +2190,38 @@ test("endpoints test-email ya no son públicos", async () => {
   assert.equal(propiedadesPaths.includes("/test-email"), false);
   assert.equal(appPaths.includes("/_debug"), false);
 });
+
+test("búsqueda incluye localidad provincia y ubicación pública, y no expone ubicación privada", async () => {
+  const original = Propiedad.find;
+  const property = { _id: 'location-test', titulo: 'Prueba', precisionUbicacion: 'aproximada',
+    direccion: 'Calle privada 9', ubicacionPublica: 'Costa Ballena, Rota', localidad: 'Rota', provincia: 'Cádiz', lat: 36.7, lng: -6.4 };
+  const filters = [];
+  Propiedad.find = filter => ({ sort() { return this; }, lean: async () => { filters.push(filter); return [property].filter(p => matchesMongoFilter(p, filter)); } });
+  try {
+    for (const text of ['Rota', 'Cádiz', 'Costa Ballena']) {
+      const response = await request(`/propiedades?texto=${encodeURIComponent(text)}`);
+      assert.equal(response.status, 200);
+      const [p] = JSON.parse(response.text);
+      assert.equal(p.ubicacionPublica, 'Costa Ballena, Rota');
+      assert.equal(p.direccion, ''); assert.equal(p.lat, null); assert.equal(p.lng, null);
+      const keys = filters.at(-1).$and[0].$or.map(condition => Object.keys(condition)[0]);
+      for (const field of ['titulo', 'direccion', 'ubicacionPublica', 'localidad', 'provincia']) assert.ok(keys.includes(field));
+    }
+    const privateSearch = await request('/propiedades?texto=Calle%20privada');
+    assert.deepEqual(JSON.parse(privateSearch.text), []);
+    assert.equal(property.direccion, 'Calle privada 9');
+  } finally { Propiedad.find = original; }
+});
+
+test("ficha API pública retira dirección y coordenadas aproximadas", async () => {
+  const original = Propiedad.findByIdAndUpdate;
+  Propiedad.findByIdAndUpdate = async () => ({ _id: '507f1f77bcf86cd799439088', direccion: 'Calle privada 9',
+    ubicacionPublica: 'Costa Ballena, Rota', precisionUbicacion: 'aproximada', lat: 36.7, lng: -6.4 });
+  try {
+    const response = await request('/propiedades/507f1f77bcf86cd799439088');
+    assert.equal(response.status, 200);
+    const p = JSON.parse(response.text);
+    assert.equal(p.direccion, ''); assert.equal(p.lat, null); assert.equal(p.lng, null);
+    assert.equal(p.ubicacionPublica, 'Costa Ballena, Rota');
+  } finally { Propiedad.findByIdAndUpdate = original; }
+});

@@ -1,4 +1,5 @@
 import express from "express";
+import { buildPublicLocation, isApproximate } from "../utils/publicLocation.js";
 import mongoose from "mongoose";
 import Propiedad from "../models/Propiedad.js";
 import EstadisticaAnuncio from "../models/EstadisticaAnuncio.js";
@@ -407,7 +408,8 @@ router.get("/conversaciones/:id", requireAuth, async (req, res) => {
           _id: prop._id,
           titulo: prop.titulo,
           precio: prop.precio,
-          direccion: prop.direccion,
+          direccion: isApproximate(prop) ? "" : prop.direccion,
+          ubicacionPublica: buildPublicLocation(prop),
           imagen: prop.imagenes?.[0] || ""
         };
       }

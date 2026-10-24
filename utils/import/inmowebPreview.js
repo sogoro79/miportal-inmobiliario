@@ -1,7 +1,7 @@
 import { maskFeedUrl } from "./feedSecurity.js";
 
 const messages = new Map(Object.entries({
-  INMOWEB_ADDRESS_MISSING: "Falta la dirección postal; no se ha inventado una dirección.",
+  INMOWEB_LOCATION_INSUFFICIENT: "Falta una localidad válida para ubicar el inmueble.",
   INMOWEB_RENT_PERIOD_UNKNOWN: "El alquiler no indica periodicidad; no se asume un precio mensual.",
   INMOWEB_CONDITION_UNKNOWN: "No se ha informado si es obra nueva o segunda mano.",
   INMOWEB_UNSUPPORTED_CONDITION: "La condición del inmueble no se reconoce.",
@@ -67,6 +67,7 @@ export function safeInmowebPreview(analyzed) {
         precio: number(p.precio), moneda: safeText(p.moneda, 10), periodicidadPrecio: null,
         tipoInmueble: safeText(p.tipoInmueble, 40), estado: safeText(p.estado, 30),
         localidad: safeText(p.localidad, 120), provincia: safeText(p.provincia, 120),
+        ubicacionPublica: safeText(p.ubicacionPublica, 300), precisionUbicacion: "aproximada",
         codigoPostal: safeText(p.codigoPostal, 20, false),
         habitaciones: number(p.habitaciones), banos: number(p.banos), superficie: number(p.superficie),
         fotosDisponibles: Array.isArray(p.fotos) ? p.fotos.length : 0, fotosImportables: 0,

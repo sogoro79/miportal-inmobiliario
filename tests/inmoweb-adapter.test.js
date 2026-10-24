@@ -137,8 +137,10 @@ test("location preserves postcode, country and zone but never fabricates a stree
   assert.equal(p.data.pais, "ES");
   assert.equal(p.data.zona, "Zona ficticia");
   assert.equal(p.data.direccion, "");
-  assert.ok(p.errors.includes("INMOWEB_ADDRESS_MISSING"));
-  assert.equal(p.publishableByData, false);
+  assert.ok(!p.errors.includes("INMOWEB_ADDRESS_MISSING"));
+  assert.equal(p.data.precisionUbicacion, "aproximada");
+  assert.equal(p.data.ubicacionPublica, "Zona ficticia, Municipio ficticio");
+  assert.equal(p.publishableByData, true);
 });
 
 test("coordinates require a valid complete pair", () => {

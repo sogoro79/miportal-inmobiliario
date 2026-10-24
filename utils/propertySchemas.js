@@ -28,6 +28,8 @@ const propiedadBaseSchema = {
   titulo: requiredCleanString(160, "titulo"),
   referencia: optionalCleanString(80),
   direccion: requiredCleanString(300, "direccion"),
+  ubicacionPublica: optionalCleanString(300),
+  precisionUbicacion: z.enum(["exacta", "aproximada"]).optional(),
   localidad: optionalCleanString(120),
   provincia: optionalCleanString(120),
   codigoPostal: optionalCleanString(20),
@@ -61,6 +63,13 @@ const propiedadBaseSchema = {
 };
 
 export const propiedadCreateSchema = z.object(propiedadBaseSchema);
+export const propiedadCrmCreateSchema = z.object({ ...propiedadBaseSchema,
+  direccion: optionalCleanString(300)
+}).superRefine((data, ctx) => {
+  if (!data.direccion?.trim() && !data.localidad?.trim()) {
+    ctx.addIssue({ code: "custom", path: ["localidad"], message: "Falta una localidad válida para la publicación CRM." });
+  }
+});
 export const propiedadUpdateSchema = z.object({
   expectedContentRevision: z.preprocess(value => typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value,
     z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)).optional(),
@@ -71,5 +80,7 @@ export const propiedadUpdateSchema = z.object({
   tipoOperacion: tipoOperacionSchema.optional(),
   habitaciones: propiedadBaseSchema.habitaciones.optional()
 });
+
+export const propiedadCrmUpdateSchema = z.object({ ...propiedadUpdateSchema.shape, direccion: optionalCleanString(300) });
 
 export { tipoOperacionSchema, tipoInmuebleSchema, estadoSchema };

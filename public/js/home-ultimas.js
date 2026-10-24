@@ -8,16 +8,7 @@ function ultimasEscape(value = "") {
 }
 
 function ultimasDireccionCorta(propiedad = {}) {
-  if (propiedad.ciudad || propiedad.localidad) {
-    return propiedad.ciudad || propiedad.localidad;
-  }
-
-  const partes = String(propiedad.direccion || "")
-    .split(",")
-    .map(p => p.trim())
-    .filter(Boolean);
-
-  return partes.slice(0, 2).join(", ");
+  return window.HomeClickLocation.buildPublicLocation(propiedad);
 }
 
 function renderUltimaHome(p) {

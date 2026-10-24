@@ -63,7 +63,7 @@ async function cargarPropiedad() {
 ================================ */
 function actualizarSEO() {
   const precioTexto = formatearPrecioPropiedad(propiedad.precio, propiedad.tipoOperacion);
-  const zonaTexto = propiedad.direccion || "HomeClick24";
+  const zonaTexto = window.HomeClickLocation.buildPublicLocation(propiedad);
   const canonicalPath = typeof getPropiedadSeoUrl === "function"
     ? getPropiedadSeoUrl(propiedad)
     : `/propiedad/propiedad-${encodeURIComponent(propiedad._id)}`;
@@ -103,11 +103,7 @@ function actualizarSEO() {
     "url": canonicalUrl,
     "price": propiedad.precio,
     "priceCurrency": "EUR",
-    "address": {
-      "@type": "PostalAddress",
-      "streetAddress": propiedad.direccion || "",
-      "addressCountry": "ES"
-    },
+    "address": window.HomeClickLocation.buildPostalAddress(propiedad),
     "numberOfRooms": propiedad.habitaciones || null,
     "image": fotos[0] || "",
     "offers": {
@@ -280,7 +276,8 @@ function renderPropiedad() {
           <div class="propiedad-precio">${precio}</div>
           <div style="margin:8px 0 10px;">${estadoComercialBadge(propiedad.estadoComercial)}</div>
           <h1 class="propiedad-titulo">${propiedad.titulo}</h1>
-          <div class="propiedad-dir">📍 ${propiedad.direccion}</div>
+          <div class="propiedad-dir">📍 ${window.HomeClickLocation.locationHtml(propiedad)}</div>
+          ${window.HomeClickLocation.isApproximate(propiedad) ? '<small>Ubicación aproximada</small>' : ''}
           ${propiedad.referencia ? `<div class="propiedad-dir">Ref. ${propiedad.referencia}</div>` : ""}
           ${hab ? `<div class="propiedad-hab">${hab}</div>` : ""}
 
@@ -390,18 +387,23 @@ window.addEventListener("resize", ajustarOffsetRelacionadas);
 async function iniciarMapa() {
   const contenedor = document.getElementById("mapa");
   if (!contenedor) return;
+  const approximate = window.HomeClickLocation.isApproximate(propiedad);
   const mostrarSinUbicacion = () => {
     if (mapa) { mapa.remove(); mapa = null; }
     contenedor.classList.add("mapa-empty");
-    contenedor.innerHTML = '<div role="status"><strong>Ubicación exacta no disponible</strong><p>Se muestra la dirección indicada por el anunciante.</p></div>';
+    contenedor.innerHTML = approximate
+      ? '<div role="status"><strong>Ubicación aproximada</strong><p>No se muestra la posición exacta del inmueble.</p></div>'
+      : '<div role="status"><strong>Ubicación exacta no disponible</strong><p>Se muestra la dirección indicada por el anunciante.</p></div>';
   };
-  let lat = propiedad.lat;
-  let lng = propiedad.lng;
+  let lat = approximate ? null : propiedad.lat;
+  let lng = approximate ? null : propiedad.lng;
 
   // Si no tiene coordenadas, geocodifica la dirección
   if (!coordenadasValidas(lat, lng)) {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(consultaMapa(propiedad))}&format=json&limit=1&countrycodes=es`;
+      if (approximate && !propiedad.localidad && !propiedad.provincia) { mostrarSinUbicacion(); return; }
+      const query = approximate ? window.HomeClickLocation.joinLocation(propiedad.localidad, propiedad.provincia, "España") : consultaMapa(propiedad);
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=es`;
       const res = await fetch(url);
       if (!res.ok) throw new Error("Geocodificación no disponible");
       const data = await res.json();
@@ -425,13 +427,13 @@ async function iniciarMapa() {
   contenedor.classList.remove("mapa-empty");
   contenedor.innerHTML = "";
 
-  mapa = L.map("mapa").setView([lat, lng], 15);
+  mapa = L.map("mapa").setView([lat, lng], approximate ? 11 : 15);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "&copy; OpenStreetMap contributors"
   }).addTo(mapa);
 
-  L.marker([lat, lng])
+  if (!approximate) L.marker([lat, lng])
     .addTo(mapa)
     .bindPopup(propiedad.titulo)
     .openPopup();

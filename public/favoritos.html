@@ -144,6 +144,7 @@
 <div id="main-header"></div>
 <script src="/js/header.js" defer></script>
 <script src="/js/seo-slug.js"></script>
+<script src="/js/public-location.js?v=1"></script>
 <script src="/js/precios.js?v=1"></script>
 
 <!-- HEADER -->
@@ -218,7 +219,7 @@ async function cargarFavoritos() {
           <div class="card-body">
             <div class="card-precio">${precio}</div>
             <div class="card-titulo">${p.titulo}</div>
-            <div class="card-direccion">📍 ${p.direccion}</div>
+            <div class="card-direccion">📍 ${window.HomeClickLocation.locationHtml(p)}</div>
             ${hab || banos || sup ? `
               <div class="card-hab">
                 ${[hab, banos, sup].filter(Boolean).join('<span style="color:#ddd">|</span>')}

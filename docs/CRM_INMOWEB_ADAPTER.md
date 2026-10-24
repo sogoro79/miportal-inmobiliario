@@ -54,8 +54,10 @@ logged when later integrating real preview.
 - superficie is exclusively built area; there is no fallback to living area.
   Living area and original areas are retained in metadata; plot area is separate.
 - Locality, province, postcode, country, zone and valid coordinate pairs survive.
-  No street address is invented. `direccion` remains empty and every current
-  record is blocked by INMOWEB_ADDRESS_MISSING until a product decision is made.
+  No street address is invented. `direccion` stays empty; `ubicacionPublica` uses
+  zone + locality or locality + province, with approximate precision. The CRM-only
+  schema requires locality when street is absent; missing locality is blocked
+  with INMOWEB_LOCATION_INSUFFICIENT. Manual creation still requires a street.
 - Only Spanish provides primary content; English is preserved in metadata, not
   used as fallback. Duplicate language blocks the record.
 - Known rich feature values map to booleans, preserving originals in metadata.
@@ -77,7 +79,7 @@ MISSING/reappearance evidence, identity, ownership, reconciliation and locks.
 
 Read-only preview now supplies safe response shaping and messages. Do not pass
 raw metadata (especially translations/features) to the UI unchecked.
-Before NEW, resolve required address/rental period/unknown values, reuse Phase 2
+Before NEW, resolve rental period/unknown values, reuse Phase 2
 validation and ensure the adapter's nulls are not silently replaced by defaults.
 Keep source URL hashes and the one-source-per-user protection unchanged.
 Before UPDATE, version normalization and adapt baseline/digest consumers while

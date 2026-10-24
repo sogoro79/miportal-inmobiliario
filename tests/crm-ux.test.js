@@ -31,6 +31,7 @@ for (const [file, render] of [["home-destacadas", "renderDestacadaHome"], ["home
   test(`tarjetas ${file} usan precios comunes para CRM y manuales`, () => {
     const context = vm.createContext({ document: { addEventListener() {} }, window: { addEventListener() {} } });
     vm.runInContext(read("public/js/precios.js"), context);
+    vm.runInContext(read("public/js/public-location.js"), context);
     vm.runInContext(read(`public/js/${file}.js`), context);
     for (const source of ["manual", "crm"]) for (const [precio, tipoOperacion, expected] of [[1650, "alquiler", "1.650 €/mes"], [245000, "venta", "245.000 €"]]) {
       const html = context[render]({ _id: "test", titulo: "Prueba", source, precio, tipoOperacion });
@@ -40,7 +41,7 @@ for (const [file, render] of [["home-destacadas", "renderDestacadaHome"], ["home
 }
 
 test("páginas cargan helper de precios antes del código consumidor", () => {
-  for (const [file, consumer] of [["propiedad", "/js/propiedad.js?v=2"], ["comprar", "/js/filtros.js?v=2"], ["alquiler", "/js/filtros.js?v=2"], ["index", "/js/home-destacadas.js?v=2"]]) {
+  for (const [file, consumer] of [["propiedad", "/js/propiedad.js?v=3"], ["comprar", "/js/filtros.js?v=3"], ["alquiler", "/js/filtros.js?v=3"], ["index", "/js/home-destacadas.js?v=3"]]) {
     const html = read(`public/${file}.html`);
     assert.ok(html.indexOf('/js/precios.js?v=1') >= 0);
     assert.ok(html.indexOf('/js/precios.js?v=1') < html.indexOf(consumer));

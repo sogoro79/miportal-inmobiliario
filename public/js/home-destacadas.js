@@ -13,7 +13,7 @@ function homeDireccionCorta(direccion = "") {
 }
 
 function homeUbicacionCorta(propiedad = {}) {
-  return propiedad.ciudad || propiedad.localidad || homeDireccionCorta(propiedad.direccion || "");
+  return window.HomeClickLocation.buildPublicLocation(propiedad);
 }
 
 function renderDestacadaHome(p) {

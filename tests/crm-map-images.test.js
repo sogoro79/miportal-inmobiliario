@@ -40,6 +40,7 @@ function frontend({ results = [{ lat: "36.727", lon: "-6.436" }], fail = false, 
     L: { map: () => ({ setView(coords) { centers.push(coords); return this; } }), tileLayer: () => ({ addTo() {} }), marker: () => marker }
   });
   vm.runInContext(read("public/js/precios.js"), context);
+  vm.runInContext(read("public/js/public-location.js"), context);
   vm.runInContext(read("public/js/propiedad.js"), context);
   return { context, requests, centers, container, mapContainer, image, count };
 }

@@ -581,6 +581,7 @@ let lngSel = null;
 let geoSeleccionada = { localidad: "", provincia: "", codigoPostal: "" };
 let geoSeleccionValida = false;
 let direccionSeleccionada = "";
+let ubicacionCrmSinDireccion = false;
 let imgFiles = [];
 let imagenesExistentes = [];
 let usuarioActualPublicar = null;
@@ -861,6 +862,7 @@ if (propiedadIdEditar) {
     })
     .then(p => {
       revisionPropiedadInicial = p.contentRevision ?? 0;
+      ubicacionCrmSinDireccion = p.source === "crm" && !p.direccion && Boolean(p.localidad);
       document.getElementById("titulo").value        = p.titulo || "";
       document.getElementById("referencia").value    = p.referencia || "";
       document.getElementById("direccion").value     = p.direccion || "";
@@ -1112,7 +1114,7 @@ async function publicar() {
 
   const camposFaltantes = [];
   if (!titulo) camposFaltantes.push("título");
-  if (!direccion) camposFaltantes.push("dirección");
+  if (!direccion && !(propiedadIdEditar && ubicacionCrmSinDireccion)) camposFaltantes.push("dirección");
   if (!precio) camposFaltantes.push("precio");
   if (!tipoOperacion) camposFaltantes.push("tipo de operación");
 
@@ -1153,7 +1155,7 @@ async function publicar() {
   }
   fd.append("titulo", titulo);
   fd.append("referencia", document.getElementById("referencia").value.trim());
-  fd.append("direccion", direccion);
+  if (direccion || !ubicacionCrmSinDireccion) fd.append("direccion", direccion);
   const geoCorrespondeADireccionActual = geoSeleccionValida && direccion === direccionSeleccionada;
   if (!propiedadIdEditar || geoCorrespondeADireccionActual) {
     if (geoCorrespondeADireccionActual) {

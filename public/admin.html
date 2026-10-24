@@ -1978,7 +1978,7 @@
             <thead>
               <tr>
                 <th>Título</th>
-                <th>Dirección</th>
+                <th>Ubicación</th>
                 <th>Precio</th>
                 <th>Tipo</th>
                 <th>Fecha</th>
@@ -2315,6 +2315,7 @@
 </div>
 
 <script src="/js/seo-slug.js"></script>
+<script src="/js/public-location.js?v=1"></script>
 <script>
 let adminToken = localStorage.getItem('adminToken');
 if (adminToken) mostrarPanel();
@@ -4357,7 +4358,7 @@ function renderTablaPropiedades() {
     return `
       <tr>
         <td class="tabla-title-cell" data-label="Título"><span class="cell-title-text">${escapeHtml(p.titulo || 'Sin título')}</span></td>
-        <td class="tabla-muted-cell" data-label="Dirección">${escapeHtml(p.direccion || '—')}</td>
+        <td class="tabla-muted-cell" data-label="Ubicación">${window.HomeClickLocation.locationHtml(p)}</td>
         <td data-label="Precio">${formatoPrecioAdmin(p.precio)} €</td>
         <td data-label="Operación">${tipo}</td>
         <td data-label="Fecha">${fecha}${textoCaducidad ? `<br><span class="tabla-muted-cell">${escapeHtml(textoCaducidad)}</span>` : ''}</td>
@@ -4647,7 +4648,7 @@ function propiedadesPublicasParaRedes() {
 function textoSelectorPropiedadRedes(propiedad) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'Alquiler' : 'Venta';
   const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion) || 'precio a consultar';
-  const zona = ubicacionPrincipalRedes(propiedad.direccion);
+  const zona = ubicacionPrincipalRedes(window.HomeClickLocation.buildPublicLocation(propiedad));
   return `${propiedad.titulo || 'Sin título'} · ${operacion} · ${precio} · ${zona}`;
 }
 
@@ -4683,7 +4684,7 @@ function lineaDetalleRedes(etiqueta, valor) {
 }
 
 function zonaPropiedadRedes(propiedad) {
-  return propiedad.zona || propiedad.ciudad || propiedad.localidad || ubicacionPrincipalRedes(propiedad.direccion);
+  return propiedad.zona || propiedad.ciudad || propiedad.localidad || ubicacionPrincipalRedes(window.HomeClickLocation.buildPublicLocation(propiedad));
 }
 
 function crearPublicacionFacebookPropiedad(propiedad) {
@@ -5035,7 +5036,7 @@ function detectarZonaDesdeTitulo(titulo = '') {
 }
 
 function ubicacionPostSemanal(propiedad) {
-  const partes = limpiarPartesDireccionRedes(propiedad.direccion);
+  const partes = limpiarPartesDireccionRedes(window.HomeClickLocation.buildPublicLocation(propiedad));
   const zonaTitulo = detectarZonaDesdeTitulo(propiedad.titulo);
   const ciudad = partes.length > 1 ? partes[partes.length - 1] : partes[0] || '';
   let zona = zonaTitulo;
@@ -5053,7 +5054,7 @@ function ubicacionPostSemanal(propiedad) {
 
 function extrasPostSemanal(propiedad) {
   const tituloOriginal = String(propiedad.titulo || '');
-  const direccion = String(propiedad.direccion || '');
+  const direccion = window.HomeClickLocation.buildPublicLocation(propiedad);
   const textoBusqueda = `${tituloOriginal} ${direccion}`.toLowerCase();
   const extras = [];
 
@@ -5089,7 +5090,7 @@ function crearPostSemanalRedes(propiedades = []) {
   const iconos = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
   const bloques = propiedades.map((propiedad, index) => {
     const precio = formatearPrecioRedes(propiedad.precio, propiedad.tipoOperacion);
-    const ubicacion = direccionResumen(propiedad.direccion);
+    const ubicacion = direccionResumen(window.HomeClickLocation.buildPublicLocation(propiedad));
     const url = urlPropiedadSeoAdmin(propiedad);
     return [
       `${iconos[index]} ${limpiarTituloPostSemanal(propiedad)}`,
@@ -5509,7 +5510,7 @@ async function exportarPropiedades() {
 
   const datos = propiedades.map(p => ({
     Título: p.titulo || '',
-    Dirección: p.direccion || '',
+    [p.direccion && p.precisionUbicacion !== 'aproximada' ? 'Dirección' : 'Ubicación']: window.HomeClickLocation.buildPublicLocation(p),
     Precio: p.precio || 0,
     Tipo: p.tipoOperacion || '',
     Habitaciones: p.habitaciones || '',

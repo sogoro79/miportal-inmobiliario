@@ -1,7 +1,8 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { DEFAULT_MAX_XML_BYTES, DEFAULT_MAX_PREVIEW_PROPERTIES, rejectUnsafeXml, parseAndValidateFeedUrl } from "../feedSecurity.js";
 import { MAX_SYNC_PROPERTIES } from "../syncSnapshot.js";
-import { propiedadCreateSchema } from "../../propertySchemas.js";
+import { propiedadCrmCreateSchema } from "../../propertySchemas.js";
+import { buildPublicLocation } from "../../publicLocation.js";
 import { normalizeSpanishPrice } from "../../prices.js";
 
 export const INMOWEB_NORMALIZATION_VERSION = 1;
@@ -85,7 +86,7 @@ function normalizeRecord(record) {
   const location = object(record.localizacion) ? record.localizacion : {};
   // No postal street is supplied by this contract; locality/zone are never fabricated into one.
   const direccion = "";
-  block("INMOWEB_ADDRESS_MISSING");
+  if (!text(location.poblacion)) block("INMOWEB_LOCATION_INSUFFICIENT");
   const latRaw = scalar(location.latitud), lngRaw = scalar(location.longitud);
   const coordinate = (raw, limit) => /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) && Number.isFinite(Number(raw)) && Math.abs(Number(raw)) <= limit;
   const validCoordinates = coordinate(latRaw, 90) && coordinate(lngRaw, 180);
@@ -131,7 +132,9 @@ function normalizeRecord(record) {
     lat: validCoordinates ? Number(latRaw) : null, lng: validCoordinates ? Number(lngRaw) : null,
     ...booleans, imagenes
   };
-  if (!propiedadCreateSchema.safeParse(data).success) errors.push("INMOWEB_PUBLICATION_DATA_INVALID");
+  data.precisionUbicacion = "aproximada";
+  data.ubicacionPublica = buildPublicLocation(data);
+  if (!propiedadCrmCreateSchema.safeParse(data).success) errors.push("INMOWEB_PUBLICATION_DATA_INVALID");
   return { data, metadata: { operationId, familyId, conditionId, commercialStatus,
     superficies: surfaces, aseos: number(record.aseos, "TOILETS", true),
     traducciones: Object.fromEntries(translations), caracteristicas: Object.fromEntries(features) },

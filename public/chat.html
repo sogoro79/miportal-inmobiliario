@@ -365,7 +365,7 @@ function renderPropiedadContext(propiedad) {
     <div class="property-context-info">
       <strong>${escapeHtml(propiedad.titulo || "Propiedad")}</strong>
       <div class="property-context-price">${precio} €</div>
-      <div class="property-context-address">${escapeHtml(direccionCorta(propiedad.direccion || ""))}</div>
+      <div class="property-context-address">${escapeHtml(propiedad.ubicacionPublica || direccionCorta(propiedad.direccion || ""))}</div>
     </div>
     <a class="property-context-link" href="${escapeHtml(typeof getPropiedadSeoUrl === "function" ? getPropiedadSeoUrl(propiedad) : `/propiedad/propiedad-${encodeURIComponent(propiedad._id)}`)}">Ver anuncio</a>
   `;

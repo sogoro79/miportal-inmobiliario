@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 import { getPublicationAvailability } from "../propertyCreation.js";
 import { createPublicationPersistence } from "../publicationPersistence.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS } from "./importBudget.js";
-import { propiedadCreateSchema } from "../propertySchemas.js";
+import { propiedadCrmCreateSchema } from "../propertySchemas.js";
 import { getLimiteFotosPlan } from "../planLimits.js";
 import { getPlanParaFotos } from "../publishEligibility.js";
 import { configureCloudinary, uploadBuffer, destroyByPublicId } from "../cloudinaryService.js";
@@ -42,7 +42,7 @@ export function feedHash(rawUrl) {
 
 export function validateImportProperty(property) {
   const text = value => typeof value === "string" ? value.replace(/<[^>]*>/g, "").trim() : value;
-  const parsed = propiedadCreateSchema.safeParse({ ...property,
+  const parsed = propiedadCrmCreateSchema.safeParse({ ...property,
     titulo: text(property.titulo), descripcion: text(property.descripcion), direccion: text(property.direccion),
     superficie: property.superficie ?? undefined
   });

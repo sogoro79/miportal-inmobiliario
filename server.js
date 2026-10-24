@@ -2,6 +2,7 @@
 // CONFIG INICIAL
 // =============================
 import dotenv from "dotenv";
+import { buildPublicLocation } from "./utils/publicLocation.js";
 dotenv.config();
 
 import express from "express";
@@ -134,7 +135,7 @@ function resumirDescripcion(propiedad = {}) {
   const base = textoPlano(propiedad.descripcion)
     || [
       propiedad.titulo,
-      propiedad.direccion ? `en ${propiedad.direccion}` : "",
+      `en ${buildPublicLocation(propiedad)}`,
       propiedad.precio ? `Precio ${Number(propiedad.precio).toLocaleString("es-ES")} €` : ""
     ].filter(Boolean).join(". ");
 

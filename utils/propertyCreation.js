@@ -1,4 +1,5 @@
 import Propiedad from "../models/Propiedad.js";
+import { buildPublicLocation } from "./publicLocation.js";
 import { calcularFechaExpiracionPlan } from "./planLimits.js";
 import {
   filtroPropiedadesValidasVisibles,
@@ -25,14 +26,19 @@ export async function getPublicationAvailability(usuario, {
 export function buildPropiedadCreateData(body = {}, {
   usuarioId,
   plan = "gratis",
+  source = "manual",
   imagenes = []
 } = {}) {
   const tipoInmueble = body.tipoInmueble || "piso";
+  const precisionUbicacion = body.precisionUbicacion || (source === "crm" && !body.direccion ? "aproximada" : "exacta");
+  const ubicacionPublica = buildPublicLocation({ ...body, precisionUbicacion });
 
   return {
     titulo: body.titulo,
     referencia: body.referencia || "",
-    direccion: body.direccion,
+    direccion: body.direccion || "",
+    ubicacionPublica,
+    precisionUbicacion,
     localidad: body.localidad || "",
     provincia: body.provincia || "",
     codigoPostal: body.codigoPostal || "",

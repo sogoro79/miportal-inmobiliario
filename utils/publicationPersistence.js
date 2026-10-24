@@ -36,7 +36,7 @@ export function createPublicationPersistence({ UsuarioModel = Usuario, Propiedad
         if (!availability.puedePublicarAhora) throw new PublicationError("Has alcanzado el límite de anuncios de tu plan.");
         if (imagenes.length > getLimiteFotosPlan(getPlanParaFotos(user))) throw new PublicationError("Has superado el límite de fotos de tu plan.");
         budget?.assertActive();
-        const data = buildPropiedadCreateData(body, { usuarioId, plan: availability.plan, imagenes });
+        const data = buildPropiedadCreateData(body, { usuarioId, plan: availability.plan, imagenes, source: extra.source || "manual" });
         if (extra.source === "crm") data.banos = body.banos ?? 0;
         [created] = await PropiedadModel.create([{ ...data, ...extra, _id: propertyId }], { session });
         await transactionHooks?.after?.(session, created);

@@ -688,6 +688,7 @@
 <div id="main-header"></div>
 <script src="/js/header.js" defer></script>
 <script src="/js/seo-slug.js"></script>
+<script src="/js/public-location.js?v=1"></script>
 
 <div class="perfil-wrap">
 
@@ -842,7 +843,7 @@
 <script src="/js/publish-flow.js"></script>
 <script src="/js/precios.js?v=1"></script>
 <script src="/js/crm-sync-ui.js?v=11"></script>
-<script src="/js/crm-readonly-preview.js?v=1"></script>
+<script src="/js/crm-readonly-preview.js?v=2"></script>
 <script>
 let usuario = JSON.parse(localStorage.getItem("usuario") || "null");
 const token   = localStorage.getItem("token");
@@ -1351,7 +1352,7 @@ async function cargarPropiedades() {
           <div class="card-precio">${precio}</div>
           <div class="card-titulo">${p.titulo}</div>
           ${p.referencia ? `<div class="card-direccion">Ref. ${p.referencia}</div>` : ""}
-          <div class="card-direccion">📍 ${p.direccion}</div>
+          <div class="card-direccion">📍 ${window.HomeClickLocation.locationHtml(p)}</div>
           ${caducidad ? `<div class="card-direccion">${caducidad}</div>` : ""}
           ${hab ? `<div class="card-hab">${hab}</div>` : ""}
           <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
