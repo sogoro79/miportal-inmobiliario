@@ -113,6 +113,9 @@ test("multiple properties retain canonical identity and safe issues", async () =
     assert.equal(body.total, 2);
     assert.deepEqual(body.properties.map(p => p.externalId), ["0001", "0002"]);
     assert.ok(body.properties.every(p => p.publishableByData && p.precisionUbicacion === "aproximada"));
+    assert.ok(body.properties.every(p => p.futureNewEligible === true && p.futureNewStatus === "eligible"));
+    assert.equal(body.importEnabled, false);
+    assert.equal(body.syncEnabled, false);
     assert.ok(body.properties.every(p => !p.issues.some(i => i.code === "INMOWEB_ADDRESS_MISSING")));
   });
 });
@@ -229,7 +232,7 @@ test("actual profile rendering hides import controls and restores the generic pr
 test("profile preserves generic default, hides URL, loads renderer and all inline scripts parse", () => {
   assert.match(profile, /<option value="generic_xml">XML genérico/);
   assert.match(profile, /type="password" id="crmFeedUrl"/);
-  assert.match(profile, /crm-readonly-preview\.js\?v=2/);
+  assert.match(profile, /crm-readonly-preview\.js\?v=3/);
   for (const [, attrs, source] of profile.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
     if (!/\bsrc=/.test(attrs)) new vm.Script(source);
   }

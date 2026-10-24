@@ -1,7 +1,7 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { DEFAULT_MAX_XML_BYTES, DEFAULT_MAX_PREVIEW_PROPERTIES, rejectUnsafeXml, parseAndValidateFeedUrl } from "../feedSecurity.js";
 import { MAX_SYNC_PROPERTIES } from "../syncSnapshot.js";
-import { propiedadCrmCreateSchema } from "../../propertySchemas.js";
+import { evaluateInmowebNewEligibility } from "../inmowebNewEligibility.js";
 import { buildPublicLocation } from "../../publicLocation.js";
 import { normalizeSpanishPrice } from "../../prices.js";
 
@@ -99,7 +99,6 @@ function normalizeRecord(record) {
   const habitaciones = number(record.dormitorios, "BEDROOMS", true);
   const banos = number(record.banos, "BATHROOMS", true);
   if (habitaciones === null) block("INMOWEB_BEDROOMS_UNKNOWN");
-  if (banos === null) block("INMOWEB_BATHROOMS_UNKNOWN");
   const features = new Map();
   for (const entry of array(record.caracteristicas?.caracteristica)) {
     const id = attr(entry, "id");
@@ -134,11 +133,12 @@ function normalizeRecord(record) {
   };
   data.precisionUbicacion = "aproximada";
   data.ubicacionPublica = buildPublicLocation(data);
-  if (!propiedadCrmCreateSchema.safeParse(data).success) errors.push("INMOWEB_PUBLICATION_DATA_INVALID");
+  const toilets = number(record.aseos, "TOILETS", true);
+  const eligibility = evaluateInmowebNewEligibility({ ...data, errors, warnings });
   return { data, metadata: { operationId, familyId, conditionId, commercialStatus,
-    superficies: surfaces, aseos: number(record.aseos, "TOILETS", true),
+    superficies: surfaces, aseos: toilets,
     traducciones: Object.fromEntries(translations), caracteristicas: Object.fromEntries(features) },
-    errors: [...new Set(errors)], warnings: [...new Set(warnings)], publishableByData: errors.length === 0 };
+    errors: eligibility.blockingIssues, warnings: eligibility.warnings, publishableByData: eligibility.eligible };
 }
 
 export function normalizeInmowebXml(xml) {

@@ -49,7 +49,8 @@ logged when later integrating real preview.
   corrected. Prices <= 1 produce a review warning and retain their value.
 - Rental periodicity is null and blocks publication. The public price renderer
   currently labels alquiler as monthly; product policy must be resolved first.
-- Missing bedrooms/bathrooms remain null and block; explicit zero survives.
+- Missing bedrooms remain null and block; missing bathrooms remain null with a
+  warning only. Explicit zero survives. Missing built area/images also warn only.
   Toilets are metadata, never added to bathrooms.
 - superficie is exclusively built area; there is no fallback to living area.
   Living area and original areas are retained in metadata; plot area is separate.
@@ -89,3 +90,6 @@ from filtering out unsupported or invalid records. Before REAPPEARED, reuse
 causal hide receipts and content/capacity checks, not just an ID match.
 Models currently accept only generic_xml sources; they are intentionally not
 extended here. All tests use invented data and reserved example.test image hosts.
+
+Future NEW data eligibility and the three preview review labels are specified in
+CRM_INMOWEB_NEW_ELIGIBILITY.md. They do not enable import or any sync action.
