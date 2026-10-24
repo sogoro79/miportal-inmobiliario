@@ -820,7 +820,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     propiedad.superficieParcela = req.body.superficieParcela ? Number(req.body.superficieParcela) : propiedad.superficieParcela;
     propiedad.superficie   = superficie ? Number(superficie) : propiedad.superficie;
     propiedad.tipoInmueble = tipoInmueble || propiedad.tipoInmueble;
-    propiedad.estado       = estado || propiedad.estado;
+    if (estado !== undefined) propiedad.estado = estado;
     propiedad.certificadoEnergetico = certificadoEnergetico !== undefined ? certificadoEnergetico : propiedad.certificadoEnergetico;
     propiedad.estadoPropiedad = estadoPropiedad !== undefined ? estadoPropiedad : propiedad.estadoPropiedad;
     propiedad.estadoComercial = estadoComercial !== undefined ? estadoComercial : propiedad.estadoComercial;

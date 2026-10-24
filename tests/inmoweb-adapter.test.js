@@ -29,7 +29,7 @@ test("minimal InmoWeb record is parseable but cannot be published by invented de
   const p = entry('<properties><propiedad id="A"/></properties>');
   assert.equal(p.data.externalId, "A");
   assert.equal(p.data.habitaciones, null);
-  assert.equal(p.data.estado, null);
+  assert.equal(p.data.estado, "no_informado");
   assert.equal(p.data.tipoInmueble, null);
   assert.equal(p.publishableByData, false);
   assert.equal(Object.hasOwn(p.data, "garaje"), false);
@@ -96,7 +96,7 @@ for (const [id, expected] of [["1", "apartamento"], ["3", "chalet"], ["9", "finc
   });
 }
 
-for (const [id, expected] of [["ON", "obra_nueva"], ["SM", "segunda_mano"], ["", null], ["constructor", null]]) {
+for (const [id, expected] of [["ON", "obra_nueva"], ["SM", "segunda_mano"], ["", "no_informado"], ["constructor", null]]) {
   test(`physical condition ${id || "empty"} stays independent of commercial status`, () => {
     const p = entry(change('<estado id="SM"/>', `<estado id="${id}"/>`));
     assert.equal(p.data.estado, expected);

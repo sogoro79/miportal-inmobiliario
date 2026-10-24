@@ -14,6 +14,7 @@ export function evaluateInmowebNewEligibility(property = {}) {
   if (!["venta", "alquiler"].includes(property.tipoOperacion)) block("INMOWEB_UNSUPPORTED_OPERATION");
   if (!tipoInmuebleSchema.safeParse(property.tipoInmueble).success) block("INMOWEB_UNSUPPORTED_FAMILY");
   if (!estadoSchema.safeParse(property.estado).success) block(property.estado ? "INMOWEB_UNSUPPORTED_CONDITION" : "INMOWEB_CONDITION_UNKNOWN");
+  else if (property.estado === "no_informado") warnings.add("INMOWEB_CONDITION_UNKNOWN");
   if (property.estadoComercial !== "Disponible") block("INMOWEB_COMMERCIAL_UNAVAILABLE");
   if (property.moneda !== "EUR") block("INMOWEB_UNSUPPORTED_CURRENCY");
   if (typeof property.precio !== "number" || !Number.isFinite(property.precio) || property.precio < 0) block("INMOWEB_INVALID_PRICE");

@@ -214,7 +214,7 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   const typeKey = ["tipoInmueble", "propertyType", "category", "subtype"].find(key => keys.has(key.toLowerCase()));
   const tipoInmueble = normalizeTipoInmueble(typeKey ? text(item[keys.get(typeKey.toLowerCase())]) : "");
   const conditionKey = ["estado", "condition"].find(key => keys.has(key));
-  const estado = conditionKey ? normalizeCrmCondition(text(item[keys.get(conditionKey)])) : undefined;
+  const estado = conditionKey ? normalizeCrmCondition(text(item[keys.get(conditionKey)])) : "no_informado";
   const fotos = [...new Set(collectPhotos(item, [], maxPhotos))].slice(0, maxPhotos);
   const errors = [];
   const warnings = [];

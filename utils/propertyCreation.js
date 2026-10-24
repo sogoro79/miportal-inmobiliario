@@ -52,7 +52,7 @@ export function buildPropiedadCreateData(body = {}, {
     superficie: body.superficie ? Number(body.superficie) : null,
     superficieParcela: body.superficieParcela ? Number(body.superficieParcela) : null,
     tipoInmueble,
-    estado: body.estado || "segunda_mano",
+    estado: body.estado === undefined ? "no_informado" : body.estado,
     certificadoEnergetico: body.certificadoEnergetico || "",
     estadoPropiedad: body.estadoPropiedad || "",
     estadoComercial: body.estadoComercial || "Disponible",

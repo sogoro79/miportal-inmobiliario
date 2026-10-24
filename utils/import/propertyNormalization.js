@@ -5,6 +5,7 @@ const propertyTypes = new Map(Object.entries({
   country_house: "casa_campo", casa_de_campo: "casa_campo"
 }));
 const conditions = new Map(Object.entries({
+  no_informado: "no_informado",
   obra_nueva: "obra_nueva", new: "obra_nueva", segunda_mano: "segunda_mano",
   used: "segunda_mano", resale: "segunda_mano", second_hand: "segunda_mano"
 }));

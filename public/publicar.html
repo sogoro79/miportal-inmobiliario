@@ -855,6 +855,7 @@ document.getElementById("grupo-parcela").style.display = tieneParcela ? "" : "no
 const propiedadIdEditar = new URLSearchParams(window.location.search).get("editar");
 const textoBotonPublicar = propiedadIdEditar ? "💾 Guardar cambios" : "🚀 Publicar anuncio";
 let certificadoEnergeticoInicial = "";
+let estadoInicial;
 let revisionPropiedadInicial;
 
 if (propiedadIdEditar) {
@@ -903,7 +904,12 @@ if (propiedadIdEditar) {
       document.getElementById("tipoInmueble").value  = p.tipoInmueble === "local_comercial"
         ? "local"
         : (p.tipoInmueble || "piso");
-      document.getElementById("estado").value        = p.estado || "segunda_mano";
+      estadoInicial = p.estado;
+      const selectorEstado = document.getElementById("estado");
+      if (p.estado === "no_informado" || p.estado === undefined) {
+        selectorEstado.add(new Option("Estado no informado", p.estado ?? ""));
+      }
+      selectorEstado.value = p.estado ?? "";
       document.getElementById("estadoComercial").value = p.estadoComercial || "Disponible";
       certificadoEnergeticoInicial = p.certificadoEnergetico ?? "";
       document.getElementById("certificadoEnergetico").value = certificadoEnergeticoInicial;
@@ -1195,7 +1201,8 @@ async function publicar() {
   fd.append("banos", document.getElementById("banos").value);
   fd.append("superficie", document.getElementById("superficie").value);
   fd.append("tipoInmueble", tipo);
-  fd.append("estado", document.getElementById("estado").value);
+  const estado = document.getElementById("estado").value;
+  if (estado && (!propiedadIdEditar || estado !== estadoInicial)) fd.append("estado", estado);
   fd.append("estadoComercial", document.getElementById("estadoComercial").value);
   const certificadoEnergetico = document.getElementById("certificadoEnergetico").value;
   if (certificadoEnergetico && (!propiedadIdEditar || certificadoEnergetico !== certificadoEnergeticoInicial)) {

@@ -1,5 +1,6 @@
 import express from 'express';
 import { PRICE_PERIODS, applyPricePeriodEdit } from '../utils/pricePeriod.js';
+import { estadoSchema } from '../utils/propertySchemas.js';
 import { buildPublicLocation, applyLocationEdit } from '../utils/publicLocation.js';
 import { capturePropertyContent, markManualContentChanges } from '../utils/propertyContent.js';
 import { guardManualPropertyRevision, isPropertyRevisionConflict } from '../utils/propertyRevision.js';
@@ -1107,6 +1108,11 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
       visiblePublicamente
     } = req.body;
 
+    if (req.body.estado !== undefined) {
+      const condition = estadoSchema.safeParse(req.body.estado);
+      if (!condition.success) return res.status(400).json({ error: 'Estado del inmueble inválido' });
+      propiedad.estado = condition.data;
+    }
     if (titulo !== undefined) propiedad.titulo = limpiarTexto(titulo, 160);
     if (req.body.precisionUbicacion !== undefined && !['exacta', 'aproximada'].includes(req.body.precisionUbicacion)) {
       return res.status(400).json({ error: 'Precisión de ubicación inválida' });

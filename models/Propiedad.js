@@ -58,7 +58,7 @@ const PropiedadSchema = new mongoose.Schema({
     default: "piso" 
   },
 
-  estado: { type: String, enum: ["obra_nueva", "segunda_mano"], default: "segunda_mano" },
+  estado: { type: String, enum: ["obra_nueva", "segunda_mano", "no_informado"] },
   certificadoEnergetico: {
     type: String,
     enum: ["A", "B", "C", "D", "E", "F", "G", "No disponible", "Exento", "En trámite", ""],
@@ -107,6 +107,8 @@ const PropiedadSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 PropiedadSchema.pre("validate", function () {
+  // Do not materialize a condition when hydrating/saving a legacy document.
+  if (this.isNew && this.estado === undefined) this.estado = "no_informado";
   if (this.tipoOperacion === "venta" && (this.isNew || this.periodicidadPrecio !== undefined)) this.periodicidadPrecio = null;
   else if (this.isNew && this.periodicidadPrecio == null) this.periodicidadPrecio = "desconocida";
 });

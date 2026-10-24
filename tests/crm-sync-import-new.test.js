@@ -439,7 +439,7 @@ for (const [type, condition, expectedType, expectedCondition] of [
   assert.equal(snapshot.properties[0].data.tipoInmueble, expectedType);
   assert.equal(h.state.properties[0].tipoInmueble, expectedType);
   assert.equal(snapshot.properties[0].data.estado, expectedCondition);
-  assert.equal(h.state.properties[0].estado, expectedCondition ?? "segunda_mano");
+  assert.equal(h.state.properties[0].estado, expectedCondition ?? "no_informado");
 });
 for (const [type, condition] of [["unknown_type", "used"], ["house", "unknown_condition"]]) {
   test(`NEW refuses invalid normalization ${type}/${condition} before resources`, async () => {

@@ -102,7 +102,7 @@ export function normalizeSyncProperty(node) {
           if (!value) throw new Error("UNKNOWN_PROPERTY_TYPE");
         } else if (field === "estado") {
           value = normalizeCrmCondition(value);
-          if (!["obra_nueva", "segunda_mano"].includes(value)) throw new Error("UNKNOWN_CONDITION");
+          if (!["obra_nueva", "segunda_mano", "no_informado"].includes(value)) throw new Error("UNKNOWN_CONDITION");
         } else if (field === "estadoComercial") {
           const status = normalizedKey(value);
           const mapped = commercialStatuses.get(status);

@@ -6,7 +6,7 @@ const messages = new Map(Object.entries({
   INMOWEB_TITLE_NORMALIZED: "Título adaptado automáticamente a partir de tipo, operación y ubicación.",
   INMOWEB_LOCATION_INSUFFICIENT: "Falta una localidad válida para ubicar el inmueble.",
   INMOWEB_RENT_PERIOD_UNKNOWN: "El alquiler no indica periodicidad; no se asume un precio mensual.",
-  INMOWEB_CONDITION_UNKNOWN: "No se ha informado si es obra nueva o segunda mano.",
+  INMOWEB_CONDITION_UNKNOWN: "El proveedor no informa si el inmueble es obra nueva o segunda mano.",
   INMOWEB_UNSUPPORTED_CONDITION: "La condición del inmueble no se reconoce.",
   INMOWEB_UNSUPPORTED_FAMILY: "El tipo de inmueble no está soportado.",
   INMOWEB_UNSUPPORTED_OPERATION: "La operación no está soportada.",

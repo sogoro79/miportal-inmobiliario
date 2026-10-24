@@ -22,7 +22,6 @@ test("complete sale is future eligible, without authorizing any action", () => {
 });
 
 for (const [name, from, to, code] of [
-  ["empty condition", '<estado id="SM"/>', '<estado/>', "INMOWEB_CONDITION_UNKNOWN"],
   ["missing title", '<titulo>Piso sintético</titulo>', '<titulo/>', "INMOWEB_SPANISH_TITLE_MISSING"],
   ["unknown type", '<familia id="24">', '<familia id="999">', "INMOWEB_UNSUPPORTED_FAMILY"],
   ["missing locality", '<poblacion id="TEST">Municipio ficticio</poblacion>', '<poblacion/>', "INMOWEB_LOCATION_INSUFFICIENT"],
@@ -80,9 +79,9 @@ test("InmoWeb rental without periodicity is future eligible with a warning, neve
   assert.equal(safeInmowebPreview(analyzed).importEnabled, false);
 });
 
-test("unknown condition is blocked rather than falling through the creation default", () => {
+test("ambiguous absence remains blocked until explicitly represented; creation does not invent second-hand", () => {
   assert.equal(propiedadCrmCreateSchema.safeParse({ ...base, estado: undefined }).success, true);
-  assert.equal(buildPropiedadCreateData({ ...base, estado: undefined }).estado, "segunda_mano");
+  assert.equal(buildPropiedadCreateData({ ...base, estado: undefined }).estado, "no_informado");
   assert.equal(evaluateInmowebNewEligibility({ ...base, estado: undefined }).eligible, false);
 });
 

@@ -10,11 +10,12 @@ test("sale hides the period group despite the generic flex style", () => {
 });
 
 async function submit({ edit = true, certificate = "", originalCertificate = "", networkError = false, status = 400,
-  operation = "venta", period = "", initialPeriod, reject = false } = {}) {
+  operation = "venta", period = "", initialPeriod, reject = false,
+  condition = "segunda_mano", initialCondition = "segunda_mano" } = {}) {
   const nodes = new Map();
   const values = { titulo: "Estudio de prueba", direccion: "Calle Test", precio: "130000", tipoOperacion: operation, periodicidadPrecio: period,
     tipoInmueble: "estudio", habitaciones: "0", banos: "1", superficie: "40",
-    descripcion: "Descripcion editada", certificadoEnergetico: certificate };
+    descripcion: "Descripcion editada", certificadoEnergetico: certificate, estado: condition };
   const requests = [];
   const errors = [];
   const document = { getElementById(id) {
@@ -27,6 +28,7 @@ async function submit({ edit = true, certificate = "", originalCertificate = "",
   await vm.runInNewContext(`${mode}\n${publicarHtml.slice(start, end)}\npublicar();`, {
     window: { location: { search: edit ? "?editar=test-property" : "" } }, URLSearchParams, document,
     certificadoEnergeticoInicial: originalCertificate,
+    estadoInicial: initialCondition,
     periodicidadInicial: initialPeriod, operacionInicial: operation,
     revisionPropiedadInicial: 2,
     obtenerTokenPublicar: () => "test-token", usuarioActualPublicar: { _id: "test-user" },
@@ -71,6 +73,30 @@ test("schema mantiene certificado omitido o permitido y rechaza vacio e invalido
   assert.equal(propiedadUpdateSchema.safeParse({ descripcion: "Nueva descripcion" }).success, true);
   assert.equal(propiedadUpdateSchema.safeParse({ certificadoEnergetico: "C" }).success, true);
   for (const value of ["", "INVALID"]) assert.equal(propiedadUpdateSchema.safeParse({ certificadoEnergetico: value }).success, false);
+});
+
+for (const condition of ["no_informado", "segunda_mano", "obra_nueva", ""]) test(`edit omits unchanged condition ${condition || "legacy absent"}`, async () => {
+  const { request } = await submit({ condition, initialCondition: condition || undefined });
+  assert.equal(request.body.has("estado"), false);
+});
+for (const condition of ["segunda_mano", "obra_nueva"]) test(`edit explicitly replaces unknown condition with ${condition}`, async () => {
+  const { request } = await submit({ condition, initialCondition: "no_informado" });
+  assert.equal(request.body.get("estado"), condition);
+});
+test("new manual form keeps real condition options, and editing unknown/absent does not select second-hand", () => {
+  const options = publicarHtml.match(/<select id="estado">([\s\S]*?)<\/select>/)[1];
+  assert.match(options, /value="segunda_mano"/); assert.match(options, /value="obra_nueva"/);
+  assert.doesNotMatch(options, /no_informado/);
+  const loading = publicarHtml.match(/estadoInicial = p\.estado;([\s\S]*?)selectorEstado\.value = p\.estado \?\? "";/)[0];
+  for (const estado of [undefined, "no_informado", "obra_nueva", "segunda_mano"]) {
+    const selector = { value: "segunda_mano", options: [], add(option) { this.options.push(option); } };
+    const ctx = { p: { estado }, estadoInicial: undefined, document: { getElementById: () => selector },
+      Option: function (text, value) { this.text = text; this.value = value; } };
+    vm.runInNewContext(loading, ctx);
+    assert.equal(selector.value, estado ?? "");
+    assert.equal(ctx.estadoInicial, estado);
+    assert.equal(selector.options.length, estado === undefined || estado === "no_informado" ? 1 : 0);
+  }
 });
 
 for (const period of ["mes", "semana", "dia", "temporada", "desconocida"]) test(`manual form submits explicit rental period ${period}`, async () => {

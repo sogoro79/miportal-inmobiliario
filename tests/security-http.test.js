@@ -2262,6 +2262,48 @@ for (const admin of [false,true]) for(const explicit of [false,true]) test(`PUT 
   }finally{Usuario.findById=saved.user;Propiedad.findById=saved.property;}
 });
 
+for (const admin of [false, true]) for (const estado of [undefined, "segunda_mano", "obra_nueva", "invalid"]) {
+  test(`PUT ${admin ? "admin" : "owner"} condition ${estado ?? "omitted"} is preserved/validated`, async () => {
+    const saved = { user: Usuario.findById, property: Propiedad.findById };
+    const owner = "507f1f77bcf86cd799439099", adminId = "507f1f77bcf86cd799439012";
+    let saves = 0;
+    const property = { _id: "507f1f77bcf86cd799439088", usuarioId: owner, source: "crm", syncEnabled: true,
+      estado: "no_informado", contentRevision: 2, titulo: "Casa", direccion: "Calle", precio: 100000,
+      tipoOperacion: "venta", habitaciones: 2, imagenes: [], descripcion: "Antes", syncFingerprint: "baseline-intacto",
+      save: async () => { saves++; return property; } };
+    Usuario.findById = () => Promise.resolve({ _id: admin ? adminId : owner, activo: true, role: admin ? "admin" : "user", plan: "gratis" });
+    Propiedad.findById = () => Promise.resolve(property);
+    const token = jwt.sign({ id: admin ? adminId : owner, ...(admin ? { role: "admin" } : {}) }, "test-secret");
+    try {
+      const response = await request(`${admin ? "/admin" : ""}/propiedades/${property._id}`, { method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Forwarded-For": "203.0.113.217" },
+        body: { descripcion: "Nueva", ...(estado === undefined ? {} : { estado }) } });
+      assert.equal(response.status, estado === "invalid" ? 400 : 200, response.text);
+      assert.equal(saves, estado === "invalid" ? 0 : 1);
+      assert.equal(property.estado, estado === undefined || estado === "invalid" ? "no_informado" : estado);
+      assert.equal(property.syncFingerprint, "baseline-intacto");
+      if (estado !== "invalid") {
+        assert.equal(property.contentRevision, 3);
+        assert.deepEqual(Object.keys(property.syncOverrides).sort(), estado === undefined ? ["descripcion"] : ["descripcion", "estado"]);
+      }
+    } finally { Usuario.findById = saved.user; Propiedad.findById = saved.property; }
+  });
+}
+
+test("GET condition filters never include no_informado in obra_nueva or segunda_mano", async () => {
+  const previous = Propiedad.find;
+  const properties = ["obra_nueva", "segunda_mano", "no_informado"].map((estado, i) => ({ _id: String(i), estado }));
+  Propiedad.find = filter => ({ sort() { return this; }, lean: async () => properties.filter(p => matchesMongoFilter(p, filter)) });
+  try {
+    for (const estado of ["obra_nueva", "segunda_mano"]) {
+      const response = await request(`/propiedades?estado=${estado}`);
+      assert.equal(response.status, 200, response.text);
+      const data = JSON.parse(response.text);
+      assert.equal(data.length, 1); assert.equal(data[0].estado, estado);
+    }
+  } finally { Propiedad.find = previous; }
+});
+
 test("rental budget alert requires an explicit period and persists it",async()=>{
   const saved={user:Usuario.findById,save:Alerta.prototype.save};let writes=0;
   Usuario.findById=()=>Promise.resolve({_id:'507f1f77bcf86cd799439099',activo:true});

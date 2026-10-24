@@ -29,12 +29,12 @@ for (const [type, condition, expectedType, expectedCondition] of [
   }
 });
 
-test("absent condition stays omitted; manual and Phase 2 creation retain second-hand default", () => {
+test("legacy snapshot absence stays omitted; new creation explicitly records unknown", () => {
   const xml = feed("house"), snapshot = buildSyncSnapshot(xml), mapped = analyzeGenericXml(xml)[0];
   assert.equal(Object.hasOwn(snapshot.properties[0].data, "estado"), false);
-  assert.equal(Object.hasOwn(mapped, "estado"), false);
-  assert.equal(buildPropiedadCreateData(validateImportProperty(mapped).data).estado, "segunda_mano");
-  assert.equal(buildPropiedadCreateData({ tipoInmueble: "casa", habitaciones: 2, precio: 1 }).estado, "segunda_mano");
+  assert.equal(mapped.estado, "no_informado");
+  assert.equal(buildPropiedadCreateData(validateImportProperty(mapped).data).estado, "no_informado");
+  assert.equal(buildPropiedadCreateData({ tipoInmueble: "casa", habitaciones: 2, precio: 1 }).estado, "no_informado");
 });
 
 test("unknown type retains legacy Phase 2 fallback, but sync marks it invalid", () => {

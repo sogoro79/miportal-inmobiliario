@@ -62,8 +62,10 @@ function normalizeRecord(record) {
   if (!tipoOperacion) block("INMOWEB_UNSUPPORTED_OPERATION");
   const tipoInmueble = families.get(familyId) ?? null;
   if (!tipoInmueble) block("INMOWEB_UNSUPPORTED_FAMILY");
-  const conditionId = attr(record.estado, "id"), estado = conditions.get(conditionId) ?? null;
-  if (!estado) block(conditionId ? "INMOWEB_UNSUPPORTED_CONDITION" : "INMOWEB_CONDITION_UNKNOWN");
+  const conditionId = attr(record.estado, "id");
+  const estado = conditionId ? conditions.get(conditionId) ?? null : "no_informado";
+  if (!estado) block("INMOWEB_UNSUPPORTED_CONDITION");
+  if (estado === "no_informado") warnings.push("INMOWEB_CONDITION_UNKNOWN");
   const commercialStatus = text(record.status_id).toLowerCase();
   const estadoComercial = statuses.get(commercialStatus) ?? null;
   if (estadoComercial !== "Disponible") block("INMOWEB_COMMERCIAL_UNAVAILABLE");

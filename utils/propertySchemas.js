@@ -9,7 +9,7 @@ const tipoInmuebleSchema = z.enum([
   "terreno", "solar_urbano", "parcela", "finca_rustica", "finca_urbana",
   "garaje", "plaza_aparcamiento", "trastero", "otro"
 ]);
-const estadoSchema = z.enum(["obra_nueva", "segunda_mano"]);
+const estadoSchema = z.enum(["obra_nueva", "segunda_mano", "no_informado"]);
 const certificadoEnergeticoSchema = z.enum([
   "A", "B", "C", "D", "E", "F", "G",
   "No disponible", "Exento", "En trámite"
