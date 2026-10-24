@@ -25,7 +25,6 @@ for (const [name, from, to, code] of [
   ["missing title", '<titulo>Piso sintético</titulo>', '<titulo/>', "INMOWEB_SPANISH_TITLE_MISSING"],
   ["unknown type", '<familia id="24">', '<familia id="999">', "INMOWEB_UNSUPPORTED_FAMILY"],
   ["missing locality", '<poblacion id="TEST">Municipio ficticio</poblacion>', '<poblacion/>', "INMOWEB_LOCATION_INSUFFICIENT"],
-  ["missing bedrooms", '<dormitorios>2</dormitorios>', '<dormitorios/>', "INMOWEB_BEDROOMS_UNKNOWN"]
 ]) test(`${name} blocks only the affected record`, () => {
   const analyzed = analyze(xml.replace(from, to));
   const result = evaluateInmowebNewEligibility(analyzed.properties[0]);

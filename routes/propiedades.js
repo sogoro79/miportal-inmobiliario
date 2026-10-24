@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { applyBedroomEdit } from "../utils/bedrooms.js";
 import { pricePeriodFilter, applyPricePeriodEdit, priceAlertFilter, formatearPrecioPropiedad } from "../utils/pricePeriod.js";
 import { periodicidadPrecioSchema } from "../utils/propertySchemas.js";
 import { propiedadCreateSchema, propiedadUpdateSchema, propiedadCrmUpdateSchema, tipoOperacionSchema, tipoInmuebleSchema, estadoSchema } from "../utils/propertySchemas.js";
@@ -815,7 +816,11 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
       terraza
     } = req.body;
 
-    propiedad.habitaciones = habitaciones !== undefined ? Number(habitaciones) : propiedad.habitaciones;
+    try { applyBedroomEdit(propiedad, req.body); }
+    catch (error) {
+      if (error.code === "INVALID_BEDROOMS") return res.status(400).json({ error: "Datos de habitaciones inválidos." });
+      throw error;
+    }
     propiedad.banos        = banos ? Number(banos) : propiedad.banos;
     propiedad.superficieParcela = req.body.superficieParcela ? Number(req.body.superficieParcela) : propiedad.superficieParcela;
     propiedad.superficie   = superficie ? Number(superficie) : propiedad.superficie;

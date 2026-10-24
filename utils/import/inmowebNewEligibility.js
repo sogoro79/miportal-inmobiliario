@@ -21,7 +21,7 @@ export function evaluateInmowebNewEligibility(property = {}) {
   else if (property.precio <= 1) warnings.add("INMOWEB_PRICE_REVIEW_REQUIRED");
   if (property.tipoOperacion === "alquiler" && (property.periodicidadPrecio == null || property.periodicidadPrecio === "desconocida")) warnings.add("INMOWEB_RENT_PERIOD_UNKNOWN");
   if (typeof property.localidad !== "string" || !property.localidad.trim()) block("INMOWEB_LOCATION_INSUFFICIENT");
-  if (property.habitaciones === null || property.habitaciones === undefined || property.habitaciones === "") block("INMOWEB_BEDROOMS_UNKNOWN");
+  if (property.habitaciones === null || property.habitaciones === undefined) warnings.add("INMOWEB_BEDROOMS_UNKNOWN");
   if (property.banos === null || property.banos === undefined || property.banos === "") warnings.add("INMOWEB_BATHROOMS_UNKNOWN");
   if (property.superficie === null || property.superficie === undefined || property.superficie === "") warnings.add("INMOWEB_BUILT_AREA_UNKNOWN");
   if (!(property.fotos || property.imagenes || []).length) warnings.add("INMOWEB_IMAGES_MISSING");

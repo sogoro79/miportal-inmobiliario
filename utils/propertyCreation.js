@@ -1,4 +1,5 @@
 import Propiedad from "../models/Propiedad.js";
+import { bedroomCreateData } from "./bedrooms.js";
 import { buildPublicLocation } from "./publicLocation.js";
 import { calcularFechaExpiracionPlan } from "./planLimits.js";
 import {
@@ -47,7 +48,7 @@ export function buildPropiedadCreateData(body = {}, {
     descripcion: body.descripcion,
     videoUrl: body.videoUrl || "",
     tipoOperacion: body.tipoOperacion,
-    habitaciones: Number(body.habitaciones),
+    ...bedroomCreateData(body),
     banos: Number(body.banos) || 1,
     superficie: body.superficie ? Number(body.superficie) : null,
     superficieParcela: body.superficieParcela ? Number(body.superficieParcela) : null,

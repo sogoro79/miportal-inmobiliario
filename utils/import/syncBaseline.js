@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { PRICE_PERIODS } from "../pricePeriod.js";
+import { bedroomDataValid } from "../bedrooms.js";
 import { isDeepStrictEqual } from "node:util";
 
 export const SYNC_APPLY_V1_FIELDS = Object.freeze([
@@ -31,6 +32,7 @@ export function managedFingerprint(data) {
 }
 
 export function validManagedData(data) {
+  if (!bedroomDataValid(data)) return false;
   return SYNC_APPLY_V1_FIELDS.every(field => {
     const value = normalizedManagedValue(data[field], field);
     if (value === undefined) return true;
@@ -38,7 +40,7 @@ export function validManagedData(data) {
     if (textFields.has(field)) return field === "descripcion" && value === null ||
       typeof value === "string" && value.length <= (field === "titulo" ? 160 : 5000) && (field !== "titulo" || value.length > 0);
     if (booleanFields.has(field)) return typeof value === "boolean";
-    if (field === "superficie" && value === null) return true;
+    if ((field === "superficie" || field === "habitaciones") && value === null) return true;
     return typeof value === "number" && Number.isFinite(value) && value >= 0 &&
       (!["habitaciones", "banos"].includes(field) || Number.isInteger(value));
   });

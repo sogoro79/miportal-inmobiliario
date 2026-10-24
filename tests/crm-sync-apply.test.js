@@ -136,6 +136,20 @@ test("applied run is idempotent without fetch, property writes, revisions or tim
   assert.equal(h.writes.length, 0); assert.equal(h.fetches.length, 0); assert.deepEqual(h.state.properties, before);
   await assert.rejects(() => h.apply({ ...request, externalIds: ["other"] }), { code: "SYNC_APPLY_SELECTION_MISMATCH" });
 });
+test("generic UPDATE from unknown bedrooms to number keeps explicit state coherent without changing legacy receipts", async () => {
+  const h = harness();
+  Object.assign(h.state.properties[0], { habitaciones: null, habitacionesEstado: "desconocido" });
+  h.state.properties[0].syncApplyFingerprint = managedFingerprint(h.state.properties[0]);
+  h.feed(xml(1, 100).replace("<bedrooms>1</bedrooms>", "<bedrooms>3</bedrooms>"));
+  await h.simulate({ usuarioId: U, importSourceId: S });
+  assert.equal(h.state.runs[0].plan[0].type, "UPDATE");
+  assert.deepEqual(h.state.runs[0].plan[0].changedFields, ["habitaciones"]);
+  await h.apply(request);
+  assert.equal(h.state.properties[0].habitaciones, 3);
+  assert.equal(h.state.properties[0].habitacionesEstado, "informado");
+  assert.equal(h.state.properties[0].syncApplyFingerprint, managedFingerprint(h.state.properties[0]));
+  assert.equal((await h.apply(request)).alreadyApplied, true);
+});
 test("legacy UPDATE run cannot apply to a MISSING-hidden property; marker is explicitly selected", async () => {
   const h = await ready();
   Object.assign(h.state.properties[0], { visiblePublicamente: false, hiddenByMissingRunId: S, removedFromFeedAt: new Date() });

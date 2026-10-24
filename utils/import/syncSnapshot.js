@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { PRICE_PERIODS } from "../pricePeriod.js";
+import { BEDROOM_STATES, bedroomDataValid } from "../bedrooms.js";
 import { parseGenericPropertyNodes } from "../importers/genericXmlImporter.js";
 import { normalizeSpanishPrice } from "../prices.js";
 import { normalizedKey, normalizeCrmPropertyType, normalizeCrmCondition } from "./propertyNormalization.js";
@@ -12,7 +13,7 @@ export const SYNC_FINGERPRINT_VERSION = 1;
 export const SYNC_FIELDS = Object.freeze([
   "externalId", "titulo", "descripcion", "precio", "tipoOperacion", "direccion", "localidad",
   "provincia", "codigoPostal", "lat", "lng", "habitaciones", "banos", "superficie", "periodicidadPrecio",
-  "tipoInmueble", "estado", "estadoComercial", "imagenes", "garaje", "piscina", "terraza", "crmWithdrawal"
+  "tipoInmueble", "estado", "estadoComercial", "imagenes", "garaje", "piscina", "terraza", "crmWithdrawal", "habitacionesEstado"
 ]);
 
 const aliases = {
@@ -28,6 +29,7 @@ const aliases = {
   codigoPostal: ["codigoPostal", "postalCode", "postcode", "zip"],
   lat: ["lat", "latitude", "latitud"], lng: ["lng", "lon", "longitude", "longitud"],
   habitaciones: ["habitaciones", "rooms", "bedrooms"], banos: ["banos", "baños", "bathrooms"],
+  habitacionesEstado: ["habitacionesEstado"],
   superficie: ["superficie", "surface", "area", "builtArea"],
   tipoInmueble: ["tipoInmueble", "propertyType", "category", "subtype"],
   estado: ["estado", "condition"],
@@ -144,6 +146,16 @@ export function normalizeSyncProperty(node) {
   }
   if (data.tipoOperacion === "venta" && Object.hasOwn(data, "periodicidadPrecio")) data.periodicidadPrecio = null;
   if (data.tipoOperacion === "alquiler" && data.periodicidadPrecio === null) data.periodicidadPrecio = "desconocida";
+  if (Object.hasOwn(data, "habitacionesEstado")) {
+    if (!BEDROOM_STATES.includes(data.habitacionesEstado) || !bedroomDataValid(data)) errors.push("INVALID_habitacionesEstado");
+    else if (["desconocido", "no_aplicable"].includes(data.habitacionesEstado) &&
+      (data.habitaciones === null || !aliases.habitaciones.some(alias => keys.has(alias.toLowerCase())))) {
+      // Only the explicit new contract can validate null; legacy null/empty stays invalid.
+      const index = errors.indexOf("INVALID_habitaciones");
+      if (index !== -1) errors.splice(index, 1);
+      data.habitaciones = null;
+    }
+  }
   return { data, errors: [...new Set(errors)] };
 }
 

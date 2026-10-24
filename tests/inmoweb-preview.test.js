@@ -127,7 +127,7 @@ for (const [from, to, code, severity] of [
   ['<familia id="24">', '<familia id="999">', 'INMOWEB_UNSUPPORTED_FAMILY', 'blocking'],
   ['<operacion id="1">', '<operacion id="6">', 'INMOWEB_UNSUPPORTED_OPERATION', 'blocking'],
   ['divisa="EUR"', 'divisa="USD"', 'INMOWEB_UNSUPPORTED_CURRENCY', 'blocking'],
-  ['<dormitorios>2</dormitorios>', '<dormitorios/>', 'INMOWEB_BEDROOMS_UNKNOWN', 'blocking'],
+  ['<dormitorios>2</dormitorios>', '<dormitorios/>', 'INMOWEB_BEDROOMS_UNKNOWN', 'warning'],
   ['<longitud>-6.2</longitud>', '', 'INMOWEB_INVALID_COORDINATES', 'warning'],
   ['https://images.example.test/main.jpg', 'file:///invalid', 'INMOWEB_IMAGE_URL_REJECTED', 'warning']
 ]) test(`preview issue ${code} has explicit severity and safe message`, () => {
@@ -235,7 +235,7 @@ test("actual profile rendering hides import controls and restores the generic pr
 test("profile preserves generic default, hides URL, loads renderer and all inline scripts parse", () => {
   assert.match(profile, /<option value="generic_xml">XML genérico/);
   assert.match(profile, /type="password" id="crmFeedUrl"/);
-  assert.match(profile, /crm-readonly-preview\.js\?v=5/);
+  assert.match(profile, /crm-readonly-preview\.js\?v=6/);
   for (const [, attrs, source] of profile.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
     if (!/\bsrc=/.test(attrs)) new vm.Script(source);
   }

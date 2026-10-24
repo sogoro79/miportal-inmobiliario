@@ -420,7 +420,7 @@ for (const publicable of [true, false]) test(`actual simulate HTTP -> GET -> UI 
     assert.equal(safe.newImportBlockedReason, "SYNC_NEW_RUN_CHANGED", field);
   }
   assert.equal(safeRunSummary(h.store.runs[0], new Date(+clock + 3600000)).newImportBlockedReason, "RUN_EXPIRED");
-}, { xml: publicable ? newEligibilityXml : newEligibilityXml.replace("<bedrooms>2</bedrooms>", ""),
+}, { xml: publicable ? newEligibilityXml : newEligibilityXml.replace(/<price>[^<]*<\/price>/, ""),
   properties: [], startedAt: new Date() }));
 
 test("enroll HTTP requires auth, strict body, own source and bounded selection", async () => withHttp(async (h, app) => {

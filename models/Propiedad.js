@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { CONTENT_FIELDS } from "../utils/propertyContent.js";
+import { BEDROOM_STATES, bedroomCreateData, bedroomDataValid } from "../utils/bedrooms.js";
 
 const PropiedadSchema = new mongoose.Schema({
   source: { type: String, enum: ["manual", "crm"], default: "manual" },
@@ -34,7 +35,8 @@ const PropiedadSchema = new mongoose.Schema({
   periodicidadPrecio: { type: String, enum: ["mes", "semana", "dia", "temporada", "desconocida", null] },
   descripcion:   { type: String },
   tipoOperacion: { type: String, enum: ["venta", "alquiler"], required: true },
-  habitaciones:  { type: Number, default: 0 },
+  habitaciones: { type: Number, validate: value => value == null || Number.isSafeInteger(value) && value >= 0 },
+  habitacionesEstado: { type: String, enum: BEDROOM_STATES },
   imagenes:      { type: [String], default: [] },
   lat:           { type: Number },
   lng:           { type: Number },
@@ -107,6 +109,10 @@ const PropiedadSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 PropiedadSchema.pre("validate", function () {
+  if (this.isNew) Object.assign(this, bedroomCreateData(this));
+  if ((this.isNew || this.isModified("habitaciones") || this.isModified("habitacionesEstado") || this.isModified("tipoInmueble")) && !bedroomDataValid(this)) {
+    this.invalidate("habitaciones", "Datos de habitaciones inválidos.");
+  }
   // Do not materialize a condition when hydrating/saving a legacy document.
   if (this.isNew && this.estado === undefined) this.estado = "no_informado";
   if (this.tipoOperacion === "venta" && (this.isNew || this.periodicidadPrecio !== undefined)) this.periodicidadPrecio = null;

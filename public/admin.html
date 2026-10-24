@@ -5346,7 +5346,8 @@ function editarPropiedadAdmin(id) {
   document.getElementById('editSotano').value = propiedad.sotano || '';
   actualizarPlantaAdmin();
   document.getElementById('editDireccion').value = propiedad.direccion || '';
-  document.getElementById('editHabitaciones').value = propiedad.habitaciones ?? 0;
+  document.getElementById('editHabitaciones').value = propiedad.habitaciones ?? '';
+  document.getElementById('editHabitaciones').dataset.initialValue = String(propiedad.habitaciones ?? '');
   document.getElementById('editBanos').value = propiedad.banos ?? 0;
   document.getElementById('editSuperficie').value = propiedad.superficie ?? '';
   document.getElementById('editDescripcion').value = propiedad.descripcion || '';
@@ -5380,7 +5381,8 @@ async function guardarPropiedadAdmin() {
       ? document.getElementById('editSotano').value
       : '',
     direccion: document.getElementById('editDireccion').value,
-    habitaciones: document.getElementById('editHabitaciones').value,
+    ...(document.getElementById('editHabitaciones').value !== document.getElementById('editHabitaciones').dataset.initialValue
+      ? { habitaciones: document.getElementById('editHabitaciones').value === '' ? null : Number(document.getElementById('editHabitaciones').value) } : {}),
     banos: document.getElementById('editBanos').value,
     superficie: document.getElementById('editSuperficie').value,
     descripcion: document.getElementById('editDescripcion').value,

@@ -207,7 +207,9 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
   const latitude = coordinate(["lat", "latitude", "latitud"], 90);
   const longitude = coordinate(["lng", "lon", "longitude", "longitud"], 180);
   const validCoordinates = latitude !== null && longitude !== null;
-  const habitaciones = Number(firstText(item, ["habitaciones", "rooms", "bedrooms"])) || 0;
+  const bedroomsRaw = firstText(item, ["habitaciones", "rooms", "bedrooms"]);
+  const habitaciones = bedroomsRaw === "" ? null : Number(bedroomsRaw);
+  const habitacionesEstado = firstText(item, ["habitacionesEstado"]) || (habitaciones === null ? "desconocido" : "informado");
   const banos = Number(firstText(item, ["banos", "baños", "bathrooms"])) || 0;
   const superficie = Number(firstText(item, ["superficie", "surface", "area", "builtArea"])) || null;
   const keys = new Map(Object.keys(item).map(key => [key.toLowerCase(), key]));
@@ -249,7 +251,7 @@ function mapProperty(item = {}, index = 0, maxPhotos = DEFAULT_MAX_PHOTOS_PER_PR
     codigoPostal,
     lat: validCoordinates ? latitude : null,
     lng: validCoordinates ? longitude : null,
-    habitaciones,
+    habitaciones, habitacionesEstado,
     banos,
     superficie,
     tipoInmueble,

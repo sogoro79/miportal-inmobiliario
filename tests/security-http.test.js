@@ -2304,6 +2304,41 @@ test("GET condition filters never include no_informado in obra_nueva or segunda_
   } finally { Propiedad.find = previous; }
 });
 
+for (const admin of [false, true]) for (const rooms of [undefined, 0, 3, null]) test(`PUT ${admin ? "admin" : "owner"} unknown bedrooms ${rooms === undefined ? "omitted" : rooms}`, async () => {
+  const saved = { user: Usuario.findById, property: Propiedad.findById };
+  const owner = "507f1f77bcf86cd799439099", adminId = "507f1f77bcf86cd799439012";
+  const property = { _id: "507f1f77bcf86cd799439088", usuarioId: owner, titulo: "Prueba", direccion: "Calle",
+    tipoInmueble: "piso", tipoOperacion: "venta", precio: 100000, imagenes: [], source: "crm", syncEnabled: true,
+    habitaciones: null, habitacionesEstado: "desconocido", descripcion: "Antes", contentRevision: 2, save: async () => property };
+  Usuario.findById = () => Promise.resolve({ _id: admin ? adminId : owner, activo: true, role: admin ? "admin" : "user", plan: "gratis" });
+  Propiedad.findById = () => Promise.resolve(property);
+  const token = jwt.sign({ id: admin ? adminId : owner, ...(admin ? { role: "admin" } : {}) }, "test-secret");
+  try {
+    const response = await request(`${admin ? "/admin" : ""}/propiedades/${property._id}`, { method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Forwarded-For": "203.0.113.218" },
+      body: { descripcion: "Nueva", ...(rooms === undefined ? {} : { habitaciones: rooms }) } });
+    assert.equal(response.status, 200, response.text);
+    assert.equal(property.habitaciones, rooms ?? null);
+    assert.equal(property.habitacionesEstado, typeof rooms === "number" ? "informado" : "desconocido");
+    assert.equal(property.contentRevision, 3);
+    assert.deepEqual(Object.keys(property.syncOverrides).sort(), typeof rooms === "number" ? ["descripcion", "habitaciones", "habitacionesEstado"] : ["descripcion"]);
+  } finally { Usuario.findById = saved.user; Propiedad.findById = saved.property; }
+});
+
+test("public bedroom minimum excludes unknown/non-applicable but unfiltered listing retains them", async () => {
+  const saved = Propiedad.find;
+  const properties = [{ _id: "0", habitaciones: 0 }, { _id: "3", habitaciones: 3 },
+    { _id: "u", habitaciones: null, habitacionesEstado: "desconocido" }, { _id: "na", habitaciones: null, habitacionesEstado: "no_aplicable" }];
+  Propiedad.find = filter => ({ sort() { return this; }, lean: async () => properties.filter(p => matchesMongoFilter(p, filter)) });
+  try {
+    for (const query of ["?hab=1", "?hab=2", "?hab=3"]) {
+      const response = await request(`/propiedades${query}`); assert.equal(response.status, 200, response.text);
+      const data = JSON.parse(response.text); assert.equal(data.length, 1); assert.equal(data[0].habitaciones, 3);
+    }
+    assert.equal(JSON.parse((await request("/propiedades")).text).length, 4);
+  } finally { Propiedad.find = saved; }
+});
+
 test("rental budget alert requires an explicit period and persists it",async()=>{
   const saved={user:Usuario.findById,save:Alerta.prototype.save};let writes=0;
   Usuario.findById=()=>Promise.resolve({_id:'507f1f77bcf86cd799439099',activo:true});

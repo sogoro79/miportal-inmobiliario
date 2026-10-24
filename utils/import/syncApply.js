@@ -8,6 +8,7 @@ import { acquireSyncLock } from "./syncLock.js";
 import { createImportBudget } from "./importBudget.js";
 import { evaluateRunApplyEligibility, snapshotDigest, prepareSyncPlan, runVersions } from "./syncPlan.js";
 import { SYNC_APPLY_V1_FIELDS, normalizedManagedValue } from "./syncBaseline.js";
+import { applyBedroomEdit } from "../bedrooms.js";
 
 export function applyError(code, status = 409) {
   return Object.assign(new Error("No se pudo aplicar la simulacion CRM."), { code, status });
@@ -117,6 +118,12 @@ export function createSyncApplier({ PropiedadModel = Propiedad, ImportSourceMode
         for (const entry of approved) {
           const data = incoming.get(entry.externalId);
           const changed = Object.fromEntries(entry.changedFields.map(field => [field, normalizedManagedValue(data[field], field)]));
+          if (Object.hasOwn(changed, "habitaciones")) {
+            const current = properties.find(p => p.externalId === entry.externalId);
+            const edited = { ...current };
+            applyBedroomEdit(edited, changed);
+            if (edited.habitacionesEstado !== undefined) changed.habitacionesEstado = edited.habitacionesEstado;
+          }
           const revision = entry.expectedContentRevision;
           const updated = await PropiedadModel.updateOne({ _id: entry.propiedadId, usuarioId,
             importSourceId: run.importSourceId, source: "crm", externalId: entry.externalId, syncEnabled: true,

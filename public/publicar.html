@@ -856,6 +856,7 @@ const propiedadIdEditar = new URLSearchParams(window.location.search).get("edita
 const textoBotonPublicar = propiedadIdEditar ? "💾 Guardar cambios" : "🚀 Publicar anuncio";
 let certificadoEnergeticoInicial = "";
 let estadoInicial;
+let habitacionesInicial, tipoInicialHabitaciones;
 let revisionPropiedadInicial;
 
 if (propiedadIdEditar) {
@@ -898,6 +899,8 @@ if (propiedadIdEditar) {
       document.getElementById("periodicidadPrecio").value = periodicidadInicial;
       mostrarPeriodicidad();
       document.getElementById("habitaciones").value  = p.habitaciones ?? "";
+      habitacionesInicial = p.habitaciones;
+      tipoInicialHabitaciones = p.tipoInmueble;
       document.getElementById("banos").value         = p.banos || "1";
       document.getElementById("superficie").value    = p.superficie || "";
       document.getElementById("superficieParcela").value = p.superficieParcela || "";
@@ -1150,7 +1153,8 @@ async function publicar() {
     return;
   }
 
-  if (esResidencial && !habitaciones) {
+  const conservaHabitacionesDesconocidas = propiedadIdEditar && habitacionesInicial == null && !habitaciones && tipo === tipoInicialHabitaciones;
+  if (esResidencial && !habitaciones && !conservaHabitacionesDesconocidas) {
     mostrarErrorPublicacion("Falta el campo obligatorio: habitaciones.");
     return;
   }
@@ -1197,7 +1201,14 @@ async function publicar() {
   fd.append("descripcion", document.getElementById("descripcion").value.trim());
   fd.append("videoUrl", document.getElementById("videoUrl").value.trim());
   fd.append("tipoOperacion", tipoOperacion);
-  fd.append("habitaciones", habitaciones || 0);
+  if (!propiedadIdEditar || habitaciones !== String(habitacionesInicial ?? "") || tipo !== tipoInicialHabitaciones) {
+    const noAplicable = ["local", "local_comercial", "oficina", "nave", "terreno", "solar_urbano", "parcela", "garaje", "plaza_aparcamiento", "trastero"].includes(tipo);
+    if (noAplicable) fd.append("habitacionesEstado", "no_aplicable");
+    else if (habitaciones !== "") fd.append("habitaciones", habitaciones);
+    else if (!conservaHabitacionesDesconocidas) {
+      fd.append("habitacionesEstado", "desconocido");
+    }
+  }
   fd.append("banos", document.getElementById("banos").value);
   fd.append("superficie", document.getElementById("superficie").value);
   fd.append("tipoInmueble", tipo);

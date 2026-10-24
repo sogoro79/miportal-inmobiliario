@@ -255,7 +255,7 @@ test("responsive profile keeps wrapped content, bounded buttons and cache versio
 });
 
 for (const publicable of [true, false]) test(`real snapshot -> safe summary -> UI: publicable=${publicable}`, async () => {
-  const xml = `<properties><property><id>REAL-NEW</id><title>Casa de prueba</title><operation>venta</operation><price>210000</price><address>Direccion de prueba</address>${publicable ? "<bedrooms>2</bedrooms>" : ""}</property></properties>`;
+  const xml = `<properties><property><id>REAL-NEW</id><title>Casa de prueba</title><operation>venta</operation>${publicable ? "<price>210000</price>" : ""}<address>Direccion de prueba</address><bedrooms>2</bedrooms></property></properties>`;
   const snapshot = buildSyncSnapshot(xml);
   const data = safeRunSummary({ _id: "507f1f77bcf86cd799439011", importSourceId: "507f1f77bcf86cd799439012",
     status: "simulated", snapshotComplete: snapshot.snapshotComplete, sourceIdentityHash: "a".repeat(64),

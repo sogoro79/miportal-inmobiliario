@@ -41,7 +41,7 @@ for (const [file, render] of [["home-destacadas", "renderDestacadaHome"], ["home
 }
 
 test("páginas cargan helper de precios antes del código consumidor", () => {
-  for (const [file, consumer] of [["propiedad", "/js/propiedad.js?v=4"], ["comprar", "/js/filtros.js?v=4"], ["alquiler", "/js/filtros.js?v=4"], ["index", "/js/home-destacadas.js?v=4"]]) {
+  for (const [file, consumer] of [["propiedad", "/js/propiedad.js?v=5"], ["comprar", "/js/filtros.js?v=4"], ["alquiler", "/js/filtros.js?v=4"], ["index", "/js/home-destacadas.js?v=4"]]) {
     const html = read(`public/${file}.html`);
     assert.ok(html.indexOf('/js/precios.js?v=2') >= 0);
     assert.ok(html.indexOf('/js/precios.js?v=2') < html.indexOf(consumer));

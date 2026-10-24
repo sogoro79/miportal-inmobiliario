@@ -100,7 +100,7 @@ function normalizeRecord(record) {
   };
   const habitaciones = number(record.dormitorios, "BEDROOMS", true);
   const banos = number(record.banos, "BATHROOMS", true);
-  if (habitaciones === null) block("INMOWEB_BEDROOMS_UNKNOWN");
+  if (habitaciones === null) warnings.push("INMOWEB_BEDROOMS_UNKNOWN");
   const features = new Map();
   for (const entry of array(record.caracteristicas?.caracteristica)) {
     const id = attr(entry, "id");
@@ -127,7 +127,8 @@ function normalizeRecord(record) {
   const data = {
     externalId, referencia: text(record.referencia), titulo: spanish?.titulo || "", descripcion: spanish?.descripcion || "",
     tipoOperacion, tipoInmueble, estado, estadoComercial, precio, moneda, periodicidadPrecio: tipoOperacion === "alquiler" ? "desconocida" : null,
-    habitaciones, banos, superficie: surfaces.construida, superficieParcela: surfaces.parcela,
+    habitaciones, habitacionesEstado: habitaciones === null ? "desconocido" : "informado",
+    banos, superficie: surfaces.construida, superficieParcela: surfaces.parcela,
     direccion, localidad: text(location.poblacion), provincia: text(location.provincia),
     codigoPostal: text(location.cp), pais: text(location.pais), zona: text(location.zona),
     lat: validCoordinates ? Number(latRaw) : null, lng: validCoordinates ? Number(lngRaw) : null,

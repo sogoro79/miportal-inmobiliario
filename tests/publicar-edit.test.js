@@ -11,10 +11,11 @@ test("sale hides the period group despite the generic flex style", () => {
 
 async function submit({ edit = true, certificate = "", originalCertificate = "", networkError = false, status = 400,
   operation = "venta", period = "", initialPeriod, reject = false,
-  condition = "segunda_mano", initialCondition = "segunda_mano" } = {}) {
+  condition = "segunda_mano", initialCondition = "segunda_mano",
+  rooms = "0", initialRooms = 0, propertyType = "estudio" } = {}) {
   const nodes = new Map();
   const values = { titulo: "Estudio de prueba", direccion: "Calle Test", precio: "130000", tipoOperacion: operation, periodicidadPrecio: period,
-    tipoInmueble: "estudio", habitaciones: "0", banos: "1", superficie: "40",
+    tipoInmueble: propertyType, habitaciones: rooms, banos: "1", superficie: "40",
     descripcion: "Descripcion editada", certificadoEnergetico: certificate, estado: condition };
   const requests = [];
   const errors = [];
@@ -29,6 +30,7 @@ async function submit({ edit = true, certificate = "", originalCertificate = "",
     window: { location: { search: edit ? "?editar=test-property" : "" } }, URLSearchParams, document,
     certificadoEnergeticoInicial: originalCertificate,
     estadoInicial: initialCondition,
+    habitacionesInicial: initialRooms, tipoInicialHabitaciones: propertyType,
     periodicidadInicial: initialPeriod, operacionInicial: operation,
     revisionPropiedadInicial: 2,
     obtenerTokenPublicar: () => "test-token", usuarioActualPublicar: { _id: "test-user" },
@@ -62,7 +64,7 @@ for (const [name, edit, certificate, originalCertificate, expected] of [
   test(`envio opcional del certificado: ${name}`, async () => {
     const { request } = await submit({ edit, certificate, originalCertificate });
     assert.equal(request.body.get("certificadoEnergetico"), expected);
-    assert.equal(request.body.get("habitaciones"), "0");
+    assert.equal(request.body.get("habitaciones"), edit ? undefined : "0");
     assert.equal(request.url, edit ? "/propiedades/test-property" : "/propiedades");
     assert.equal(request.method, edit ? "PUT" : "POST");
     assert.equal(request.body.get("expectedContentRevision"), edit ? "2" : undefined);
@@ -106,6 +108,20 @@ for (const period of ["mes", "semana", "dia", "temporada", "desconocida"]) test(
 test("manual rental form refuses empty selection without POST",async()=>{
   const {errors}=await submit({edit:false,operation:"alquiler",reject:true});
   assert.ok(errors.some(e=>e.includes("periodicidad")));
+});
+test("new residential requires bedrooms, including explicit zero; existing unknown stays omitted", async () => {
+  const rejected = await submit({ edit: false, rooms: "", reject: true });
+  assert.ok(rejected.errors.some(e => e.includes("habitaciones")));
+  const fresh = await submit({ edit: false, rooms: "0" });
+  assert.equal(fresh.request.body.get("habitaciones"), "0");
+  const edited = await submit({ rooms: "", initialRooms: null });
+  assert.equal(edited.request.body.has("habitaciones"), false);
+  assert.equal(edited.request.body.has("habitacionesEstado"), false);
+});
+for (const propertyType of ["local", "terreno", "garaje", "parcela"]) test(`new ${propertyType} uses non-applicable rather than fake zero`, async () => {
+  const { request } = await submit({ edit: false, propertyType, rooms: "" });
+  assert.equal(request.body.has("habitaciones"), false);
+  assert.equal(request.body.get("habitacionesEstado"), "no_aplicable");
 });
 test("edit form omits unchanged legacy/monthly period and sends an effective change",async()=>{
   const same=await submit({operation:"alquiler",period:"mes",initialPeriod:"mes"});
@@ -152,6 +168,7 @@ for (const [tipo, habitaciones, rejected] of [
     const errors = [];
     vm.runInNewContext(`(function () { ${validation} })()`, {
       tipo, titulo: "Anuncio", direccion: "Calle Test", precio: "100000", tipoOperacion: "venta",
+      propiedadIdEditar: null,
       mensajeEl: {}, document: { getElementById: () => ({ value: habitaciones }) },
       mostrarErrorPublicacion: message => errors.push(message)
     });

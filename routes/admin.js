@@ -1,6 +1,8 @@
 import express from 'express';
 import { PRICE_PERIODS, applyPricePeriodEdit } from '../utils/pricePeriod.js';
 import { estadoSchema } from '../utils/propertySchemas.js';
+import { applyBedroomEdit } from '../utils/bedrooms.js';
+import { propiedadUpdateSchema } from '../utils/propertySchemas.js';
 import { buildPublicLocation, applyLocationEdit } from '../utils/publicLocation.js';
 import { capturePropertyContent, markManualContentChanges } from '../utils/propertyContent.js';
 import { guardManualPropertyRevision, isPropertyRevisionConflict } from '../utils/propertyRevision.js';
@@ -1175,10 +1177,14 @@ router.put('/propiedades/:id', requireAdmin, async (req, res) => {
         : '';
     }
 
-    if (habitaciones !== undefined) {
-      const valor = normalizarNumeroAdmin(habitaciones, 0);
-      if (!Number.isFinite(valor)) return res.status(400).json({ error: 'Habitaciones inválidas' });
-      propiedad.habitaciones = valor;
+    if (habitaciones !== undefined || req.body.habitacionesEstado !== undefined) {
+      const bedrooms = propiedadUpdateSchema.pick({ habitaciones: true, habitacionesEstado: true }).safeParse(req.body);
+      if (!bedrooms.success) return res.status(400).json({ error: 'Habitaciones inválidas' });
+      try { applyBedroomEdit(propiedad, bedrooms.data); }
+      catch (error) {
+        if (error.code === 'INVALID_BEDROOMS') return res.status(400).json({ error: 'Datos de habitaciones inválidos.' });
+        throw error;
+      }
     }
 
     if (banos !== undefined) {

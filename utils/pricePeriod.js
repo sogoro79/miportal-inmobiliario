@@ -1,4 +1,5 @@
 import "../public/js/precios.js";
+import { validBedroomNumber } from "./bedrooms.js";
 
 export const PRICE_PERIODS = Object.freeze(["mes", "semana", "dia", "temporada", "desconocida"]);
 export const { formatearPrecioPropiedad, periodicidadEfectiva, especificacionPrecio } = globalThis.HomeClickPrices;
@@ -11,7 +12,9 @@ export function pricePeriodFilter(period = "mes") {
 
 export function priceAlertFilter(property) {
   return { activa: true, tipoOperacion: property.tipoOperacion,
-    precioMax: { $gte: property.precio }, habitaciones: { $lte: property.habitaciones },
+    precioMax: { $gte: property.precio },
+    $and: [{ $or: [{ habitaciones: { $exists: false } }, { habitaciones: null },
+      validBedroomNumber(property.habitaciones) ? { habitaciones: { $lte: property.habitaciones } } : { habitaciones: 0 }] }],
     ...(property.tipoOperacion === "alquiler" ? pricePeriodFilter(periodicidadEfectiva(property)) : {}) };
 }
 

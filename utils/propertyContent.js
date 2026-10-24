@@ -6,7 +6,7 @@ export const CONTENT_FIELDS = Object.freeze([
   "superficieParcela", "tipoInmueble", "estado", "estadoComercial", "estadoPropiedad",
   "certificadoEnergetico", "imagenes", "garaje", "piscina", "terraza", "escaparate",
   "usoPermitido", "plantaLocal", "numeroPlantas", "sotano", "alturaMaxima", "tipoGaraje",
-  "accesoTrastero", "videoUrl", "visiblePublicamente"
+  "accesoTrastero", "videoUrl", "visiblePublicamente", "habitacionesEstado"
 ]);
 
 export function capturePropertyContent(property) {

@@ -104,7 +104,8 @@ function actualizarSEO() {
     "price": propiedad.precio,
     "priceCurrency": "EUR",
     "address": window.HomeClickLocation.buildPostalAddress(propiedad),
-    "numberOfRooms": propiedad.habitaciones || null,
+    ...(typeof propiedad.habitaciones === "number" && Number.isInteger(propiedad.habitaciones) && propiedad.habitaciones >= 0
+      ? { numberOfRooms: propiedad.habitaciones } : {}),
     "image": fotos[0] || "",
     "offers": {
       "@type": "Offer",

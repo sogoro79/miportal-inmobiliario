@@ -1,4 +1,5 @@
 import { z, optionalCleanString, optionalNumberFromInput, priceFromInput, numberFromInput } from "./validation.js";
+import { BEDROOM_STATES, RESIDENTIAL_BEDROOM_TYPES, bedroomDataValid } from "./bedrooms.js";
 
 const tipoOperacionSchema = z.enum(["venta", "alquiler"]);
 export const periodicidadPrecioSchema = z.enum(["mes", "semana", "dia", "temporada", "desconocida"]);
@@ -38,7 +39,8 @@ const propiedadBaseSchema = {
   periodicidadPrecio: periodicidadPrecioSchema.nullable().optional(),
   descripcion: optionalCleanString(5000),
   tipoOperacion: tipoOperacionSchema,
-  habitaciones: numberFromInput.pipe(z.number().int().min(0)),
+  habitaciones: z.union([z.null(), numberFromInput.pipe(z.number().int().min(0))]).optional(),
+  habitacionesEstado: z.enum(BEDROOM_STATES).optional(),
   lat: optionalNumberFromInput,
   lng: optionalNumberFromInput,
   videoUrl: optionalCleanString(500),
@@ -65,12 +67,16 @@ const propiedadBaseSchema = {
 };
 
 export const propiedadCreateSchema = z.object(propiedadBaseSchema).superRefine((data, ctx) => {
+  if (!bedroomDataValid(data) || (RESIDENTIAL_BEDROOM_TYPES.has(data.tipoInmueble || "piso") && typeof data.habitaciones !== "number")) {
+    ctx.addIssue({ code: "custom", path: ["habitaciones"], message: "Selecciona el número de habitaciones." });
+  }
   if (data.tipoOperacion === "alquiler" && data.periodicidadPrecio == null) ctx.addIssue({ code: "custom", path: ["periodicidadPrecio"], message: "Selecciona la periodicidad del alquiler." });
   if (data.tipoOperacion === "venta" && data.periodicidadPrecio != null) ctx.addIssue({ code: "custom", path: ["periodicidadPrecio"], message: "No aplicable a venta." });
 });
 export const propiedadCrmCreateSchema = z.object({ ...propiedadBaseSchema,
   direccion: optionalCleanString(300)
 }).superRefine((data, ctx) => {
+  if (!bedroomDataValid(data)) ctx.addIssue({ code: "custom", path: ["habitaciones"], message: "Datos de habitaciones inválidos." });
   if (!data.direccion?.trim() && !data.localidad?.trim()) {
     ctx.addIssue({ code: "custom", path: ["localidad"], message: "Falta una localidad válida para la publicación CRM." });
   }
