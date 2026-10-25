@@ -12,6 +12,7 @@ import ImportReconciliation from "../models/ImportReconciliation.js";
 import { recordManualPublicationUncertainty } from "../utils/manualPublicationReconciliation.js";
 import { getSeoZoneContext } from "../utils/seoZones.js";
 import { capturePropertyContent } from "../utils/propertyContent.js";
+import { getLimiteFotosPlan } from "../utils/planLimits.js";
 
 function registerCapacityHttpTests() {
 for (const mode of ["normal", "admin"]) for (const available of [true, false]) {
@@ -2352,3 +2353,125 @@ test("rental budget alert requires an explicit period and persists it",async()=>
     assert.equal(JSON.parse(accepted.text).periodicidadPrecio,'semana');
   }finally{Usuario.findById=saved.user;Alerta.prototype.save=saved.save;}
 });
+
+// Real middleware/handlers with in-memory HTTP streams, models and uploads: no sockets.
+const cleanupValidationCases = [
+  { name: "periodicidad fuera del enum", fields: { periodicidadPrecio: "anual" } },
+  { name: "habitaciones negativas", fields: { habitaciones: "-1" } },
+  { name: "estado inválido", fields: { estado: "inventado" } },
+  { name: "tipo de inmueble inválido", fields: { tipoInmueble: "inventado" } },
+  { name: "alquiler sin periodicidad", fields: { tipoOperacion: "alquiler" } },
+  { name: "habitaciones incompatibles con estado", fields: { habitacionesEstado: "desconocido" } },
+  { name: "habitaciones no aplicables a vivienda", fields: { habitaciones: "", habitacionesEstado: "no_aplicable" } }
+];
+for (const method of ["POST", "PUT"]) for (const [index, scenario] of cleanupValidationCases.entries()) {
+  test(`${method} cleanup tras upload: ${scenario.name}`, async () => {
+    const previousUser = Usuario.findById, previousProperty = Propiedad.findById, previousCreate = Propiedad.create;
+    const destroyed = [];
+    const restore = mockCloudinaryUpload({ destroyed });
+    let saves = 0;
+    const original = "https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-a.jpg";
+    Usuario.findById = async () => ({ _id: "507f1f77bcf86cd799439099", activo: true, plan: "gratis" });
+    Propiedad.findById = async () => ({ _id: "507f1f77bcf86cd799439088", usuarioId: "507f1f77bcf86cd799439099",
+      tipoOperacion: "venta", tipoInmueble: "piso", habitaciones: 2, imagenes: [original],
+      save: async () => { saves++; } });
+    Propiedad.create = async () => { saves++; throw new Error("Unexpected persistence"); };
+    const multipart = createMultipartBody({ fields: { titulo: "Casa", direccion: "Calle de prueba", precio: "100000",
+      tipoOperacion: "venta", tipoInmueble: "piso", habitaciones: "2", ...scenario.fields }, files: [{ content: "jpg" }] });
+    try {
+      const response = await request(method === "POST" ? "/propiedades" : "/propiedades/507f1f77bcf86cd799439088", {
+        method, headers: { ...authHeaderFor(), "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+          "X-Forwarded-For": `198.51.100.${(method === "POST" ? 10 : 30) + index}` }, rawBody: multipart.body
+      });
+      assert.equal(response.status, 400, response.text);
+      assert.equal(restore.getUploadCount(), 1);
+      assert.equal(saves, 0);
+      // Exactly once, and only this request's image: neither originals nor foreign URLs.
+      assert.deepEqual(destroyed, ["miportal_inmobiliario/uploaded-1"]);
+    } finally {
+      Usuario.findById = previousUser; Propiedad.findById = previousProperty; Propiedad.create = previousCreate; restore();
+    }
+  });
+}
+
+for (const [index, mode] of ["valid", "failed", "uncertain", "revision", "photo_limit", "cleanup_failure", "before_upload"].entries()) {
+  test(`PUT cleanup lifecycle: ${mode}`, async () => {
+    const previousUser = Usuario.findById, previousProperty = Propiedad.findById;
+    const destroyed = [];
+    const restore = mockCloudinaryUpload({ destroyed, failDestroy: mode === "cleanup_failure" });
+    let saves = 0;
+    const originals = Array.from({ length: mode === "photo_limit" ? getLimiteFotosPlan("gratis") : 1 }, (_, i) =>
+      `https://res.cloudinary.com/demo/image/upload/v1/miportal_inmobiliario/original-${i}.jpg`);
+    const property = { _id: "507f1f77bcf86cd799439088", usuarioId: "507f1f77bcf86cd799439099",
+      tipoOperacion: "venta", tipoInmueble: "piso", habitaciones: 2, imagenes: [...originals], contentRevision: 2,
+      save: async () => {
+        saves++;
+        assert.deepEqual(destroyed, [], "No cleanup before persistence resolves");
+        if (mode === "failed") throw new Error("Definitive mocked save rejection");
+        if (mode === "uncertain") throw Object.assign(new Error("Unconfirmed"), {
+          code: "PUBLICATION_EDIT_UNCONFIRMED", status: 503, retainImages: true
+        });
+        return property;
+      } };
+    Usuario.findById = async () => ({ _id: property.usuarioId, activo: true, plan: "gratis" });
+    Propiedad.findById = async () => property;
+    const multipart = createMultipartBody({ fields: {
+      ...(mode === "revision" ? { expectedContentRevision: "1" } : {}),
+      ...(mode === "cleanup_failure" ? { tipoOperacion: "alquiler" } : {})
+    }, files: [{ content: "jpg" }] });
+    try {
+      const response = await request(mode === "before_upload" ? "/propiedades/invalid-id" : `/propiedades/${property._id}`, {
+        method: "PUT", headers: { ...authHeaderFor(), "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+          "X-Forwarded-For": `198.51.100.${60 + index}` }, rawBody: multipart.body
+      });
+      const status = { valid: 200, failed: 500, uncertain: 503, revision: 409, photo_limit: 403, cleanup_failure: 400, before_upload: 400 };
+      assert.equal(response.status, status[mode], response.text);
+      assert.equal(restore.getUploadCount(), mode === "before_upload" ? 0 : 1);
+      assert.equal(saves, ["valid", "failed", "uncertain"].includes(mode) ? 1 : 0);
+      assert.deepEqual(destroyed, ["valid", "uncertain", "before_upload"].includes(mode) ? [] : ["miportal_inmobiliario/uploaded-1"]);
+      if (mode === "valid") assert.deepEqual(property.imagenes, [...originals,
+        "https://res.cloudinary.com/demo/image/upload/v1700000000/miportal_inmobiliario/uploaded-1.jpg"]);
+    } finally { Usuario.findById = previousUser; Propiedad.findById = previousProperty; restore(); }
+  });
+}
+
+for (const [index, mode] of ["plan_inactive", "quota", "user_lookup", "after_persist"].entries()) {
+  test(`POST cleanup lifecycle: ${mode}`, async () => {
+    const replacements = [];
+    const replace = (object, key, value) => { replacements.push([object, key, object[key]]); object[key] = value; };
+    const destroyed = [];
+    const restore = mockCloudinaryUpload({ destroyed });
+    let lookups = 0, saves = 0, persisted;
+    replace(Usuario, "findById", async () => {
+      if (++lookups > 1 && mode === "user_lookup") throw new Error("Mocked lookup failure");
+      return { _id: "507f1f77bcf86cd799439099", activo: true,
+        plan: mode === "plan_inactive" ? "vip" : "gratis", planActivo: false };
+    });
+    replace(Propiedad, "countDocuments", async () => mode === "quota" ? 100 : 0);
+    replace(Usuario, "startSession", async () => ({ withTransaction: async action => action(), endSession: async () => {} }));
+    replace(Usuario, "updateOne", async () => ({ matchedCount: 1 }));
+    replace(Propiedad, "create", async documents => {
+      assert.deepEqual(destroyed, []);
+      saves++; persisted = documents[0]; return documents;
+    });
+    replace(Propiedad, "findById", async () => persisted || null);
+    replace(Alerta, "find", async () => { throw new Error("Mocked failure after successful persistence"); });
+    const multipart = createMultipartBody({ fields: {
+      titulo: "Casa", direccion: "Calle de prueba", precio: "100000", tipoOperacion: "venta", habitaciones: "2"
+    }, files: [{ content: "jpg" }] });
+    try {
+      const response = await request("/propiedades", { method: "POST", headers: {
+        ...authHeaderFor(), "Content-Type": `multipart/form-data; boundary=${multipart.boundary}`,
+        "X-Forwarded-For": `198.51.100.${80 + index}`
+      }, rawBody: multipart.body });
+      assert.equal(response.status, ["plan_inactive", "quota"].includes(mode) ? 403 : 500, response.text);
+      assert.equal(restore.getUploadCount(), 1);
+      assert.equal(saves, mode === "after_persist" ? 1 : 0);
+      assert.deepEqual(destroyed, mode === "after_persist" ? [] : ["miportal_inmobiliario/uploaded-1"]);
+      if (persisted) assert.equal(persisted.imagenes.length, 1);
+    } finally {
+      for (const [object, key, original] of replacements.reverse()) object[key] = original;
+      restore();
+    }
+  });
+}

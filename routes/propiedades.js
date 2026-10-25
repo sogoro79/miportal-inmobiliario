@@ -781,6 +781,7 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
     const bodyValido = await validateBodyOrCleanup(updateSchema, req, res, urlsSubidas);
     if (!bodyValido) return;
     if (req.body.tipoOperacion === "alquiler" && propiedad.tipoOperacion !== "alquiler" && req.body.periodicidadPrecio == null) {
+      await limpiarImagenesSubidas(urlsSubidas);
       return res.status(400).json({ error: "Selecciona la periodicidad del alquiler." });
     }
     guardManualPropertyRevision(propiedad, req.body.expectedContentRevision);
@@ -818,7 +819,10 @@ router.put("/:id", requireAuth, securityRateLimits.propertyUpload, cargarPropied
 
     try { applyBedroomEdit(propiedad, req.body); }
     catch (error) {
-      if (error.code === "INVALID_BEDROOMS") return res.status(400).json({ error: "Datos de habitaciones inválidos." });
+      if (error.code === "INVALID_BEDROOMS") {
+        await limpiarImagenesSubidas(urlsSubidas);
+        return res.status(400).json({ error: "Datos de habitaciones inválidos." });
+      }
       throw error;
     }
     propiedad.banos        = banos ? Number(banos) : propiedad.banos;

@@ -296,3 +296,18 @@ test("limpiar-cloudinary requiere ejecución explícita y usa public_id directo 
   assert.match(limpiarCloudinaryJs, /getCloudinaryPublicIdFromUrl\(url\)/);
   assert.match(limpiarCloudinaryJs, /destroyByPublicId\(recurso\.public_id/);
 });
+
+test("cleanup deduplica recursos y considera not found un resultado idempotente", async () => {
+  const calls = [], existing = new Set(["miportal_inmobiliario/casa-1"]);
+  const client = { uploader: { destroy: async id => {
+    calls.push(id);
+    return { result: existing.delete(id) ? "ok" : "not found" };
+  } } };
+  const first = await destroyImagesByUrls([cloudinaryUrl, cloudinaryUrl], { client });
+  assert.equal(first.attempted, 1);
+  assert.equal(first.deleted, 1);
+  const second = await destroyImagesByUrls([cloudinaryUrl], { client });
+  assert.equal(second.failed, 0);
+  assert.equal(second.results[0].value.ok, true);
+  assert.deepEqual(calls, ["miportal_inmobiliario/casa-1", "miportal_inmobiliario/casa-1"]);
+});
