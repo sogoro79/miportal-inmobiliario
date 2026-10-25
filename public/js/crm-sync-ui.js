@@ -7,6 +7,7 @@
 
   function newMessage(code) {
     const messages = {
+      INMOWEB_FRESH_SNAPSHOT_REQUIRED: "Actualiza y revisa los inmuebles de InmoWeb antes de importar.",
       CRM_PROVIDER_TEMPORARILY_BLOCKED: "El proveedor no está disponible temporalmente. Inténtalo más tarde.",
       ALREADY_EXISTS: "Este anuncio ya existe. No se ha creado un duplicado.",
       SYNC_NEW_NOT_NEW: "Alguna referencia ya no es nueva. Vuelve a simular.",
@@ -226,7 +227,7 @@
     const summary = document.createElement("p");
     summary.textContent = resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
     if (data.feedFetchedAt && Number.isFinite(Date.parse(data.feedFetchedAt))) {
-      summary.textContent += ` · Último análisis hace ${Math.max(0, Math.floor((Date.now() - Date.parse(data.feedFetchedAt)) / 60000))} minutos`;
+      summary.textContent += ` · Datos actualizados hace ${Math.max(0, Math.floor((Date.now() - Date.parse(data.feedFetchedAt)) / 60000))} minutos`;
     }
     output.append(summary);
     if (typeof data.applyEligible === "boolean") {
@@ -865,7 +866,11 @@
       status.textContent = "Procesando...";
       status.classList.remove("error");
       try { return await task(); }
-      catch (error) { status.classList.add("error"); status.textContent = error.message; }
+      catch (error) {
+        status.classList.add("error");
+        status.textContent = error.code === "INMOWEB_TEMPORARILY_UNAVAILABLE" && output.children.length
+          ? "No podemos actualizar InmoWeb en este momento. Conservamos la última revisión disponible." : error.message;
+      }
       finally { busy = false; save.disabled = input.disabled = false; simulate.disabled = !sourceId; }
     }
     save.addEventListener("click", () => action(async () => {
@@ -877,7 +882,8 @@
       input.value = "";
       output.replaceChildren();
       showSource(data);
-      status.textContent = "Fuente configurada. La sincronización automática permanece desactivada.";
+      status.textContent = feedType === "inmoweb" ? "Conexión guardada. Podrás revisar los inmuebles cuando InmoWeb esté disponible."
+        : "Fuente configurada. La sincronización automática permanece desactivada.";
     }));
     simulate.addEventListener("click", () => action(async () => {
       if (!sourceId) throw new Error("Configura primero tu fuente CRM.");

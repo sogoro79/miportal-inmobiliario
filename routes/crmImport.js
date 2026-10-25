@@ -1,3 +1,5 @@
+import { createProviderSnapshots, SNAPSHOT_REQUIRED, SNAPSHOT_MESSAGE } from "../utils/import/providerSnapshots.js";
+import { INMOWEB_UNAVAILABLE, INMOWEB_UNAVAILABLE_MESSAGE } from "../utils/import/inmowebAvailability.js";
 import { createFeedAccess, PROVIDER_BLOCKED, PROVIDER_MESSAGE } from "../utils/import/feedAccess.js";
 import express from "express";
 import Propiedad from "../models/Propiedad.js";
@@ -46,6 +48,7 @@ function finiteOrNull(value) {
 }
 
 function normalizarErrorFeed(error) {
+  if (error?.code === INMOWEB_UNAVAILABLE) return { status: 503, error: INMOWEB_UNAVAILABLE_MESSAGE };
   if (error?.code === PROVIDER_BLOCKED) return { status: 503, error: PROVIDER_MESSAGE };
   if (error instanceof FeedSecurityError) {
     return { status: 400, error: error.message };
@@ -70,6 +73,7 @@ function crearResumenFotos(propiedad, { limiteFotos, fotosIlimitadas }) {
 
 export function createCrmImportRouter({
   fetchFeedXml = defaultFetchFeedXml,
+  feedAccessNow = Date.now,
   UsuarioModel = Usuario,
   PropiedadModel = Propiedad,
   ImportSourceModel = ImportSource,
@@ -97,14 +101,15 @@ export function createCrmImportRouter({
   env = process.env
 } = {}) {
   const router = express.Router();
-  fetchFeedXml = createFeedAccess({ fetchXml: fetchFeedXml,
+  const providerSnapshots = createProviderSnapshots({ now: feedAccessNow });
+  fetchFeedXml = createFeedAccess({ fetchXml: fetchFeedXml, snapshots: providerSnapshots, now: feedAccessNow,
     instance: env.RENDER_INSTANCE_ID || "process", version: env.RENDER_GIT_COMMIT || "unknown" });
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel, env });
-  const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, env });
+  const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, providerSnapshots, env });
   const runEnrollment = enrollSync || createSyncEnroller({ ImportSourceModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runApply = applySync || createSyncApplier({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runNewImport = importNewSync || createSyncNewImporter({ ImportSourceModel, ImportSyncRunModel,
-    PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, env });
+    PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, providerSnapshots, env });
   const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel, env });
   const runMissingHide = hideMissingSync || createMissingHider({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
@@ -143,11 +148,11 @@ export function createCrmImportRouter({
       const code = safeSimulationCode(error);
       console.warn("[CRM Sync Simulation]", { code });
       const status = code === "SYNC_SOURCE_NOT_FOUND" ? 404 : ["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY"].includes(code) ? 409
-        : code === PROVIDER_BLOCKED ? 503 : code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400;
+        : [PROVIDER_BLOCKED, INMOWEB_UNAVAILABLE].includes(code) ? 503 : code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400;
       return res.status(status).json({ code, error: code === "SYNC_SOURCE_NOT_CONFIGURED"
         ? "La fuente CRM necesita una URL cifrada configurada antes de simular. La importación manual sigue disponible."
         : code === "SYNC_SOURCE_BUSY" ? "Hay otra operación CRM en curso. Espera y vuelve a intentarlo."
-        : code === PROVIDER_BLOCKED ? PROVIDER_MESSAGE : "No se pudo completar la simulación CRM." });
+        : code === INMOWEB_UNAVAILABLE ? INMOWEB_UNAVAILABLE_MESSAGE : code === SNAPSHOT_REQUIRED ? SNAPSHOT_MESSAGE : code === PROVIDER_BLOCKED ? PROVIDER_MESSAGE : "No se pudo completar la simulación CRM." });
     }
   });
 
@@ -194,7 +199,7 @@ export function createCrmImportRouter({
         : code === "RUN_EXPIRED" ? "Esta simulación ha caducado. Vuelve a simular."
         : code === "INMOWEB_NEW_DISABLED" ? "Importación InmoWeb preparada. Activación pendiente."
         : code === "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED" ? "La selección no está autorizada para la prueba InmoWeb."
-        : code === PROVIDER_BLOCKED ? PROVIDER_MESSAGE : "No se pudieron importar los anuncios nuevos. Revisa el estado y vuelve a simular." });
+        : code === INMOWEB_UNAVAILABLE ? INMOWEB_UNAVAILABLE_MESSAGE : code === SNAPSHOT_REQUIRED ? SNAPSHOT_MESSAGE : code === PROVIDER_BLOCKED ? PROVIDER_MESSAGE : "No se pudieron importar los anuncios nuevos. Revisa el estado y vuelve a simular." });
     }
   });
 
@@ -388,7 +393,7 @@ export function createCrmImportRouter({
         ...(error instanceof FeedFetchError && error.internalCode ? { internalCode: error.internalCode } : {}),
         status: response.status
       });
-      return res.status(response.status).json({ error: response.error, ...(error.code === PROVIDER_BLOCKED ? { code: PROVIDER_BLOCKED } : {}) });
+      return res.status(response.status).json({ error: response.error, ...([PROVIDER_BLOCKED, INMOWEB_UNAVAILABLE].includes(error.code) ? { code: error.code } : {}) });
     }
   });
 

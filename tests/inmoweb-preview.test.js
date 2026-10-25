@@ -31,6 +31,7 @@ async function withApp(xml, callback, { failure } = {}) {
   const app = express(); app.use(express.json());
   const next = (req, res, fn) => fn();
   app.use("/api/crm-import", createCrmImportRouter({
+    feedAccessNow: () => Date.parse("2026-01-01T18:00:00Z"),
     UsuarioModel: { findById: async () => user },
     PropiedadModel: { countDocuments: async () => 0, find: async () => [], create: noWrite, updateOne: noWrite },
     ImportSourceModel: { findOne: async () => { effects.sourceReads++; return null; }, create: noWrite, updateOne: noWrite, init: noWrite },

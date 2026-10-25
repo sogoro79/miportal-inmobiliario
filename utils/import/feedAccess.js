@@ -1,3 +1,4 @@
+import { inmowebAvailable, INMOWEB_UNAVAILABLE, INMOWEB_UNAVAILABLE_MESSAGE } from "./inmowebAvailability.js";
 import { createHash } from "node:crypto";
 import { fetchFeedXml, FeedFetchError } from "./feedFetcher.js";
 import { createImportBudget } from "./importBudget.js";
@@ -15,11 +16,12 @@ export function retryAfterMs(value, now) {
 
 // Shared across routes in one router/process, never across tenants. No URLs or
 // response headers are retained. Memory state deliberately does not survive restart.
-// Fresh callers NEVER consume cache or another caller's in-flight capture.
+// Fresh transport callers never consume cache or another caller's capture.
+// InmoWeb NEW instead uses the separately bound server snapshot lease.
 export function createFeedAccess({ fetchXml = fetchFeedXml, now = Date.now,
   ttlMs = 5 * 60_000, forbiddenCooldownMs = 15 * 60_000,
   transientCooldownMs = 60_000, maxEntries = 100, maxCacheBytes = 32 * 1024 * 1024,
-  log = event => console.info("[CRM Feed Access]", event), instance = "process", version = "unknown"
+  snapshots, log = event => console.info("[CRM Feed Access]", event), instance = "process", version = "unknown"
 } = {}) {
   const entries = new Map();
   const safeLabel = value => /^[a-zA-Z0-9_.-]{1,80}$/.test(value || "") ? value : "unknown";
@@ -60,9 +62,12 @@ export function createFeedAccess({ fetchXml = fetchFeedXml, now = Date.now,
       try { await wait(entry.pending); } catch (error) { budget?.assertActive(); if (signal?.aborted) throw error; }
     }
     budget?.assertActive();
+    if (!fresh && entry.capture?.expiresAt > now()) return { ...entry.capture, cached: true };
+    if (feedType === "inmoweb" && !inmowebAvailable(now())) {
+      throw Object.assign(new FeedFetchError(INMOWEB_UNAVAILABLE_MESSAGE, INMOWEB_UNAVAILABLE), { status: 503 });
+    }
     if (entry.until > now()) throw blocked();
     if (!fresh && entry.pending) return wait(entry.pending);
-    if (!fresh && entry.capture?.expiresAt > now()) return { ...entry.capture, cached: true };
     const started = now();
     entry.pending = (async () => {
       let status = null;
@@ -75,6 +80,8 @@ export function createFeedAccess({ fetchXml = fetchFeedXml, now = Date.now,
           signal: fresh && signal ? signal : transportBudget.signal }));
         status = result.httpStatus || 200;
         const capture = { xml: result.xml, fetchedAt: new Date(now()).toISOString(), expiresAt: now() + ttlMs, cached: false };
+        capture.captureId = snapshots?.record({ xml: result.xml, usuarioId,
+          sourceHash: createHash("sha256").update(url).digest("hex"), fetchedAt: capture.fetchedAt });
         entry.capture = capture;
         trimCache();
         return { ...capture };

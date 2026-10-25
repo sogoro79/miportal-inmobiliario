@@ -14,7 +14,7 @@ import { acquireSyncLock } from "./syncLock.js";
 import { prepareSyncPlan, snapshotDigest, safeRunSummary, runVersions, RUN_LIFETIME_MS } from "./syncPlan.js";
 
 const safeCodes = new Set([
-  "CRM_PROVIDER_TEMPORARILY_BLOCKED",
+  "CRM_PROVIDER_TEMPORARILY_BLOCKED", "INMOWEB_TEMPORARILY_UNAVAILABLE", "INMOWEB_FRESH_SNAPSHOT_REQUIRED",
   "SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_NOT_FOUND", "SYNC_RUN_FAILED", "SYNC_RUN_SAVE_FAILED",
   "SYNC_SOURCE_BUSY", "SYNC_ENROLL_SELECTION_INVALID", "SYNC_SNAPSHOT_INCOMPLETE", "SYNC_ENROLL_BASELINE_MISMATCH",
   "SYNC_EXISTING_LIMIT_EXCEEDED", "XML_INVALID", "XML_DOCTYPE_BLOCKED", "XML_ENTITY_BLOCKED",
@@ -30,7 +30,7 @@ export function safeSimulationCode(error) {
 export function createSyncSimulator({
   ImportSourceModel = ImportSource, ImportSyncRunModel = ImportSyncRun, PropiedadModel = Propiedad,
   ReconciliationModel = ImportReconciliation, UsuarioModel = Usuario,
-  fetchXml = fetchFeedXml, env = process.env, now = () => new Date()
+  fetchXml = fetchFeedXml, providerSnapshots, env = process.env, now = () => new Date()
 } = {}) {
   return async ({ usuarioId, importSourceId }) => {
     const startedAt = now();
@@ -102,6 +102,10 @@ export function createSyncSimulator({
       await lock.assert();
       await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final,
         ...(simulated ? { $unset: { errorCode: "" } } : {}) });
+      if (lock.source.feedType === "inmoweb" && simulated && providerSnapshots) {
+        providerSnapshots.bind({ fetched, usuarioId, run: { ...runVersions, ...final, _id: run._id,
+          usuarioId, importSourceId, sourceIdentityHash: lock.source.feedUrlHash } });
+      }
       return { ...(fetched.fetchedAt ? { feedFetchedAt: fetched.fetchedAt } : {}), ...safeRunSummary({ _id: run._id, usuarioId, importSourceId,
         sourceIdentityHash: lock.source.feedUrlHash, ...runVersions,
         createdAt: startedAt, expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...final }, now(), env) };

@@ -1,3 +1,4 @@
+import { SNAPSHOT_REQUIRED } from "./providerSnapshots.js";
 import { isDeepStrictEqual } from "node:util";
 import Propiedad from "../../models/Propiedad.js";
 import Usuario from "../../models/Usuario.js";
@@ -26,7 +27,7 @@ export const safeNewFailureCode = error => NEW_IMPORT_FAILURE_CODES.has(error?.c
 
 export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel = Usuario, ImportSourceModel = ImportSource,
   ImportSyncRunModel = ImportSyncRun, ReconciliationModel = ImportReconciliation,
-  fetchXml = fetchFeedXml, importSelected, env = process.env, now = () => new Date(), budgetFactory = createImportBudget } = {}) {
+  fetchXml = fetchFeedXml, providerSnapshots, importSelected, env = process.env, now = () => new Date(), budgetFactory = createImportBudget } = {}) {
   const runImport = importSelected || createSelectedImporter({ PropiedadModel, UsuarioModel, ImportSourceModel, ReconciliationModel, now, env });
   return async ({ usuarioId, runId, externalIds }) => {
     if (!/^[a-fA-F0-9]{24}$/.test(String(runId)) || !Array.isArray(externalIds) || externalIds.length < 1 ||
@@ -89,9 +90,17 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         { onLateResult: result => result.release() });
       const freshRun = await budget.run(() => readRun());
       checkRun(freshRun, lock.source);
-      const fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: true });
+      let fetched, snapshot;
+      const leasedSnapshot = () => {
+        if (!providerSnapshots) throw newImportError(SNAPSHOT_REQUIRED);
+        return providerSnapshots.get({ run: freshRun, usuarioId, source: lock.source });
+      };
+      if (lock.source.feedType === "inmoweb") snapshot = leasedSnapshot();
+      else {
+        fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: true });
+        snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
+      }
       budget.assertActive();
-      const snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
       if (!receivedNewSnapshotValid(snapshot)) throw newImportError("RUN_SNAPSHOT_INCOMPLETE");
       if (snapshotDigest(snapshot) !== freshRun.snapshotDigest) throw newImportError("SYNC_NEW_FEED_CHANGED");
       let query = PropiedadModel.find({ usuarioId, importSourceId: source._id, source: "crm" });
@@ -129,6 +138,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const user = await budget.run(() => UsuarioModel.findById(usuarioId));
       if (!user || user.activo === false) throw newImportError("SYNC_NEW_FAILED", 403);
       checkRun(await budget.run(() => readRun()), lock.source);
+      if (lock.source.feedType === "inmoweb") leasedSnapshot();
       const claimed = await budget.run(() => ImportSyncRunModel.updateOne({ _id: runId, usuarioId, status: "simulated",
         sourceIdentityHash: source.feedUrlHash, snapshotDigest: freshRun.snapshotDigest, expiresAt: { $gt: now() },
         reappearedRestore: { $exists: false },
@@ -146,6 +156,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         const run = await readRun(session);
         checkRun(run, lock.source, true);
         if (run.snapshotDigest !== freshRun.snapshotDigest) throw newImportError("SYNC_NEW_RUN_CHANGED");
+        if (lock.source.feedType === "inmoweb") leasedSnapshot();
       };
       const internalContext = { source: lock.source, lock,
         assert: () => budget.run(() => assertOperation()),

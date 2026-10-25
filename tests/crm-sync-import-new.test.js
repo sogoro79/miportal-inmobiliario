@@ -1,3 +1,4 @@
+import { createProviderSnapshots, SNAPSHOT_REQUIRED } from "../utils/import/providerSnapshots.js";
 import { createFeedAccess, PROVIDER_BLOCKED } from "../utils/import/feedAccess.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -250,6 +251,7 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml, feedType = "gen
     deleteImage: async publicId => { effects.deletes++; effects.deletedPublicIds.push(publicId); return { ok: true }; } });
   const dependencies = { PropiedadModel: properties, UsuarioModel: users, ImportSourceModel: sources,
     ImportSyncRunModel: runs, ReconciliationModel: reconciliations, env: testEnv, now: () => new Date(clock), importSelected: selected,
+    providerSnapshots: { bind() {}, get: () => buildFeedSnapshot(feed, { feedType }) },
     fetchXml: async (url, { budget }) => { effects.fetch++; await budget.run(() => faults.fetch?.(state)); return { xml: feed }; },
     budgetFactory: () => createImportBudget({ timeoutMs: faults.timeout || MAX_BATCH_MS }) };
   const run = createSyncNewImporter(dependencies);
@@ -345,7 +347,7 @@ for (const [name, change] of [
   ["plot surface changed", xml => xml.replace('<parcela>150</parcela>', '<parcela>151</parcela>')],
   ["public zone changed", xml => xml.replace('Zona ficticia', 'Otra zona ficticia')],
   ["duplicate ID", xml => xml.replace('</properties>', xml.match(/<propiedad\b[\s\S]*?<\/propiedad>/)[0] + '</properties>')]
-]) test(`InmoWeb fresh ${name} aborts before images/persistence`, async () => {
+]) test(`InmoWeb mismatched lease ${name} aborts before images/persistence`, async () => {
   const h = inmoHarness({ photos: 2 }); h.feed(change(inmoXml(1, 2)));
   await assert.rejects(() => h.run(h.request));
   assert.equal(h.effects.downloads, 0); assert.equal(h.effects.uploads, 0); assert.equal(h.state.properties.length, 0);
@@ -392,10 +394,10 @@ for (const mode of ["photo", "upload", "failCreate", "unconfirmed"]) test(`InmoW
     assert.equal(h.state.reconciliations.length, 0);
   }
 });
-test("InmoWeb shares one timeout budget, releases only its lease and does not persist", async () => {
-  const h = inmoHarness(); h.faults.timeout = 10; h.faults.fetch = () => new Promise(resolve => setTimeout(resolve, 30));
-  await assert.rejects(() => h.run(h.request), { code: "IMPORT_TIMEOUT" });
-  assert.equal(h.state.source.importLockToken, undefined); assert.equal(h.state.properties.length, 0); assert.equal(h.effects.downloads, 0);
+test("InmoWeb image timeout retains the shared budget and unconfirmed receipt", async () => {
+  const h = inmoHarness({ photos: 1 }); h.faults.timeout = 10; h.faults.download = () => new Promise(resolve => setTimeout(resolve, 30));
+  await assert.rejects(() => h.run(h.request), { code: "SYNC_NEW_UNCONFIRMED" });
+  assert.equal(h.state.source.importLockToken, undefined); assert.equal(h.state.properties.length, 0); assert.equal(h.effects.fetch, 0);
 });
 test("InmoWeb transactional callback retries do not repeat image uploads", async () => {
   const h = inmoHarness({ photos: 2 }); h.faults.retry = true;
@@ -826,4 +828,62 @@ for (const failure of ["changed", "blocked"]) test(`NEW fresh validation after c
   assert.equal(calls, 2);
   assert.equal(h.state.properties.length, 0);
   assert.equal(h.effects.uploads, 0);
+});
+
+async function realLeaseHarness({ photos = 0 } = {}) {
+  const h = inmoHarness({ photos });
+  const evening = new Date(h.dependencies.now()); evening.setUTCHours(20, 0, 0, 0);
+  h.advance(+evening - +h.dependencies.now());
+  h.state.run.expiresAt = new Date(+evening + 1_200_000);
+  let fetches = 0;
+  const now = () => +h.dependencies.now();
+  const providerSnapshots = createProviderSnapshots({ now });
+  const fetchXml = createFeedAccess({ now, snapshots: providerSnapshots, log: () => {},
+    fetchXml: async () => { fetches++; return { xml: inmoXml(1, photos) }; } });
+  const dependencies = { ...h.dependencies, fetchXml, providerSnapshots };
+  // Same access call as Analyze, then the actual simulator binds the run.
+  const read = await fetchXml("https://feed.example/catalog.xml?token=secret", { usuarioId: U, feedType: "inmoweb", fresh: false });
+  const preview = await createSyncSimulator(dependencies)({ usuarioId: U, importSourceId: S });
+  return { ...h, dependencies, providerSnapshots, read, preview,
+    run: createSyncNewImporter(dependencies), fetches: () => fetches };
+}
+test("InmoWeb Analyze -> Simulate -> NEW uses one download and actual transaction pipeline", async () => {
+  const h = await realLeaseHarness();
+  assert.equal(h.preview.feedFetchedAt, h.read.fetchedAt);
+  const result = await h.run(h.request);
+  assert.equal(result.newImport.counts.imported, 1);
+  assert.equal(h.fetches(), 1); assert.equal(h.state.properties.length, 1);
+  assert.equal(h.state.run.snapshotComplete, false);
+});
+for (const failure of ["expired", "restart", "digest", "identity", "user", "plan", "capacity", "gate", "allowlist"]) {
+  test(`InmoWeb real lease ${failure} prevents publication without refetch`, async () => {
+    const h = await realLeaseHarness();
+    let run = h.run;
+    if (failure === "expired") h.advance(300_001);
+    if (failure === "restart") run = createSyncNewImporter({ ...h.dependencies, providerSnapshots: createProviderSnapshots() });
+    if (failure === "digest") h.state.run.snapshotDigest = "f".repeat(64);
+    if (failure === "identity") h.state.source.feedUrlHash = "f".repeat(64);
+    if (failure === "user") h.state.user.activo = false;
+    if (failure === "plan") h.state.user.planActivo = false;
+    if (failure === "capacity") { h.state.user.plan = "gratis"; h.state.properties.push({ usuarioId: U }, { usuarioId: U }); }
+    if (failure === "gate") h.dependencies.env.INMOWEB_NEW_ENABLED = "false";
+    if (failure === "allowlist") h.dependencies.env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS = "OTHER";
+    await assert.rejects(run(h.request));
+    assert.equal(h.state.properties.filter(p => p.externalId === "IW-0").length, 0); assert.equal(h.fetches(), 1);
+    assert.equal(h.effects.uploads, 0);
+  });
+}
+
+for (const change of ["expiry", "user", "plan", "capacity"]) test(`InmoWeb ${change} during images is rechecked before persistence`, async () => {
+  const h = await realLeaseHarness({ photos: 1 });
+  h.faults.download = () => {
+    if (change === "expiry") h.advance(300_001);
+    if (change === "user") h.state.user.activo = false;
+    if (change === "plan") h.state.user.planActivo = false;
+    if (change === "capacity") { h.state.user.plan = "gratis"; h.state.properties.push({ usuarioId: U }, { usuarioId: U }); }
+  };
+  try { await h.run(h.request); } catch (error) { assert.ok(error.code); }
+  assert.equal(h.state.properties.filter(p => p.externalId === "IW-0").length, 0);
+  assert.equal(h.fetches(), 1);
+  assert.equal(h.effects.uploads, h.effects.deletes);
 });

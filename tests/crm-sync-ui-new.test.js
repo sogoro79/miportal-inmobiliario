@@ -27,7 +27,7 @@ const descendants = node => [node, ...node.children.flatMap(descendants)];
 const text = node => descendants(node).map(item => item.textContent).join("\n");
 const checkboxes = output => descendants(output).filter(item => item.type === "checkbox");
 const select = input => { input.checked = true; input.listeners.change(); };
-async function harness({ data = preview(), post = success,
+async function harness({ data = preview(), post = success, simulate,
   get = () => response({ ...preview(), newImportEligible: false, newImport: receipt() }), confirmation = true } = {}) {
   const elements = new Map(), calls = [], confirmations = [];
   const document = { createElement: element, getElementById(id) {
@@ -40,7 +40,7 @@ async function harness({ data = preview(), post = success,
       const path = url.split("/").at(-1);
       calls.push({ path, method: options.method, body: options.body ? JSON.parse(options.body) : undefined });
       if (path === "source") return response({ configured: true, importSourceId: "own-source" });
-      if (path === "simulate") return response(data);
+      if (path === "simulate") return simulate ? simulate() : response(data);
       if (path === "import-new") return post();
       if (path === "own-run") return get();
       if (path === "apply") return response({ ok: true, appliedCount: 1 });
@@ -408,7 +408,7 @@ test("InmoWeb NEW readiness does not enable MISSING, REAPPEARED, UPDATE or enrol
 
 test("recent capture age is shown without infrastructure details", async () => {
   const h = await harness({ data: { ...preview(), feedFetchedAt: new Date(Date.now() - 120000).toISOString() } });
-  assert.match(text(h.output), /Último análisis hace 2 minutos/);
+  assert.match(text(h.output), /Datos actualizados hace 2 minutos/);
 });
 
 test("provider cooldown is a safe rejection, not an unconfirmed NEW write", async () => {
@@ -418,5 +418,26 @@ test("provider cooldown is a safe rejection, not an unconfirmed NEW write", asyn
   await h.button.listeners.click();
   assert.match(text(h.output) + h.status.textContent, /El proveedor no está disponible temporalmente/);
   assert.doesNotMatch(text(h.output) + h.status.textContent, /Render|whitelist|proxy|403|resultado no está confirmado/i);
+  assert.equal(h.calls.filter(call => call.path === "import-new").length, 1);
+});
+
+
+test("InmoWeb unavailable keeps the previous review and uses nontechnical copy", async () => {
+  let attempts = 0;
+  const h = await harness({ simulate: () => ++attempts === 1 ? response(preview()) : response({
+    code: "INMOWEB_TEMPORARILY_UNAVAILABLE", error: "No podemos actualizar InmoWeb en este momento. Inténtalo más tarde."
+  }, 503) });
+  const before = text(h.output);
+  await h.context.document.getElementById("crmSyncSimulate").listeners.click();
+  assert.equal(text(h.output), before);
+  assert.equal(h.status.textContent, "No podemos actualizar InmoWeb en este momento. Conservamos la última revisión disponible.");
+  assert.equal(attempts, 2);
+});
+
+test("missing InmoWeb capture asks for a new review, never retries import", async () => {
+  const h = await harness({ post: () => response({ code: "INMOWEB_FRESH_SNAPSHOT_REQUIRED",
+    error: "Actualiza y revisa los inmuebles de InmoWeb antes de importar." }, 409) });
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  assert.match(text(h.output) + h.status.textContent, /Actualiza y revisa los inmuebles de InmoWeb/);
   assert.equal(h.calls.filter(call => call.path === "import-new").length, 1);
 });

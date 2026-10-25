@@ -1198,6 +1198,8 @@ async function analizarFeedCrm() {
 
   status.classList.remove("error");
   status.textContent = "";
+  const previousPreview = crmPreviewData;
+  const previousUrl = crmAnalyzedUrl;
   crmPreviewData = null;
   actualizarSeleccionCrm();
   if (summary) summary.style.display = "none";
@@ -1225,18 +1227,22 @@ async function analizarFeedCrm() {
       body: JSON.stringify({ feedUrl, ...(format.value === "generic_xml" ? {} : { feedType: format.value }) })
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "No se pudo analizar el feed.");
+    if (!res.ok) throw Object.assign(new Error(data.error || "No se pudo analizar el feed."), { code: data.code });
 
     crmAnalyzedUrl = feedUrl;
     status.textContent = data.previewOnly ? "Análisis InmoWeb completado. Solo lectura: revisa los avisos y bloqueos." : "Análisis completado. Selecciona los inmuebles que quieras importar.";
     if (data.feedFetchedAt && Number.isFinite(Date.parse(data.feedFetchedAt))) {
       const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(data.feedFetchedAt)) / 60000));
-      status.textContent += ` Último análisis hace ${minutes} minutos.`;
+      status.textContent += ` Datos actualizados hace ${minutes} minutos.`;
     }
     renderizarPreviewCrm(data);
   } catch (error) {
     status.classList.add("error");
-    status.textContent = error.message || "No se pudo analizar el feed.";
+    if (["INMOWEB_TEMPORARILY_UNAVAILABLE", "CRM_PROVIDER_TEMPORARILY_BLOCKED"].includes(error.code) &&
+        previousPreview?.feedType === "inmoweb" && previousUrl === feedUrl) {
+      renderizarPreviewCrm(previousPreview);
+      status.textContent = "No podemos actualizar InmoWeb en este momento. Conservamos la última revisión disponible.";
+    } else status.textContent = error.message || "No se pudo analizar el feed.";
   } finally {
     button.disabled = false;
     button.textContent = "Analizar feed";
