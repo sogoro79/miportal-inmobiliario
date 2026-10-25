@@ -213,7 +213,7 @@ test("private evidence and unknown codes never appear in rendered REAPPEARED", a
 });
 test("profile loads fresh JS and responsive accessible controls", () => {
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
-  assert.match(html, /crm-sync-ui\.js\?v=12/);
+  assert.match(html, /crm-sync-ui\.js\?v=13/);
   assert.match(html, /\.crm-sync-restore-label span\s*\{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/);
   assert.match(html, /max-width: calc\(100% - 32px\)/); assert.match(html, /crm-sync-restore-confirm-actions[^}]*flex-wrap: wrap/);
 });

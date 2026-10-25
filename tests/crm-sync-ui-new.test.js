@@ -251,7 +251,7 @@ test("responsive profile keeps wrapped content, bounded buttons and cache versio
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
   assert.match(html, /crm-sync-results[^}]*overflow-wrap: anywhere/);
   assert.match(html, /crm-sync-results \.btn-perfil[^}]*max-width: 100%; white-space: normal/);
-  assert.match(html, /crm-sync-ui\.js\?v=12/);
+  assert.match(html, /crm-sync-ui\.js\?v=13/);
 });
 
 for (const publicable of [true, false]) test(`real snapshot -> safe summary -> UI: publicable=${publicable}`, async () => {
@@ -340,4 +340,67 @@ test("recognized gateway error retains its existing safe semantics", async () =>
   select(checkboxes(h.output)[0]); await h.button.listeners.click();
   assert.doesNotMatch(h.status.textContent, /No se pudo confirmar/);
   assert.equal(descendants(h.output).some(item => item.textContent === "Consultar estado"), false);
+});
+
+// Use the real DTO and synthetic provider identity, never a production external ID.
+async function inmowebSummary() {
+  const { buildFeedSnapshot } = await import("../utils/importers/importerRegistry.js");
+  const xml = fs.readFileSync(new URL("./fixtures/crm/inmoweb-synthetic.xml", import.meta.url), "utf8");
+  const snapshot = buildFeedSnapshot(xml, { feedType: "inmoweb" });
+  const env = { INMOWEB_NEW_ENABLED: "true", INMOWEB_NEW_ALLOWED_EXTERNAL_IDS: "0001" };
+  const run = { _id: "own-run", importSourceId: "507f1f77bcf86cd799439012", feedType: "inmoweb",
+    status: "simulated", snapshotComplete: snapshot.snapshotComplete, newSnapshotComplete: true,
+    providerNormalizationVersion: 1, sourceIdentityHash: "a".repeat(64), snapshotDigest: snapshotDigest(snapshot),
+    expiresAt: new Date(Date.now() + 600000), ...runVersions, ...prepareSyncPlan(snapshot, []) };
+  return { data: safeRunSummary(run, new Date(), env), run, env };
+}
+
+test("InmoWeb NEW: real DTO exposes separate completeness and permits selecting an authorized synthetic ID", async () => {
+  const { data, env } = await inmowebSummary();
+  const { assertInmowebNewSelectionAllowed } = await import("../utils/import/inmowebPolicy.js");
+  assert.equal(data.snapshotComplete, false);
+  assert.equal(data.newSnapshotComplete, true);
+  assert.equal(data.newImportEligible, true);
+  assert.equal(data.applyEligible, false);
+  const h = await harness({ data });
+  assert.match(text(h.output), /0001: NEW · listo para importar/);
+  assert.equal(checkboxes(h.output).length, 1);
+  select(checkboxes(h.output)[0]);
+  assert.equal(h.button.disabled, false);
+  await h.button.listeners.click();
+  const selection = h.calls.find(c => c.path === "import-new").body.externalIds;
+  assert.deepEqual(selection, ["0001"]);
+  assert.doesNotThrow(() => assertInmowebNewSelectionAllowed("inmoweb", selection, env));
+});
+
+for (const complete of [false, undefined]) test(`InmoWeb NEW fails closed with independent completeness=${complete}`, async () => {
+  const { data, run, env } = await inmowebSummary();
+  const dto = safeRunSummary({ ...run, newSnapshotComplete: complete }, new Date(), env);
+  assert.equal(dto.newSnapshotComplete, false);
+  assert.equal(dto.newImportEligible, false);
+  // UI independently requires explicit evidence, even with an inconsistent eligibility flag.
+  const h = await harness({ data: { ...data, newSnapshotComplete: complete } });
+  assert.equal(checkboxes(h.output).length, 0);
+  assert.equal(h.button, undefined);
+});
+
+test("generic XML NEW cannot use InmoWeb completeness to bypass an incomplete snapshot", async () => {
+  const h = await harness({ data: { ...preview(), feedType: "generic_xml", snapshotComplete: false, newSnapshotComplete: true } });
+  assert.equal(checkboxes(h.output).length, 0);
+  assert.equal(h.button, undefined);
+});
+
+test("InmoWeb NEW readiness does not enable MISSING, REAPPEARED, UPDATE or enrollment", async () => {
+  const { data } = await inmowebSummary();
+  data.results.push(
+    { externalId: "ABSENT", type: "MISSING", hideMissingEligible: true },
+    { externalId: "RETURNED", type: "REAPPEARED", restoreEligible: true },
+    { externalId: "CHANGED", type: "UPDATE", blocked: true },
+    { externalId: "UNLINKED", type: "UNCHANGED", enrollmentEligible: true, reason: "PROPERTY_SYNC_DISABLED" },
+    { externalId: "DENIED", type: "NEW", importNewEligible: false, reason: "NEW_REQUIRES_MANUAL_IMPORT" }
+  );
+  const h = await harness({ data });
+  assert.equal(checkboxes(h.output).length, 1);
+  assert.match(checkboxes(h.output)[0].attributes["aria-label"], /0001/);
+  assert.equal(h.calls.some(c => ["apply", "enroll", "hide-missing", "restore-reappeared"].includes(c.path)), false);
 });

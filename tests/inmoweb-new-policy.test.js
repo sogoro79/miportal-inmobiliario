@@ -83,8 +83,9 @@ test("run presence evidence enables only NEW in synthetic opt-in, never UPDATE/M
     feedType: "inmoweb", newSnapshotComplete: true, providerNormalizationVersion: 1,
     snapshotComplete: false, snapshotDigest: snapshotDigest(snapshot), ...prepareSyncPlan(snapshot, []) };
   const summary = safeRunSummary(run, new Date(), { INMOWEB_NEW_ENABLED: "true" });
+  assert.equal(summary.newSnapshotComplete, true);
   assert.equal(summary.newImportEligible, true); assert.equal(summary.applyEligible, false); assert.equal(summary.missingCount, 0);
-  assert.doesNotMatch(JSON.stringify(summary), /sourceIdentityHash|newSnapshotComplete|providerNormalizationVersion|encryptedFeedUrl/);
+  assert.doesNotMatch(JSON.stringify(summary), /sourceIdentityHash|providerNormalizationVersion|encryptedFeedUrl/);
   for (const change of [{ newSnapshotComplete: undefined }, { providerNormalizationVersion: undefined }, { snapshotComplete: true }]) {
     assert.equal(safeRunSummary({ ...run, ...change }, new Date(), { INMOWEB_NEW_ENABLED: "true" }).newImportEligible, false);
   }

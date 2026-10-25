@@ -254,8 +254,12 @@
     const newSelected = new Set();
     const newInputs = [];
     const expiredNow = data.expired || !(Date.parse(data.expiresAt) > Date.now());
+    // NEW presence evidence does not certify the full catalogue for other actions.
+    const newSnapshotReady = data.feedType === "inmoweb"
+      ? data.newSnapshotComplete === true
+      : data.snapshotComplete === true;
     const canImportNew = onImportNew && data.newImportEligible === true && data.status === "simulated" &&
-      !expiredNow && !data.planTruncated && data.snapshotComplete === true &&
+      !expiredNow && !data.planTruncated && newSnapshotReady &&
       (!data.newImport?.status || data.newImport.status === "idle") && !data.reappearedRestore;
     const newButton = canImportNew ? document.createElement("button") : null;
     const newNotice = canImportNew ? document.createElement("p") : null;

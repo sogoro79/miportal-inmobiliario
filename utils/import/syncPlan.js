@@ -138,7 +138,7 @@ export function safeRunSummary(run, now = new Date(), env = process.env) {
     createdAt: run.createdAt || run.startedAt, expiresAt: run.expiresAt || null,
     ...evaluateRunApplyEligibility(run, now), snapshotComplete: run.snapshotComplete === true,
     ...evaluateRunNewImportEligibility(run, now, undefined, env),
-    ...(run.feedType === "inmoweb" ? { feedType: "inmoweb" } : {}),
+    ...(run.feedType === "inmoweb" ? { feedType: "inmoweb", newSnapshotComplete: run.newSnapshotComplete === true } : {}),
     ...(run.newImport ? { newImport: safeNewImportSummary(run.newImport) } : {}),
     ...(run.missingHide ? { missingHide: safeMissingHideSummary(run.missingHide) } : {}),
     ...(run.reappearedRestore ? { reappearedRestore: safeRestoreSummary(run.reappearedRestore) } : {}),
