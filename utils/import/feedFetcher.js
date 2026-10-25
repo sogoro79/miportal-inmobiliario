@@ -163,7 +163,11 @@ export async function fetchPublicResource(rawUrl, {
     }
 
     if (status < 200 || status >= 300) {
-      throw new FeedFetchError(`El feed respondió con estado ${status}.`, "BAD_STATUS");
+      const error = new FeedFetchError(`El feed respondió con estado ${status}.`, "BAD_STATUS");
+      error.httpStatus = status;
+      const retryAfter = getHeader(response.headers, "retry-after");
+      if (typeof retryAfter === "string" && retryAfter.length <= 100) error.retryAfter = retryAfter;
+      throw error;
     }
 
     if (!binary && !isAllowedXmlContentType(getHeader(response.headers, "content-type"))) {

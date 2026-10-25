@@ -89,7 +89,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         { onLateResult: result => result.release() });
       const freshRun = await budget.run(() => readRun());
       checkRun(freshRun, lock.source);
-      const fetched = await fetchXml(lock.feedUrl, { budget });
+      const fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: true });
       budget.assertActive();
       const snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
       if (!receivedNewSnapshotValid(snapshot)) throw newImportError("RUN_SNAPSHOT_INCOMPLETE");

@@ -1,3 +1,4 @@
+import { createFeedAccess, PROVIDER_BLOCKED } from "../utils/import/feedAccess.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -808,4 +809,21 @@ test("each NEW rate limiter rejects the sixth attempt with 429", async () => {
       assert.equal((await http(app, "POST", "/limited", {})).status, 429);
     } finally { middleware.resetKey(key); }
   }
+});
+
+for (const failure of ["changed", "blocked"]) test(`NEW fresh validation after cached preview: ${failure} prevents publication`, async () => {
+  const h = harness();
+  let calls = 0;
+  const access = createFeedAccess({ log: () => {}, fetchXml: async () => {
+    calls++;
+    if (calls === 1) return { xml: xml() };
+    if (failure === "blocked") throw Object.assign(new Error("provider denied"), { httpStatus: 403 });
+    return { xml: xml().replace("Casa 0", "Changed title") };
+  } });
+  await access("https://feed.example/catalog.xml?token=secret", { usuarioId: U, fresh: false });
+  const run = createSyncNewImporter({ ...h.dependencies, fetchXml: access });
+  await assert.rejects(run(h.request), { code: failure === "blocked" ? PROVIDER_BLOCKED : "SYNC_NEW_FEED_CHANGED" });
+  assert.equal(calls, 2);
+  assert.equal(h.state.properties.length, 0);
+  assert.equal(h.effects.uploads, 0);
 });

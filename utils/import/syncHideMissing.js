@@ -79,7 +79,7 @@ export function createMissingHider({ PropiedadModel = Propiedad, UsuarioModel = 
     try {
       lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId: initial.importSourceId, env, now });
       checkRun(initial, lock.source);
-      const fetched = await fetchXml(lock.feedUrl, { budget });
+      const fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: true });
       budget.assertActive();
       const snapshot = buildSyncSnapshot(fetched.xml);
       if (!snapshot.snapshotComplete) reject("MISSING_SNAPSHOT_INCOMPLETE");

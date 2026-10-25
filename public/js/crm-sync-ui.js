@@ -7,6 +7,7 @@
 
   function newMessage(code) {
     const messages = {
+      CRM_PROVIDER_TEMPORARILY_BLOCKED: "El proveedor no está disponible temporalmente. Inténtalo más tarde.",
       ALREADY_EXISTS: "Este anuncio ya existe. No se ha creado un duplicado.",
       SYNC_NEW_NOT_NEW: "Alguna referencia ya no es nueva. Vuelve a simular.",
       INMOWEB_NEW_DISABLED: "Importación InmoWeb preparada. Activación pendiente.",
@@ -224,6 +225,9 @@
     output.replaceChildren();
     const summary = document.createElement("p");
     summary.textContent = resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
+    if (data.feedFetchedAt && Number.isFinite(Date.parse(data.feedFetchedAt))) {
+      summary.textContent += ` · Último análisis hace ${Math.max(0, Math.floor((Date.now() - Date.parse(data.feedFetchedAt)) / 60000))} minutos`;
+    }
     output.append(summary);
     if (typeof data.applyEligible === "boolean") {
       const eligibility = document.createElement("p");
@@ -827,6 +831,7 @@
         }
       }
       const recognizedNewCodes = new Set([
+        "CRM_PROVIDER_TEMPORARILY_BLOCKED",
         "INMOWEB_NEW_DISABLED", "SYNC_NEW_PLAN_LIMIT", "SYNC_NEW_PLAN_REQUIRED", "SYNC_NEW_SELECTION_INVALID", "SYNC_NEW_SELECTION_MISMATCH",
         "SYNC_NEW_SOURCE_CHANGED", "SYNC_NEW_RUN_CHANGED", "SYNC_NEW_FEED_CHANGED", "SYNC_NEW_NOT_NEW",
         "SYNC_NEW_INVALID_DATA", "SYNC_NEW_RECONCILIATION_PENDING", "SYNC_NEW_IN_PROGRESS", "SYNC_NEW_UNCONFIRMED",

@@ -18,7 +18,7 @@ export function createSyncEnroller({ ImportSourceModel = ImportSource, Propiedad
     let session;
     try {
       lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now });
-      const fetched = await fetchXml(lock.feedUrl, { budget });
+      const fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: true });
       budget.assertActive();
       const snapshot = buildSyncSnapshot(fetched.xml);
       if (!snapshot.snapshotComplete) throw syncError("SYNC_SNAPSHOT_INCOMPLETE");

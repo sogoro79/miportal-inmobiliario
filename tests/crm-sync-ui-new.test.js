@@ -404,3 +404,19 @@ test("InmoWeb NEW readiness does not enable MISSING, REAPPEARED, UPDATE or enrol
   assert.match(checkboxes(h.output)[0].attributes["aria-label"], /0001/);
   assert.equal(h.calls.some(c => ["apply", "enroll", "hide-missing", "restore-reappeared"].includes(c.path)), false);
 });
+
+
+test("recent capture age is shown without infrastructure details", async () => {
+  const h = await harness({ data: { ...preview(), feedFetchedAt: new Date(Date.now() - 120000).toISOString() } });
+  assert.match(text(h.output), /Último análisis hace 2 minutos/);
+});
+
+test("provider cooldown is a safe rejection, not an unconfirmed NEW write", async () => {
+  const h = await harness({ post: () => response({ code: "CRM_PROVIDER_TEMPORARILY_BLOCKED",
+    error: "El proveedor no está disponible temporalmente. Inténtalo más tarde." }, 503) });
+  select(checkboxes(h.output)[0]);
+  await h.button.listeners.click();
+  assert.match(text(h.output) + h.status.textContent, /El proveedor no está disponible temporalmente/);
+  assert.doesNotMatch(text(h.output) + h.status.textContent, /Render|whitelist|proxy|403|resultado no está confirmado/i);
+  assert.equal(h.calls.filter(call => call.path === "import-new").length, 1);
+});

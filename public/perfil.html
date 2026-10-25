@@ -1229,6 +1229,10 @@ async function analizarFeedCrm() {
 
     crmAnalyzedUrl = feedUrl;
     status.textContent = data.previewOnly ? "Análisis InmoWeb completado. Solo lectura: revisa los avisos y bloqueos." : "Análisis completado. Selecciona los inmuebles que quieras importar.";
+    if (data.feedFetchedAt && Number.isFinite(Date.parse(data.feedFetchedAt))) {
+      const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(data.feedFetchedAt)) / 60000));
+      status.textContent += ` Último análisis hace ${minutes} minutos.`;
+    }
     renderizarPreviewCrm(data);
   } catch (error) {
     status.classList.add("error");

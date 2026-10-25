@@ -63,7 +63,9 @@ for (const feedType of ["inmoweb", "auto"]) test(`HTTP preview ${feedType} is op
   await withApp(fixture, async (request, effects) => {
     const response = await request({ feedUrl: testUrl, feedType });
     assert.equal(response.status, 200);
-    assert.deepEqual(response.body, preview(fixture));
+    const { feedFetchedAt, ...previewBody } = response.body;
+    assert.ok(Number.isFinite(Date.parse(feedFetchedAt)));
+    assert.deepEqual(previewBody, preview(fixture));
     assert.equal(response.body.previewOnly, true);
     assert.equal(response.body.snapshotComplete, false);
     assert.equal(response.body.importEnabled, false);
@@ -168,7 +170,7 @@ test("masked URL and logs never contain a credential or arbitrary error code/mes
     await withApp(fixture, async request => {
       assert.equal((await request({ feedUrl: testUrl, feedType: "inmoweb" })).status, 500);
     }, { failure: Object.assign(new Error(testUrl), { code: "synthetic-preview-token" }) });
-    assert.ok(JSON.stringify(logs).includes("key=********"));
+    assert.doesNotMatch(JSON.stringify(logs), /key=|feedUrl/);
     assert.doesNotMatch(JSON.stringify(logs), /synthetic-preview-token/);
   } finally { console.warn = previous; }
 });

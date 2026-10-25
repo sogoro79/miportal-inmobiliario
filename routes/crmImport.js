@@ -1,3 +1,4 @@
+import { createFeedAccess, PROVIDER_BLOCKED, PROVIDER_MESSAGE } from "../utils/import/feedAccess.js";
 import express from "express";
 import Propiedad from "../models/Propiedad.js";
 import Usuario from "../models/Usuario.js";
@@ -8,12 +9,11 @@ import { requireAuth } from "../middleware/auth.js";
 import { securityRateLimits } from "../utils/security.js";
 import {
   DEFAULT_MAX_PREVIEW_PROPERTIES,
-  FeedSecurityError,
-  maskFeedUrl
+  FeedSecurityError
 } from "../utils/import/feedSecurity.js";
 import { FeedFetchError, fetchFeedXml as defaultFetchFeedXml } from "../utils/import/feedFetcher.js";
 import { analyzeFeedXml, detectFeedType } from "../utils/importers/importerRegistry.js";
-import { safeInmowebPreview, maskAnalysisFeedUrl, safeAnalysisErrorCode } from "../utils/import/inmowebPreview.js";
+import { safeInmowebPreview, safeAnalysisErrorCode } from "../utils/import/inmowebPreview.js";
 import { getPublicationAvailability } from "../utils/propertyCreation.js";
 import { getLimiteFotosPlan, planTieneLimiteFotos } from "../utils/planLimits.js";
 import { getPlanParaFotos } from "../utils/publishEligibility.js";
@@ -46,6 +46,7 @@ function finiteOrNull(value) {
 }
 
 function normalizarErrorFeed(error) {
+  if (error?.code === PROVIDER_BLOCKED) return { status: 503, error: PROVIDER_MESSAGE };
   if (error instanceof FeedSecurityError) {
     return { status: 400, error: error.message };
   }
@@ -96,6 +97,8 @@ export function createCrmImportRouter({
   env = process.env
 } = {}) {
   const router = express.Router();
+  fetchFeedXml = createFeedAccess({ fetchXml: fetchFeedXml,
+    instance: env.RENDER_INSTANCE_ID || "process", version: env.RENDER_GIT_COMMIT || "unknown" });
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel, env });
   const runSimulation = simulateSync || createSyncSimulator({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, env });
   const runEnrollment = enrollSync || createSyncEnroller({ ImportSourceModel, PropiedadModel, fetchXml: fetchFeedXml });
@@ -140,11 +143,11 @@ export function createCrmImportRouter({
       const code = safeSimulationCode(error);
       console.warn("[CRM Sync Simulation]", { code });
       const status = code === "SYNC_SOURCE_NOT_FOUND" ? 404 : ["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY"].includes(code) ? 409
-        : code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400;
+        : code === PROVIDER_BLOCKED ? 503 : code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400;
       return res.status(status).json({ code, error: code === "SYNC_SOURCE_NOT_CONFIGURED"
         ? "La fuente CRM necesita una URL cifrada configurada antes de simular. La importación manual sigue disponible."
         : code === "SYNC_SOURCE_BUSY" ? "Hay otra operación CRM en curso. Espera y vuelve a intentarlo."
-        : "No se pudo completar la simulación CRM." });
+        : code === PROVIDER_BLOCKED ? PROVIDER_MESSAGE : "No se pudo completar la simulación CRM." });
     }
   });
 
@@ -184,14 +187,14 @@ export function createCrmImportRouter({
       const code = safeNewFailureCode(error);
       console.warn("[CRM Sync Import New]", { code });
       const status = ["SYNC_RUN_NOT_FOUND", "SYNC_SOURCE_NOT_FOUND"].includes(code) ? 404
-        : code === "SYNC_NEW_UNCONFIRMED" ? 503 : ["IMPORT_TIMEOUT", "FEED_TIMEOUT"].includes(code) ? 504
+        : code === PROVIDER_BLOCKED || code === "SYNC_NEW_UNCONFIRMED" ? 503 : ["IMPORT_TIMEOUT", "FEED_TIMEOUT"].includes(code) ? 504
         : code === "SYNC_NEW_SELECTION_INVALID" ? 400 : code === "SYNC_NEW_FAILED" ? 500 : 409;
       return res.status(status).json({ code, error: code === "SYNC_NEW_UNCONFIRMED" || code === "SYNC_NEW_IN_PROGRESS"
         ? "El resultado no está confirmado o sigue en curso. Consulta el estado de la simulación antes de volver a intentarlo."
         : code === "RUN_EXPIRED" ? "Esta simulación ha caducado. Vuelve a simular."
         : code === "INMOWEB_NEW_DISABLED" ? "Importación InmoWeb preparada. Activación pendiente."
         : code === "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED" ? "La selección no está autorizada para la prueba InmoWeb."
-        : "No se pudieron importar los anuncios nuevos. Revisa el estado y vuelve a simular." });
+        : code === PROVIDER_BLOCKED ? PROVIDER_MESSAGE : "No se pudieron importar los anuncios nuevos. Revisa el estado y vuelve a simular." });
     }
   });
 
@@ -285,7 +288,7 @@ export function createCrmImportRouter({
     if (!parsed.success) return res.status(400).json({ error: `Indica un feed válido y selecciona entre 1 y ${MAX_BATCH_PROPERTIES} inmuebles por lote.` });
     const budget = createImportBudget();
     try {
-      const fetched = await fetchFeedXml(parsed.data.feedUrl, { budget });
+      const fetched = await fetchFeedXml(parsed.data.feedUrl, { budget, usuarioId: req.user.id, fresh: true });
       if (detectFeedType(fetched.xml) === "inmoweb") {
         assertInmowebNewEnabled("inmoweb", env);
         throw new ImportError("InmoWeb requiere una simulación vigente.", 409, "INMOWEB_NEW_REQUIRES_SYNC");
@@ -294,9 +297,9 @@ export function createCrmImportRouter({
       return res.json(await runImport({ usuarioId: req.user.id, ...parsed.data, analyzed, budget }));
     } catch (error) {
       const response = error instanceof ImportError || error.code === "IMPORT_TIMEOUT" || error.code === "INMOWEB_NEW_DISABLED" ? { status: error.status, error: error.message } : normalizarErrorFeed(error);
-      console.warn("[CRM Import]", { feedUrl: maskFeedUrl(parsed.data.feedUrl), code: error instanceof ImportError ? "IMPORT_REJECTED" : error?.code || "IMPORT_FAILED", status: response.status });
+      console.warn("[CRM Import]", { code: error instanceof ImportError ? "IMPORT_REJECTED" : error?.code || "IMPORT_FAILED", status: response.status });
       return res.status(response.status).json({ error: response.error,
-        ...(["INMOWEB_NEW_DISABLED", "INMOWEB_NEW_REQUIRES_SYNC"].includes(error.code) ? { code: error.code } : {}) });
+        ...([PROVIDER_BLOCKED, "INMOWEB_NEW_DISABLED", "INMOWEB_NEW_REQUIRES_SYNC"].includes(error.code) ? { code: error.code } : {}) });
     } finally {
       budget.dispose();
     }
@@ -326,7 +329,7 @@ export function createCrmImportRouter({
       const planFotos = getPlanParaFotos(usuario);
       const fotosIlimitadas = !planTieneLimiteFotos(planFotos);
       const limiteFotos = fotosIlimitadas ? null : getLimiteFotosPlan(planFotos);
-      const fetched = await fetchFeedXml(feedUrl);
+      const fetched = await fetchFeedXml(feedUrl, { usuarioId, feedType: parsed.data.feedType, fresh: false });
       const feedType = parsed.data.feedType === "auto" ? detectFeedType(fetched.xml) : parsed.data.feedType || "generic_xml";
       const analyzed = analyzeFeedXml(fetched.xml, {
         feedType,
@@ -335,7 +338,7 @@ export function createCrmImportRouter({
       });
       if (analyzed.feedType === "inmoweb") {
         res.set("Cache-Control", "no-store");
-        return res.json(safeInmowebPreview(analyzed));
+        return res.json({ ...safeInmowebPreview(analyzed), feedFetchedAt: fetched.fetchedAt });
       }
       const source = await ImportSourceModel.findOne({ usuarioId, feedUrlHash: feedHash(feedUrl) });
       const imported = source ? await PropiedadModel.find({ usuarioId, importSourceId: source._id, source: "crm" }) : [];
@@ -366,6 +369,7 @@ export function createCrmImportRouter({
 
       return res.json({
         feedType: analyzed.feedType,
+        feedFetchedAt: fetched.fetchedAt,
         total: properties.length,
         plan: disponibilidad.plan,
         puedePublicarAhora: disponibilidad.puedePublicarAhora,
@@ -378,16 +382,13 @@ export function createCrmImportRouter({
         properties
       });
     } catch (error) {
-      const safeUrl = maskAnalysisFeedUrl(feedUrl);
       const response = normalizarErrorFeed(error);
       console.warn("[CRM Import Analyze]", {
-        userId: usuarioId,
-        feedUrl: safeUrl,
         code: safeAnalysisErrorCode(error),
         ...(error instanceof FeedFetchError && error.internalCode ? { internalCode: error.internalCode } : {}),
         status: response.status
       });
-      return res.status(response.status).json({ error: response.error });
+      return res.status(response.status).json({ error: response.error, ...(error.code === PROVIDER_BLOCKED ? { code: PROVIDER_BLOCKED } : {}) });
     }
   });
 
