@@ -1,3 +1,4 @@
+import ProviderSnapshot from "../models/ProviderSnapshot.js";
 import { createProviderSnapshots, SNAPSHOT_REQUIRED, SNAPSHOT_MESSAGE } from "../utils/import/providerSnapshots.js";
 import { INMOWEB_UNAVAILABLE, INMOWEB_UNAVAILABLE_MESSAGE } from "../utils/import/inmowebAvailability.js";
 import { createFeedAccess, PROVIDER_BLOCKED, PROVIDER_MESSAGE } from "../utils/import/feedAccess.js";
@@ -78,6 +79,7 @@ export function createCrmImportRouter({
   PropiedadModel = Propiedad,
   ImportSourceModel = ImportSource,
   ImportSyncRunModel = ImportSyncRun,
+  ProviderSnapshotModel = ProviderSnapshot,
   simulateSync,
   enrollSync,
   applySync,
@@ -101,7 +103,7 @@ export function createCrmImportRouter({
   env = process.env
 } = {}) {
   const router = express.Router();
-  const providerSnapshots = createProviderSnapshots({ now: feedAccessNow });
+  const providerSnapshots = createProviderSnapshots({ now: feedAccessNow, SnapshotModel: ProviderSnapshotModel, env });
   fetchFeedXml = createFeedAccess({ fetchXml: fetchFeedXml, snapshots: providerSnapshots, now: feedAccessNow,
     instance: env.RENDER_INSTANCE_ID || "process", version: env.RENDER_GIT_COMMIT || "unknown" });
   const runImport = importSelected || createSelectedImporter({ UsuarioModel, PropiedadModel, ImportSourceModel, env });

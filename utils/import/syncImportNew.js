@@ -91,11 +91,11 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const freshRun = await budget.run(() => readRun());
       checkRun(freshRun, lock.source);
       let fetched, snapshot;
-      const leasedSnapshot = () => {
+      const leasedSnapshot = session => {
         if (!providerSnapshots) throw newImportError(SNAPSHOT_REQUIRED);
-        return providerSnapshots.get({ run: freshRun, usuarioId, source: lock.source });
+        return budget.run(() => providerSnapshots.get({ run: freshRun, usuarioId, source: lock.source, session }));
       };
-      if (lock.source.feedType === "inmoweb") snapshot = leasedSnapshot();
+      if (lock.source.feedType === "inmoweb") snapshot = await leasedSnapshot();
       else {
         fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: true });
         snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
@@ -138,7 +138,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const user = await budget.run(() => UsuarioModel.findById(usuarioId));
       if (!user || user.activo === false) throw newImportError("SYNC_NEW_FAILED", 403);
       checkRun(await budget.run(() => readRun()), lock.source);
-      if (lock.source.feedType === "inmoweb") leasedSnapshot();
+      if (lock.source.feedType === "inmoweb") await leasedSnapshot();
       const claimed = await budget.run(() => ImportSyncRunModel.updateOne({ _id: runId, usuarioId, status: "simulated",
         sourceIdentityHash: source.feedUrlHash, snapshotDigest: freshRun.snapshotDigest, expiresAt: { $gt: now() },
         reappearedRestore: { $exists: false },
@@ -156,7 +156,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         const run = await readRun(session);
         checkRun(run, lock.source, true);
         if (run.snapshotDigest !== freshRun.snapshotDigest) throw newImportError("SYNC_NEW_RUN_CHANGED");
-        if (lock.source.feedType === "inmoweb") leasedSnapshot();
+        if (lock.source.feedType === "inmoweb") await leasedSnapshot(session);
       };
       const internalContext = { source: lock.source, lock,
         assert: () => budget.run(() => assertOperation()),

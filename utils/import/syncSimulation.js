@@ -103,8 +103,8 @@ export function createSyncSimulator({
       await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final,
         ...(simulated ? { $unset: { errorCode: "" } } : {}) });
       if (lock.source.feedType === "inmoweb" && simulated && providerSnapshots) {
-        providerSnapshots.bind({ fetched, usuarioId, run: { ...runVersions, ...final, _id: run._id,
-          usuarioId, importSourceId, sourceIdentityHash: lock.source.feedUrlHash } });
+        await budget.run(() => providerSnapshots.bind({ fetched, usuarioId, run: { ...runVersions, ...final, _id: run._id,
+          usuarioId, importSourceId, sourceIdentityHash: lock.source.feedUrlHash } }));
       }
       return { ...(fetched.fetchedAt ? { feedFetchedAt: fetched.fetchedAt } : {}), ...safeRunSummary({ _id: run._id, usuarioId, importSourceId,
         sourceIdentityHash: lock.source.feedUrlHash, ...runVersions,

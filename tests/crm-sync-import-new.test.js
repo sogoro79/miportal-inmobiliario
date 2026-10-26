@@ -1,3 +1,4 @@
+import { providerSnapshotStore } from "./helpers/providerSnapshotStore.js";
 import { createProviderSnapshots, SNAPSHOT_REQUIRED } from "../utils/import/providerSnapshots.js";
 import { createFeedAccess, PROVIDER_BLOCKED } from "../utils/import/feedAccess.js";
 import test from "node:test";
@@ -830,21 +831,24 @@ for (const failure of ["changed", "blocked"]) test(`NEW fresh validation after c
   assert.equal(h.effects.uploads, 0);
 });
 
-async function realLeaseHarness({ photos = 0 } = {}) {
+async function realLeaseHarness({ photos = 0, persisted = false } = {}) {
   const h = inmoHarness({ photos });
   const evening = new Date(h.dependencies.now()); evening.setUTCHours(20, 0, 0, 0);
   h.advance(+evening - +h.dependencies.now());
   h.state.run.expiresAt = new Date(+evening + 1_200_000);
   let fetches = 0;
   const now = () => +h.dependencies.now();
-  const providerSnapshots = createProviderSnapshots({ now });
+  const snapshotDb = providerSnapshotStore();
+  const createSnapshotCache = () => createProviderSnapshots({ now, env: h.dependencies.env,
+    ...(persisted ? { SnapshotModel: snapshotDb.Model } : {}) });
+  const providerSnapshots = createSnapshotCache();
   const fetchXml = createFeedAccess({ now, snapshots: providerSnapshots, log: () => {},
     fetchXml: async () => { fetches++; return { xml: inmoXml(1, photos) }; } });
   const dependencies = { ...h.dependencies, fetchXml, providerSnapshots };
   // Same access call as Analyze, then the actual simulator binds the run.
   const read = await fetchXml("https://feed.example/catalog.xml?token=secret", { usuarioId: U, feedType: "inmoweb", fresh: false });
   const preview = await createSyncSimulator(dependencies)({ usuarioId: U, importSourceId: S });
-  return { ...h, dependencies, providerSnapshots, read, preview,
+  return { ...h, dependencies, providerSnapshots, snapshotDb, createSnapshotCache, read, preview,
     run: createSyncNewImporter(dependencies), fetches: () => fetches };
 }
 test("InmoWeb Analyze -> Simulate -> NEW uses one download and actual transaction pipeline", async () => {
@@ -886,4 +890,53 @@ for (const change of ["expiry", "user", "plan", "capacity"]) test(`InmoWeb ${cha
   assert.equal(h.state.properties.filter(p => p.externalId === "IW-0").length, 0);
   assert.equal(h.fetches(), 1);
   assert.equal(h.effects.uploads, h.effects.deletes);
+});
+
+
+test("persisted InmoWeb snapshot supports NEW after restart with no provider request, and replay stays idempotent", async () => {
+  const h = await realLeaseHarness({ persisted: true });
+  assert.equal(h.snapshotDb.effects.inserts, 1);
+  const run = createSyncNewImporter({ ...h.dependencies, providerSnapshots: h.createSnapshotCache() });
+  const result = await run(h.request);
+  assert.equal(result.newImport.counts.imported, 1);
+  assert.equal(h.state.properties.length, 1); assert.equal(h.fetches(), 1);
+  assert.equal(h.snapshotDb.effects.reads, 1);
+  assert.equal((await run(h.request)).alreadyImported, true);
+  assert.equal(h.snapshotDb.effects.reads, 1); assert.equal(h.fetches(), 1);
+});
+for (const change of ["expired", "identity", "digest", "version", "gate", "allowlist", "user", "plan", "capacity"]) {
+  test(`persisted InmoWeb NEW restart ${change} still blocks without refetch`, async () => {
+    const h = await realLeaseHarness({ persisted: true });
+    const run = createSyncNewImporter({ ...h.dependencies, providerSnapshots: h.createSnapshotCache() });
+    if (change === "expired") h.advance(300_001);
+    if (change === "identity") h.state.source.feedUrlHash = "f".repeat(64);
+    if (change === "digest") h.state.run.snapshotDigest = "f".repeat(64);
+    if (change === "version") h.state.run.providerNormalizationVersion++;
+    if (change === "gate") h.dependencies.env.INMOWEB_NEW_ENABLED = "false";
+    if (change === "allowlist") h.dependencies.env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS = "OTHER";
+    if (change === "user") h.state.user.activo = false;
+    if (change === "plan") h.state.user.planActivo = false;
+    if (change === "capacity") { h.state.user.plan = "gratis"; h.state.properties.push({ usuarioId: U }, { usuarioId: U }); }
+    await assert.rejects(run(h.request));
+    assert.equal(h.state.properties.filter(p => p.externalId === "IW-0").length, 0);
+    assert.equal(h.fetches(), 1); assert.equal(h.effects.uploads, 0);
+    if (["gate", "allowlist"].includes(change)) assert.equal(h.snapshotDb.effects.reads, 0);
+  });
+}
+test("persisted snapshot expiring during images is rejected inside transaction and uploaded resources cleaned", async () => {
+  const h = await realLeaseHarness({ persisted: true, photos: 1 });
+  const run = createSyncNewImporter({ ...h.dependencies, providerSnapshots: h.createSnapshotCache() });
+  h.faults.download = () => h.advance(300_001);
+  try { await run(h.request); } catch (error) { assert.ok(error.code); }
+  assert.equal(h.state.properties.length, 0); assert.equal(h.fetches(), 1);
+  assert.equal(h.effects.uploads, h.effects.deletes);
+  assert.equal(h.snapshotDb.docs.size, 1); // TTL cleanup has not run; application still rejects.
+});
+test("generic XML NEW retains refetch and never accesses provider snapshot persistence", async () => {
+  const h = harness();
+  const run = createSyncNewImporter({ ...h.dependencies, providerSnapshots: {
+    get() { assert.fail("generic XML must not use leases"); }, bind() { assert.fail("generic XML must not persist leases"); }
+  } });
+  assert.equal((await run(h.request)).newImport.counts.imported, 1);
+  assert.equal(h.effects.fetch, 1);
 });

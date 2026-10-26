@@ -9,7 +9,7 @@ export class FeedUrlCryptoError extends Error {
   }
 }
 
-function keyFor(version, env) {
+export function getCrmEncryptionKey(version, env) {
   if (!/^[1-9]\d{0,2}$/.test(String(version))) throw new FeedUrlCryptoError();
   const raw = env[`CRM_FEED_URL_KEY_V${version}`];
   if (typeof raw !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(raw)) throw new FeedUrlCryptoError();
@@ -25,7 +25,7 @@ export function encryptFeedUrl(rawUrl, env = process.env) {
   const url = parseAndValidateFeedUrl(rawUrl).toString();
   if (Buffer.byteLength(url, "utf8") > 2000) throw new FeedUrlCryptoError();
   const version = String(env.CRM_FEED_URL_KEY_VERSION || "1");
-  const key = keyFor(version, env);
+  const key = getCrmEncryptionKey(version, env);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   cipher.setAAD(aad(version));
@@ -42,7 +42,7 @@ export function encryptFeedUrl(rawUrl, env = process.env) {
 export function decryptFeedUrl(source, env = process.env) {
   try {
     const version = source.feedUrlKeyVersion;
-    const key = keyFor(version, env);
+    const key = getCrmEncryptionKey(version, env);
     const parts = source.encryptedFeedUrl?.split(".");
     if (parts?.length !== 3 || parts.some(part => !/^[A-Za-z0-9_-]+$/.test(part))) throw new FeedUrlCryptoError();
     const [iv, tag, encrypted] = parts.map(part => Buffer.from(part, "base64url"));
