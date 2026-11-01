@@ -967,3 +967,16 @@ test("HTTP latest InmoWeb run is authenticated, read-only and restores persisted
     assert.equal(h.state.properties.length, 0); assert.equal(h.fetches(), 1);
   } finally { Usuario.findById = old; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
 });
+
+test("InmoWeb publication persists cleaned public text while preserving provider identities", async () => {
+  const feedXml = inmoXml().replace("Piso sintético", "SYNTHETIC-REF-A. Casa sintética")
+    .replace("Datos inventados exclusivamente para tests.", "Precio: 105.000€[IW]");
+  const h = inmoHarness({ feedXml });
+  const result = await h.run(h.request);
+  assert.equal(result.newImport.counts.imported, 1);
+  const property = h.state.properties[0];
+  assert.equal(property.titulo, "Casa sintética");
+  assert.equal(property.descripcion, "Precio: 105.000€");
+  assert.equal(property.referencia, "SYNTHETIC-REF-A");
+  assert.equal(property.externalId, "IW-0");
+});
