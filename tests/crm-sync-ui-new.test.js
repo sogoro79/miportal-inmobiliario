@@ -27,7 +27,7 @@ const descendants = node => [node, ...node.children.flatMap(descendants)];
 const text = node => descendants(node).map(item => item.textContent).join("\n");
 const checkboxes = output => descendants(output).filter(item => item.type === "checkbox");
 const select = input => { input.checked = true; input.listeners.change(); };
-async function harness({ data = preview(), post = success, simulate,
+async function harness({ data = preview(), post = success, simulate, source, latest, autoSimulate = true,
   get = () => response({ ...preview(), newImportEligible: false, newImport: receipt() }), confirmation = true } = {}) {
   const elements = new Map(), calls = [], confirmations = [];
   const document = { createElement: element, getElementById(id) {
@@ -39,7 +39,8 @@ async function harness({ data = preview(), post = success, simulate,
     fetch: async (url, options) => {
       const path = url.split("/").at(-1);
       calls.push({ path, method: options.method, body: options.body ? JSON.parse(options.body) : undefined });
-      if (path === "source") return response({ configured: true, importSourceId: "own-source" });
+      if (path === "source") return response(source || { configured: true, importSourceId: "own-source" });
+      if (path === "latest-run") return response({ run: latest });
       if (path === "simulate") return simulate ? simulate() : response(data);
       if (path === "import-new") return post();
       if (path === "own-run") return get();
@@ -50,7 +51,7 @@ async function harness({ data = preview(), post = success, simulate,
   vm.runInContext(script, context);
   context.window.HomeClickCrmSync.iniciar(() => "test-token");
   await new Promise(resolve => setImmediate(resolve));
-  await elements.get("crmSyncSimulate").listeners.click();
+  if (autoSimulate) await elements.get("crmSyncSimulate").listeners.click();
   const output = elements.get("crmSyncResults"), status = elements.get("crmSyncStatus");
   const button = descendants(output).find(item => item.textContent === "Importar nuevos");
   return { output, status, button, calls, confirmations, data, context };
@@ -251,7 +252,7 @@ test("responsive profile keeps wrapped content, bounded buttons and cache versio
   const html = fs.readFileSync(new URL("../public/perfil.html", import.meta.url), "utf8");
   assert.match(html, /crm-sync-results[^}]*overflow-wrap: anywhere/);
   assert.match(html, /crm-sync-results \.btn-perfil[^}]*max-width: 100%; white-space: normal/);
-  assert.match(html, /crm-sync-ui\.js\?v=13/);
+  assert.match(html, /crm-sync-ui\.js\?v=14/);
 });
 
 for (const publicable of [true, false]) test(`real snapshot -> safe summary -> UI: publicable=${publicable}`, async () => {
@@ -440,4 +441,38 @@ test("missing InmoWeb capture asks for a new review, never retries import", asyn
   select(checkboxes(h.output)[0]); await h.button.listeners.click();
   assert.match(text(h.output) + h.status.textContent, /Actualiza y revisa los inmuebles de InmoWeb/);
   assert.equal(h.calls.filter(call => call.path === "import-new").length, 1);
+});
+
+const restored = () => ({ ...preview(2), feedType: "inmoweb", snapshotComplete: false,
+  newSnapshotComplete: true, snapshotState: "valid", feedFetchedAt: new Date().toISOString(),
+  snapshotExpiresAt: new Date(Date.now() + 60000).toISOString(),
+  results: [preview().results[0], { ...preview().results[0], externalId: "NEW-2", importNewEligible: false,
+    importNewBlockCode: "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED" }] });
+test("profile restores InmoWeb by GET only, with allowlisted selection and working import callback", async () => {
+  const h = await harness({ source: { configured: true, importSourceId: "own-source", feedType: "inmoweb" }, latest: restored(), autoSimulate: false });
+  assert.deepEqual(h.calls.map(c => [c.method, c.path]), [["GET", "source"], ["GET", "latest-run"]]);
+  assert.match(h.status.textContent, /Simulación recuperada/);
+  assert.equal(checkboxes(h.output).length, 1);
+  assert.match(text(h.output), /No habilitado para importación/);
+  select(checkboxes(h.output)[0]); await h.button.listeners.click();
+  assert.deepEqual(h.calls.find(c => c.path === "import-new").body, { runId: "own-run", externalIds: ["NEW-1"] });
+});
+for (const latest of [null, { ...restored(), snapshotState: "unavailable", newImportEligible: false,
+  newImportBlockedReason: "INMOWEB_FRESH_SNAPSHOT_REQUIRED" }, { ...restored(), newImportEligible: false,
+  newImportBlockedReason: "INMOWEB_NEW_DISABLED" }]) test("unavailable or disabled restored review cannot import or auto-simulate", async () => {
+  const h = await harness({ source: { configured: true, importSourceId: "own-source", feedType: "inmoweb" }, latest, autoSimulate: false });
+  assert.equal(checkboxes(h.output).length, 0);
+  assert.equal(h.calls.length, 2); assert.ok(h.calls.every(c => c.method === "GET"));
+});
+test("generic source load does not restore or simulate", async () => {
+  const h = await harness({ autoSimulate: false });
+  assert.deepEqual(h.calls.map(c => c.path), ["source"]);
+});
+test("restored snapshot expiring while page is open blocks NEW before POST", async () => {
+  const latest = restored();
+  const h = await harness({ source: { configured: true, importSourceId: "own-source", feedType: "inmoweb" }, latest, autoSimulate: false });
+  select(checkboxes(h.output)[0]); latest.snapshotExpiresAt = new Date(0).toISOString();
+  await h.button.listeners.click();
+  assert.equal(h.calls.filter(c => c.method === "POST").length, 0);
+  assert.equal(h.button.disabled, true);
 });

@@ -255,15 +255,17 @@ test("UI configures explicit InmoWeb type without importing and restores that ty
   });
   ui.iniciar(() => "mock-token"); await new Promise(resolve => setImmediate(resolve));
   assert.equal(elements.get("crmFeedType").value, "inmoweb");
+  assert.equal(calls[1].path, "/api/crm-import/sync/latest-run");
+  assert.equal(calls[1].options.method, "GET");
   elements.get("crmSyncFeedUrl").value = feedUrl;
   await elements.get("crmSyncSave").listeners.click();
-  assert.deepEqual(JSON.parse(calls[1].options.body), { feedUrl, feedType: "inmoweb" });
+  assert.deepEqual(JSON.parse(calls[2].options.body), { feedUrl, feedType: "inmoweb" });
   assert.equal(elements.get("crmSyncFeedUrl").value, "");
-  assert.equal(calls.length, 2); assert.equal(calls[1].options.method, "PUT");
+  assert.equal(calls.length, 3); assert.equal(calls[2].options.method, "PUT");
   document.getElementById("crmFeedType").value = "auto";
   elements.get("crmSyncFeedUrl").value = feedUrl;
   await elements.get("crmSyncSave").listeners.click();
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.match(elements.get("crmSyncStatus").textContent, /Selecciona XML genérico o InmoWeb/);
 });
 

@@ -77,7 +77,7 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
       attach(run, fetched.captureId);
     } catch { reject(); }
   }
-  async function restore(args) {
+  async function restore(args, inspectionOnly = false) {
     const { run, usuarioId, source, session } = args;
     try {
       if (!SnapshotModel || run.feedType !== "inmoweb" || String(run.usuarioId) !== String(usuarioId) ||
@@ -90,11 +90,15 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
       const capture = decode(await query, run);
       const id = randomUUID(), lease = { sourceId: String(source._id) };
       validate(capture, lease, args); // Recheck clock after the asynchronous DB read.
+      if (inspectionOnly) return { snapshot: structuredClone(capture.snapshot),
+        fetchedAt: new Date(capture.at).toISOString(), expiresAt: new Date(capture.expiresAt).toISOString() };
       if (retain(id, capture)) attach(run, id);
       return structuredClone(capture.snapshot);
     } catch { reject(); }
   }
   return {
+    // Read-only persisted evidence, independent of process cache; never init/upsert/renew.
+    readPersisted(args) { return restore(args, true); },
     record({ xml, usuarioId, sourceHash, fetchedAt }) {
       const at = Date.parse(fetchedAt), id = randomUUID();
       return retain(id, { xml, owner: String(usuarioId), sourceHash, at,

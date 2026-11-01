@@ -758,7 +758,7 @@ test("HTTP InmoWeb OFF rejects NEW safely, GET preserves pending activation and 
   const old = Usuario.findById, secret = process.env.JWT_SECRET;
   process.env.JWT_SECRET = "test"; Usuario.findById = async () => ({ _id: U, activo: true });
   const h = inmoHarness({ enabled: false }), app = express(), pass = (req, res, next) => next(); app.use(express.json());
-  app.use("/api/crm-import", createCrmImportRouter({ ...h.dependencies, importNewSync: h.run,
+  app.use("/api/crm-import", createCrmImportRouter({ ...h.dependencies, importNewSync: h.run, ProviderSnapshotModel: providerSnapshotStore().Model,
     newImportRateLimitMiddleware: pass, newImportUserRateLimitMiddleware: pass }));
   const body = { runId: R, externalIds: ["IW-0"] };
   try {
@@ -939,4 +939,31 @@ test("generic XML NEW retains refetch and never accesses provider snapshot persi
   } });
   assert.equal((await run(h.request)).newImport.counts.imported, 1);
   assert.equal(h.effects.fetch, 1);
+});
+
+test("HTTP latest InmoWeb run is authenticated, read-only and restores persisted evidence after restart", async () => {
+  const old = Usuario.findById, secret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = "test"; Usuario.findById = async () => ({ _id: U, activo: true });
+  const h = await realLeaseHarness({ persisted: true });
+  const runs = h.dependencies.ImportSyncRunModel;
+  const app = express(); app.use(express.json());
+  app.use("/api/crm-import", createCrmImportRouter({ ...h.dependencies,
+    ProviderSnapshotModel: h.snapshotDb.Model, feedAccessNow: () => +h.dependencies.now(),
+    ImportSyncRunModel: { ...runs, findOne(filter) {
+      const q = runs.findOne(filter); q.sort = order => { assert.deepEqual(order, { startedAt: -1, _id: -1 }); return q; }; return q;
+    } } }));
+  const url = "/api/crm-import/sync/latest-run";
+  try {
+    const before = structuredClone(h.state), docs = structuredClone([...h.snapshotDb.docs]);
+    assert.equal((await http(app, "GET", url, {}, false)).status, 401);
+    assert.equal((await http(app, "GET", `${url}?usuarioId=other`, {})).status, 400);
+    const result = await http(app, "GET", url, {});
+    assert.equal(result.status, 200); assert.equal(result.body.run.runId, R);
+    assert.equal(result.body.run.newImportEligible, true);
+    assert.deepEqual(h.state, before); assert.deepEqual([...h.snapshotDb.docs], docs); assert.equal(h.fetches(), 1);
+    // The actual importer still revalidates after an importable view was returned.
+    h.dependencies.env.INMOWEB_NEW_ENABLED = "false";
+    await assert.rejects(h.run(h.request), { code: "INMOWEB_NEW_DISABLED" });
+    assert.equal(h.state.properties.length, 0); assert.equal(h.fetches(), 1);
+  } finally { Usuario.findById = old; if (secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = secret; }
 });

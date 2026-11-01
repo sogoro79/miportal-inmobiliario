@@ -258,7 +258,7 @@ test("router registra configuracion, vinculacion, simulacion y apply manual", ()
   assert.deepEqual(routes, [["/sync/source", ["get"]], ["/sync/source", ["put"]], ["/sync/simulate", ["post"]],
     ["/sync/apply", ["post"]], ["/sync/import-new", ["post"]], ["/sync/hide-missing", ["post"]],
     ["/sync/restore-reappeared", ["post"]],
-    ["/sync/enroll", ["post"]], ["/sync/runs/:id", ["get"]]]);
+    ["/sync/enroll", ["post"]], ["/sync/latest-run", ["get"]], ["/sync/runs/:id", ["get"]]]);
 });
 
 test("GET/PUT fuente sync requieren auth y solo permiten el propietario autenticado", async () => {

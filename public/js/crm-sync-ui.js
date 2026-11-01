@@ -7,6 +7,7 @@
 
   function newMessage(code) {
     const messages = {
+      INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED: "No habilitado para importación.",
       INMOWEB_FRESH_SNAPSHOT_REQUIRED: "Actualiza y revisa los inmuebles de InmoWeb antes de importar.",
       CRM_PROVIDER_TEMPORARILY_BLOCKED: "El proveedor no está disponible temporalmente. Inténtalo más tarde.",
       ALREADY_EXISTS: "Este anuncio ya existe. No se ha creado un duplicado.",
@@ -260,11 +261,13 @@
     const newInputs = [];
     const expiredNow = data.expired || !(Date.parse(data.expiresAt) > Date.now());
     // NEW presence evidence does not certify the full catalogue for other actions.
+    const newReviewExpired = () => !(Date.parse(data.expiresAt) > Date.now()) ||
+      (data.feedType === "inmoweb" && data.snapshotExpiresAt && !(Date.parse(data.snapshotExpiresAt) >= Date.now()));
     const newSnapshotReady = data.feedType === "inmoweb"
       ? data.newSnapshotComplete === true
       : data.snapshotComplete === true;
     const canImportNew = onImportNew && data.newImportEligible === true && data.status === "simulated" &&
-      !expiredNow && !data.planTruncated && newSnapshotReady &&
+      !expiredNow && !newReviewExpired() && !data.planTruncated && newSnapshotReady &&
       (!data.newImport?.status || data.newImport.status === "idle") && !data.reappearedRestore;
     const newButton = canImportNew ? document.createElement("button") : null;
     const newNotice = canImportNew ? document.createElement("p") : null;
@@ -389,7 +392,7 @@
           otherInputs.push(checkbox);
           checkbox.addEventListener("change", () => {
             if (checkbox.disabled) return;
-            if (Date.parse(data.expiresAt) <= Date.now()) {
+            if (newReviewExpired()) {
               newNotice.textContent = newMessage("RUN_EXPIRED");
               newButton.disabled = true;
               newInputs.forEach(input => { input.disabled = true; });
@@ -547,7 +550,7 @@
       let pending = false;
       newButton.addEventListener("click", async () => {
         if (pending || newButton.disabled || newSelected.size === 0) return;
-        if (Date.parse(data.expiresAt) <= Date.now()) {
+        if (newReviewExpired()) {
           newNotice.textContent = newMessage("RUN_EXPIRED");
           newButton.disabled = true;
           newInputs.forEach(input => { input.disabled = true; });
@@ -608,6 +611,10 @@
     let busy = false;
     async function simulation() {
       const data = await api("POST", "simulate", { importSourceId: sourceId });
+      presentRun(data);
+      status.textContent = "Simulación completada. No se ha modificado ningún anuncio.";
+    }
+    function presentRun(data) {
       let applyClosed = false;
       let newClosed = false;
       let missingClosed = false;
@@ -777,7 +784,6 @@
         });
         return true;
       }, consultRestore);
-      status.textContent = "Simulación completada. No se ha modificado ningún anuncio.";
     }
     async function api(method, path, body) {
       const token = getToken();
@@ -889,7 +895,19 @@
       if (!sourceId) throw new Error("Configura primero tu fuente CRM.");
       await simulation();
     }));
-    action(async () => { showSource(await api("GET", "source")); status.textContent = ""; });
+    action(async () => {
+      const source = await api("GET", "source");
+      showSource(source); status.textContent = "";
+      if (!sourceId || source.feedType !== "inmoweb") return;
+      try {
+        const restored = await api("GET", "latest-run");
+        if (!restored.run || restored.run.feedType !== "inmoweb") return;
+        presentRun(restored.run);
+        status.textContent = restored.run.snapshotState !== "valid" || restored.run.expired
+          ? "La revisión anterior ha caducado o ya no está disponible. Vuelve a simular para actualizar los datos."
+          : "Simulación recuperada.";
+      } catch { status.textContent = "No se pudo recuperar la revisión anterior. Inténtalo más tarde."; }
+    });
   }
   window.HomeClickCrmSync = { iniciar, renderizar, resumen };
 })();

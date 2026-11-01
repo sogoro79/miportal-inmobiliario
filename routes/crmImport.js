@@ -1,3 +1,4 @@
+import { createInmowebRunReader } from "../utils/import/inmowebRunView.js";
 import ProviderSnapshot from "../models/ProviderSnapshot.js";
 import { createProviderSnapshots, SNAPSHOT_REQUIRED, SNAPSHOT_MESSAGE } from "../utils/import/providerSnapshots.js";
 import { INMOWEB_UNAVAILABLE, INMOWEB_UNAVAILABLE_MESSAGE } from "../utils/import/inmowebAvailability.js";
@@ -112,6 +113,8 @@ export function createCrmImportRouter({
   const runApply = applySync || createSyncApplier({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runNewImport = importNewSync || createSyncNewImporter({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, providerSnapshots, env });
+  const runReader = createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, providerSnapshots, env,
+    now: () => new Date(feedAccessNow()) });
   const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel, env });
   const runMissingHide = hideMissingSync || createMissingHider({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
@@ -145,7 +148,8 @@ export function createCrmImportRouter({
     const parsed = z.object({ importSourceId: z.string().regex(/^[a-fA-F0-9]{24}$/) }).strict().safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: "Indica solamente una fuente CRM válida." });
     try {
-      return res.json(await runSimulation({ usuarioId: req.user.id, importSourceId: parsed.data.importSourceId }));
+      const result = await runSimulation({ usuarioId: req.user.id, importSourceId: parsed.data.importSourceId });
+      return res.json(result.feedType === "inmoweb" ? await runReader.byId(result.runId, req.user.id) : result);
     } catch (error) {
       const code = safeSimulationCode(error);
       console.warn("[CRM Sync Simulation]", { code });
@@ -271,6 +275,13 @@ export function createCrmImportRouter({
     }
   });
 
+  router.get("/sync/latest-run", requireAuth, async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    if (Object.keys(req.query || {}).length) return res.status(400).json({ error: "No se permite indicar una fuente o propietario." });
+    try { return res.json({ run: await runReader.latest(req.user.id) }); }
+    catch { return res.status(503).json({ error: "No se pudo recuperar la revisión anterior. Inténtalo más tarde." }); }
+  });
+
   router.get("/sync/runs/:id", requireAuth, async (req, res) => {
     if (!/^[a-fA-F0-9]{24}$/.test(req.params.id) || Object.keys(req.query || {}).length) {
       return res.status(400).json({ error: "Indica solamente una simulación válida." });
@@ -281,7 +292,8 @@ export function createCrmImportRouter({
       if (query?.lean) query = query.lean();
       const run = await query;
       if (!run) return res.status(404).json({ error: "Simulación no encontrada." });
-      return res.json(safeRunSummary(run, new Date(), env));
+      res.set("Cache-Control", "no-store");
+      return res.json(run.feedType === "inmoweb" ? await runReader.evaluate(run, req.user.id) : safeRunSummary(run, new Date(), env));
     } catch {
       return res.status(500).json({ error: "No se pudo consultar la simulación." });
     }
