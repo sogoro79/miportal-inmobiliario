@@ -43,11 +43,11 @@ export function isInmowebXml(xml) {
 }
 
 // Match the literal reference only at the start, with a separate separator and
-// following whitespace. Preserve ambiguous codes (e.g. REF-123) and empty titles.
-function withoutReferencePrefix(title, reference) {
-  if (!reference || !title.startsWith(reference)) return title;
-  const suffix = title.slice(reference.length).match(/^\s*[.:\/-]\s+(\S[\s\S]*)$/);
-  return suffix ? suffix[1] : title;
+// following whitespace. Preserve ambiguous codes (e.g. REF-123) and prefixes without content.
+function withoutReferencePrefix(value, reference) {
+  if (!reference || !value.startsWith(reference)) return value;
+  const suffix = value.slice(reference.length).match(/^\s*[.:\/-]\s+(\S[\s\S]*)$/);
+  return suffix ? suffix[1] : value;
 }
 
 function normalizeRecord(record) {
@@ -145,7 +145,7 @@ function normalizeRecord(record) {
   data.precisionUbicacion = "aproximada";
   data.ubicacionPublica = buildPublicLocation(data);
   data.titulo = withoutReferencePrefix(data.titulo, data.referencia);
-  data.descripcion = data.descripcion.replaceAll("[IW]", "");
+  data.descripcion = withoutReferencePrefix(data.descripcion, data.referencia).replaceAll("[IW]", "").trim();
   const canonicalTitle = canonicalizeInmowebTitle(data);
   data.titulo = canonicalTitle.titulo;
   if (canonicalTitle.normalized) warnings.push("INMOWEB_TITLE_NORMALIZED");
