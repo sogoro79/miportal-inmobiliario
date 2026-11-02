@@ -721,7 +721,7 @@ function http(app, method, url, body, auth = true) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body), req = Readable.from([payload]);
     Object.assign(req, { method, url, headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(payload)),
-      ...(auth ? { authorization: `Bearer ${jwt.sign({ id: U }, "test")}` } : {}) }, socket: new PassThrough() });
+      ...(auth ? { authorization: `Bearer ${jwt.sign({ id: typeof auth === "string" ? auth : U }, "test")}` } : {}) }, socket: new PassThrough() });
     req.socket.remoteAddress = "127.0.0.1"; req.connection = req.socket;
     const chunks = [], headers = {}, res = new Writable({ write(c, e, cb) { chunks.push(Buffer.from(c)); cb(); } });
     res.statusCode = 200; res.setHeader = (k, v) => headers[k] = v; res.getHeader = k => headers[k]; res.removeHeader = k => delete headers[k];
@@ -980,3 +980,114 @@ test("InmoWeb publication persists cleaned public text while preserving provider
   assert.equal(property.referencia, "SYNTHETIC-REF-A");
   assert.equal(property.externalId, "IW-0");
 });
+
+// Exercise the admin HTTP boundary, the same simulator, encrypted snapshot store
+// and transactional importer. Only models, image transport and feed transport are fakes.
+async function delegatedFixture(t) {
+  const h = inmoHarness();
+  const A = "507f1f77bcf86cd799439044", G = "507f1f77bcf86cd799439045";
+  const admin = { _id: A, role: "admin", activo: true, plan: "gratis", nombre: "Admin de prueba" };
+  Object.assign(h.state.user, { role: "user", nombre: "Titular de prueba" });
+  const oldFind = Usuario.findById, oldSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = "test";
+  Usuario.findById = async id => id === A ? admin : id === U ? h.state.user : null;
+  t.after(() => { Usuario.findById = oldFind; if (oldSecret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = oldSecret; });
+  const q = fn => ({ select() { return this; }, lean() { return this; }, session() { return this; },
+    then(resolve, reject) { return Promise.resolve().then(fn).then(resolve, reject); } });
+  let grant, grantCount = 0;
+  const grants = {
+    init: async () => {},
+    create: async data => { grant = { _id: grantCount++ === 0 ? G : S, ...data }; },
+    findOne: filter => q(() => matches(grant, filter) ? grant : null),
+    exists: filter => q(() => matches(grant, filter)),
+    async updateOne(filter, op) {
+      if (!matches(grant, filter)) return { matchedCount: 0 };
+      update(grant, op); return { matchedCount: 1 };
+    }
+  };
+  const users = { ...h.dependencies.UsuarioModel,
+    exists: filter => q(() => matches(admin, filter) || matches(h.state.user, filter)),
+    updateOne: async (filter, op, opts) => {
+      if (filter._id !== A) return h.dependencies.UsuarioModel.updateOne(filter, op, opts);
+      assert.ok(opts.session);
+      if (!matches(admin, filter)) return { matchedCount: 0 };
+      update(admin, op); return { matchedCount: 1 };
+    }
+  };
+  const evening = new Date(h.dependencies.now()); evening.setUTCHours(20, 0, 0, 0);
+  h.advance(+evening - +h.dependencies.now());
+  const db = providerSnapshotStore(), now = () => +h.dependencies.now();
+  const providerSnapshots = createProviderSnapshots({ now, env: h.dependencies.env, SnapshotModel: db.Model });
+  const fetchXml = createFeedAccess({ now, snapshots: providerSnapshots, log: () => {},
+    fetchXml: async () => ({ xml: inmoXml() }) });
+  const deps = { ...h.dependencies, UsuarioModel: users, providerSnapshots, fetchXml };
+  const app = express(); app.use(express.json()); const pass = (req, res, next) => next();
+  app.use("/api/crm-import", createCrmImportRouter({ ...deps, GrantModel: grants, ProviderSnapshotModel: db.Model,
+    feedAccessNow: now, simulateSync: createSyncSimulator(deps), importNewSync: createSyncNewImporter(deps),
+    rateLimitMiddleware: pass, userRateLimitMiddleware: pass, newImportRateLimitMiddleware: pass, newImportUserRateLimitMiddleware: pass }));
+  const call = (method, path, body = {}, auth = A) => http(app, method, "/api/crm-import/admin/users/" + U + "/" + path, body, auth);
+  const allow = () => call("PUT", "authorization", { enabled: true, expressConsentConfirmed: true });
+  const publish = () => call("POST", "import-new", { runId: R, externalIds: ["IW-0"] });
+  return { h, A, admin, db, call, allow, publish, grant: () => grant };
+}
+
+test("delegated simulation and NEW use the target throughout; audit, receipts and replay are bound to actor", async t => {
+  const { h, A, db, call, allow, publish, grant } = await delegatedFixture(t);
+  assert.equal((await call("GET", "source", {}, U)).status, 403);
+  assert.equal((await call("GET", "source", {}, false)).status, 401);
+  assert.equal((await call("POST", "simulate")).status, 403);
+  assert.equal((await call("PUT", "authorization", { enabled: true })).status, 400);
+  assert.equal((await allow()).status, 200); assert.equal(grant().grantedBy, A);
+  const source = await call("GET", "source"); assert.equal(source.body.nombre, "Titular de prueba");
+  assert.equal(source.body.plan, "vip"); assert.equal(source.body.authorized, true);
+  assert.equal((await call("POST", "simulate", { usuarioId: A })).status, 400);
+  const sim = await call("POST", "simulate"); assert.equal(sim.status, 200); assert.equal(sim.body.newImportEligible, true);
+  assert.equal(sim.body.snapshotComplete, false);
+  assert.doesNotMatch(JSON.stringify([source.body, sim.body]), /encrypted|catalog\.xml|feedUrlHash|token=secret|snapshotDigest/);
+  assert.equal(String(db.docs.get(R).usuarioId), U); assert.equal(String(db.docs.get(R).importSourceId), S);
+  assert.equal(h.state.run.usuarioId, U); assert.equal(h.state.run.actorAdminId, A);
+  assert.equal(h.state.run.delegationId, grant()._id);
+  assert.equal((await call("GET", "runs/" + R)).body.newImportEligible, true);
+  assert.equal((await publish()).status, 200); assert.equal((await publish()).body.alreadyImported, true);
+  assert.equal(h.state.properties.length, 1); assert.equal(h.state.properties[0].usuarioId, U);
+  assert.equal(h.state.properties[0].importSourceId, S);
+  assert.equal(h.state.run.newImport.actorAdminId, A);
+  assert.equal(h.state.run.newImport.status, "completed");
+  assert.deepEqual(h.state.run.newImport.selectedExternalIds, ["IW-0"]);
+  assert.ok(h.state.run.newImport.completedAt); assert.ok(h.state.run.newImport.startedAt);
+  assert.equal((await call("PUT", "authorization", { enabled: false })).status, 200);
+  assert.equal(grant().revokedBy, A); assert.ok(grant().revokedAt);
+  assert.equal((await publish()).status, 403);
+  await allow();
+  assert.equal((await publish()).status, 403); // A new grant cannot revive the old run.
+  await assert.rejects(h.run(h.request), { code: "CRM_DELEGATION_DENIED" }); // Owner route cannot impersonate the actor.
+});
+
+for (const failure of ["source", "inactive", "source-identity", "actor", "grant", "gate", "allowlist", "capacity",
+  "revoked-before-persist", "demoted-before-persist", "expired-plan", "existing"]) {
+  test(`delegated NEW protects target publication: ${failure}`, async t => {
+    const { h, call, allow, publish, grant, admin } = await delegatedFixture(t);
+    await allow(); assert.equal((await call("POST", "simulate")).status, 200);
+    if (failure === "source") h.state.source.usuarioId = admin._id;
+    if (failure === "inactive") h.state.user.activo = false;
+    if (failure === "source-identity") h.state.source.feedUrlHash = "1".repeat(64);
+    if (failure === "actor") h.state.run.actorAdminId = U;
+    if (failure === "grant") h.state.run.delegationId = R;
+    if (failure === "gate") h.dependencies.env.INMOWEB_NEW_ENABLED = "false";
+    if (failure === "allowlist") h.dependencies.env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS = "other";
+    if (failure === "capacity") { h.state.user.plan = "gratis"; h.state.properties.push({ usuarioId: U }, { usuarioId: U }); }
+    let reachedTransaction = false;
+    if (failure === "revoked-before-persist") h.faults.beforeTransaction = () => { reachedTransaction = true; grant().enabled = false; };
+    if (failure === "demoted-before-persist") h.faults.beforeTransaction = () => { reachedTransaction = true; admin.role = "user"; };
+    if (failure === "expired-plan") h.state.user.planFechaFin = new Date(0);
+    if (failure === "existing") h.state.properties.push({ _id: S, source: "crm", usuarioId: U, importSourceId: S, externalId: "IW-0" });
+    const before = h.state.properties.length;
+    const result = await publish();
+    if (failure === "existing") assert.equal(result.body.newImport.counts.alreadyExists, 1);
+    else if (["capacity", "gate", "allowlist"].includes(failure)) assert.ok([400, 409].includes(result.status));
+    else assert.equal(result.status, 403);
+    if (failure.endsWith("before-persist")) assert.equal(reachedTransaction, true);
+    if (["source", "source-identity", "inactive"].includes(failure)) assert.equal((await call("POST", "simulate")).status, 403);
+    assert.equal(h.state.properties.length, before);
+  });
+}

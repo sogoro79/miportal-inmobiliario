@@ -29,7 +29,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
   ImportSyncRunModel = ImportSyncRun, ReconciliationModel = ImportReconciliation,
   fetchXml = fetchFeedXml, providerSnapshots, importSelected, env = process.env, now = () => new Date(), budgetFactory = createImportBudget } = {}) {
   const runImport = importSelected || createSelectedImporter({ PropiedadModel, UsuarioModel, ImportSourceModel, ReconciliationModel, now, env });
-  return async ({ usuarioId, runId, externalIds }) => {
+  return async ({ usuarioId, runId, externalIds, delegation }) => {
     if (!/^[a-fA-F0-9]{24}$/.test(String(runId)) || !Array.isArray(externalIds) || externalIds.length < 1 ||
         externalIds.length > MAX_BATCH_PROPERTIES || new Set(externalIds).size !== externalIds.length || !externalIds.every(validRef)) {
       throw newImportError("SYNC_NEW_SELECTION_INVALID", 400);
@@ -44,6 +44,12 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       if (query?.lean) query = query.lean();
       const run = await query;
       if (!run) throw newImportError("SYNC_RUN_NOT_FOUND", 404);
+      if (run.actorAdminId || run.delegationId || delegation) {
+        if (!delegation || String(run.actorAdminId) !== String(delegation.actorAdminId) ||
+            String(run.delegationId) !== String(delegation.id) || run.feedType !== "inmoweb") {
+          throw newImportError("CRM_DELEGATION_DENIED", 403);
+        }
+      }
       return run;
     }
     function checkRun(run, source, operationStarted = false) {
@@ -65,6 +71,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const source = await budget.run(() => ImportSourceModel.findOne({ _id: initial.importSourceId, usuarioId, activo: true }));
       if (!source) throw newImportError("SYNC_SOURCE_NOT_FOUND", 404);
       if ((initial.feedType || "generic_xml") !== source.feedType) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
+      if (delegation) await budget.run(() => delegation.assert(source));
       assertInmowebNewSelectionAllowed(source.feedType, selected, env);
       if (initial.sourceIdentityHash !== source.feedUrlHash) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
       if (initial.newImport && initial.newImport.status !== "idle") {
@@ -139,11 +146,12 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       if (!user || user.activo === false) throw newImportError("SYNC_NEW_FAILED", 403);
       checkRun(await budget.run(() => readRun()), lock.source);
       if (lock.source.feedType === "inmoweb") await leasedSnapshot();
+      if (delegation) await budget.run(() => delegation.assert(lock.source));
       const claimed = await budget.run(() => ImportSyncRunModel.updateOne({ _id: runId, usuarioId, status: "simulated",
         sourceIdentityHash: source.feedUrlHash, snapshotDigest: freshRun.snapshotDigest, expiresAt: { $gt: now() },
         reappearedRestore: { $exists: false },
         $or: [{ newImport: { $exists: false } }, { "newImport.status": "idle" }] },
-      { $set: { newImport: { status: "importing", selectedExternalIds: selected, startedAt: now(), results: alreadyExists } } }, { runValidators: true }),
+      { $set: { newImport: { ...(delegation && { actorAdminId: delegation.actorAdminId }), status: "importing", selectedExternalIds: selected, startedAt: now(), results: alreadyExists } } }, { runValidators: true }),
       { onLateResult: async result => {
         if (result.matchedCount) await ImportSyncRunModel.updateOne(runFilter,
           { $set: { "newImport.status": "indeterminate", "newImport.failureCode": "SYNC_NEW_UNCONFIRMED" } });
@@ -152,6 +160,10 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       started = true;
       const assertOperation = async session => {
         budget.assertActive();
+        if (delegation) {
+          await delegation.assert(lock.source, session);
+          assertInmowebNewSelectionAllowed(lock.source.feedType, selected, env);
+        }
         await lock.assert(session);
         const run = await readRun(session);
         checkRun(run, lock.source, true);
@@ -161,6 +173,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const internalContext = { source: lock.source, lock,
         assert: () => budget.run(() => assertOperation()),
         beforePersist: async session => {
+          if (delegation) await delegation.fence(lock.source, session);
           await lock.fence(session);
           await assertOperation(session);
         },
@@ -173,6 +186,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const outcome = remaining.length ? await runImport({ usuarioId, feedUrl: lock.feedUrl, analyzed,
         selectedExternalIds: remaining, budget, internalContext }) : { results: [] };
       await budget.run(() => lock.assert());
+      if (delegation) await budget.run(() => delegation.assert(lock.source));
       const stored = await budget.run(() => readRun());
       checkRun(stored, lock.source, true);
       const receipts = stored.newImport.results || [];

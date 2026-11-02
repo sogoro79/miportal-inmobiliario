@@ -13,6 +13,7 @@ const newResultSchema = new mongoose.Schema({
   attemptedImages: Number, importedImages: Number, skippedImages: Number, imageWarnings: Number
 }, { _id: false, strict: "throw" });
 const newImportSchema = new mongoose.Schema({
+  actorAdminId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario" },
   status: { type: String, enum: NEW_IMPORT_STATUSES, required: true },
   selectedExternalIds: { type: [String], required: true,
     validate: value => value.length >= 1 && value.length <= 10 && new Set(value).size === value.length },
@@ -23,6 +24,8 @@ const newImportSchema = new mongoose.Schema({
 }, { _id: false, strict: "throw" });
 
 const schema = new mongoose.Schema({
+  actorAdminId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario" },
+  delegationId: { type: mongoose.Schema.Types.ObjectId, ref: "CrmDelegation" },
   reappearedRestore: { type: new mongoose.Schema({
     status: { type: String, enum: REAPPEARED_RESTORE_STATUSES, required: true },
     operationId: { type: String, required: true },

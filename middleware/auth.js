@@ -105,6 +105,7 @@ export async function requireAdmin(req, res, next) {
       return res.status(403).json({ error: "No tienes permisos" });
     }
 
+    req.adminTokenExpiresAt = decoded.exp == null ? null : decoded.exp * 1000;
     req.user = buildUserRequest(usuario);
     req.usuarioId = req.user.id;
     return next();

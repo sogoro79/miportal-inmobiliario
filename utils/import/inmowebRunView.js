@@ -21,12 +21,13 @@ export function createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, 
     if (query?.lean) query = query.lean();
     return query;
   }
-  async function evaluate(run, owner, source) {
+  async function evaluate(run, owner, source, actorAdminId) {
     const dto = safeRunSummary(run, now(), env);
     if (run.feedType !== "inmoweb") return dto;
     source ??= await sourceFor(owner);
     let evidence, blocked = dto.newImportBlockedReason;
     if (!sameSource(run, source, owner)) blocked = "SYNC_NEW_SOURCE_CHANGED";
+    else if (run.actorAdminId && String(run.actorAdminId) !== String(actorAdminId)) blocked = "CRM_DELEGATION_REQUIRED";
     else if (!reusable(run)) blocked = blocked || "SYNC_NEW_RUN_CHANGED";
     else if (!(new Date(run.expiresAt).getTime() > +now())) blocked = "RUN_EXPIRED";
     else {
@@ -65,12 +66,12 @@ export function createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, 
   }
   return {
     evaluate,
-    async byId(id, owner) {
+    async byId(id, owner, actorAdminId) {
       let query = ImportSyncRunModel.findOne({ _id: id, usuarioId: owner });
       if (query?.select) query = query.select("+plan");
       if (query?.lean) query = query.lean();
       const run = await query;
-      return run && String(run.usuarioId) === String(owner) ? evaluate(run, owner) : null;
+      return run && String(run.usuarioId) === String(owner) ? evaluate(run, owner, undefined, actorAdminId) : null;
     },
     async latest(owner) {
       const source = await sourceFor(owner);

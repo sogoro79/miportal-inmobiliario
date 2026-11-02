@@ -2317,6 +2317,17 @@
   </div>
 </div>
 
+<dialog id="crmDelegatedDialog" aria-labelledby="crmDelegatedTitle">
+  <h2 id="crmDelegatedTitle">CRM / Importar inmuebles</h2>
+  <p id="crmDelegatedTarget"></p>
+  <p id="crmDelegatedSource"></p>
+  <button type="button" id="crmDelegatedConsent"></button>
+  <button type="button" id="crmDelegatedSimulate">Simular importación</button>
+  <section id="crmDelegatedResults" aria-label="Resultado de la simulación"></section>
+  <p id="crmDelegatedStatus" role="status"></p>
+  <button type="button" id="crmDelegatedClose">Cerrar</button>
+</dialog>
+<script src="/js/admin-crm.js"></script>
 <script src="/js/seo-slug.js"></script>
 <script src="/js/precios.js?v=2"></script>
 <script src="/js/public-location.js?v=1"></script>
@@ -2767,6 +2778,7 @@ function renderMenuAccionesUsuario(u, estaActivo) {
     <div class="user-actions">
       <button class="btn-acciones" onclick="toggleMenuAcciones(event, '${u._id}')">Acciones ▾</button>
       <div class="acciones-menu" id="acciones-${u._id}">
+        ${!esAdministrador ? `<button onclick="abrirCrmDelegado('${u._id}'); cerrarMenusAcciones();">CRM / Importar inmuebles</button>` : ''}
         <button onclick="verEstadisticas('${u._id}'); cerrarMenusAcciones();">Ver estadísticas</button>
         ${!u.verificado ? `<button onclick="verificarUsuario('${u._id}'); cerrarMenusAcciones();">Verificar usuario</button>` : ''}
         ${!u.verificado ? `<button disabled title="Pendiente de implementar">Reenviar verificación</button>` : ''}

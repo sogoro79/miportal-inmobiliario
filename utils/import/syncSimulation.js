@@ -14,7 +14,7 @@ import { acquireSyncLock } from "./syncLock.js";
 import { prepareSyncPlan, snapshotDigest, safeRunSummary, runVersions, RUN_LIFETIME_MS } from "./syncPlan.js";
 
 const safeCodes = new Set([
-  "CRM_PROVIDER_TEMPORARILY_BLOCKED", "INMOWEB_TEMPORARILY_UNAVAILABLE", "INMOWEB_FRESH_SNAPSHOT_REQUIRED",
+  "CRM_DELEGATION_DENIED", "CRM_PROVIDER_TEMPORARILY_BLOCKED", "INMOWEB_TEMPORARILY_UNAVAILABLE", "INMOWEB_FRESH_SNAPSHOT_REQUIRED",
   "SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_NOT_FOUND", "SYNC_RUN_FAILED", "SYNC_RUN_SAVE_FAILED",
   "SYNC_SOURCE_BUSY", "SYNC_ENROLL_SELECTION_INVALID", "SYNC_SNAPSHOT_INCOMPLETE", "SYNC_ENROLL_BASELINE_MISMATCH",
   "SYNC_EXISTING_LIMIT_EXCEEDED", "XML_INVALID", "XML_DOCTYPE_BLOCKED", "XML_ENTITY_BLOCKED",
@@ -32,14 +32,15 @@ export function createSyncSimulator({
   ReconciliationModel = ImportReconciliation, UsuarioModel = Usuario,
   fetchXml = fetchFeedXml, providerSnapshots, env = process.env, now = () => new Date()
 } = {}) {
-  return async ({ usuarioId, importSourceId }) => {
+  return async ({ usuarioId, importSourceId, delegation }) => {
     const startedAt = now();
     const budget = createImportBudget();
     let lock;
     let run;
     try {
-      lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now, allowedFeedTypes: ["generic_xml", "inmoweb"] });
-      run = await ImportSyncRunModel.create({ usuarioId, importSourceId, status: "blocked", mode: "simulation", startedAt,
+      lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now, allowedFeedTypes: delegation ? ["inmoweb"] : ["generic_xml", "inmoweb"] });
+      if (delegation) await delegation.assert(lock.source);
+      run = await ImportSyncRunModel.create({ ...(delegation && { actorAdminId: delegation.actorAdminId, delegationId: delegation.id }), usuarioId, importSourceId, status: "blocked", mode: "simulation", startedAt,
         expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...runVersions,
         sourceIdentityHash: lock.source.feedUrlHash, errorCode: "SIMULATION_IN_PROGRESS" });
       const fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: false });
@@ -100,6 +101,7 @@ export function createSyncSimulator({
         snapshotComplete: snapshot.snapshotComplete, snapshotCount: snapshot.snapshotCount, warnings: snapshot.warnings };
       budget.assertActive();
       await lock.assert();
+      if (delegation) await delegation.assert(lock.source);
       await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final,
         ...(simulated ? { $unset: { errorCode: "" } } : {}) });
       if (lock.source.feedType === "inmoweb" && simulated && providerSnapshots) {

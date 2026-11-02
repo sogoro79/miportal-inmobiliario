@@ -697,7 +697,7 @@ router.get('/estadisticas', requireAdmin, async (req, res) => {
 router.get('/usuarios', requireAdmin, async (req, res) => {
   try {
     const usuarios = await Usuario.find({}, {
-      nombre: 1, email: 1, plan: 1, planActivo: 1, planFechaFin: 1, createdAt: 1, verificado: 1,
+      nombre: 1, email: 1, role: 1, plan: 1, planActivo: 1, planFechaFin: 1, createdAt: 1, verificado: 1,
       activo: 1, desactivadoAt: 1,
       stripeSubscriptionId: 1, subscriptionStatus: 1, cancelAtPeriodEnd: 1, subscriptionCancelAt: 1,
       trialAccepted: 1, trialStartDate: 1, trialEndDate: 1, trialReminderSent: 1,

@@ -1,3 +1,5 @@
+import { createAdminCrmRouter } from "./adminCrm.js";
+import CrmDelegation from "../models/CrmDelegation.js";
 import { createInmowebRunReader } from "../utils/import/inmowebRunView.js";
 import ProviderSnapshot from "../models/ProviderSnapshot.js";
 import { createProviderSnapshots, SNAPSHOT_REQUIRED, SNAPSHOT_MESSAGE } from "../utils/import/providerSnapshots.js";
@@ -76,6 +78,7 @@ function crearResumenFotos(propiedad, { limiteFotos, fotosIlimitadas }) {
 export function createCrmImportRouter({
   fetchFeedXml = defaultFetchFeedXml,
   feedAccessNow = Date.now,
+  GrantModel = CrmDelegation,
   UsuarioModel = Usuario,
   PropiedadModel = Propiedad,
   ImportSourceModel = ImportSource,
@@ -120,6 +123,11 @@ export function createCrmImportRouter({
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
   const runRestore = restoreReappearedSync || createReappearedRestorer({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
+
+  router.use("/admin/users/:userId", createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantModel,
+    PropiedadModel, ImportSyncRunModel, runSimulation, runNewImport, runReader,
+    simulationLimits: [userRateLimitMiddleware, rateLimitMiddleware],
+    importLimits: [newImportUserRateLimitMiddleware, newImportRateLimitMiddleware] }));
 
   function sourceError(res, error) {
     const code = ["SYNC_SOURCE_BUSY", "SYNC_SOURCE_URL_MISMATCH"].includes(error?.code) ? error.code : safeSimulationCode(error);
