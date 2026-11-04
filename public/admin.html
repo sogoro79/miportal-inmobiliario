@@ -2321,13 +2321,20 @@
   <h2 id="crmDelegatedTitle">CRM / Importar inmuebles</h2>
   <p id="crmDelegatedTarget"></p>
   <p id="crmDelegatedSource"></p>
+  <button type="button" id="crmDelegatedConfigure" hidden>Configurar fuente InmoWeb</button>
+  <fieldset id="crmDelegatedSetup" hidden>
+    <legend>Configurar InmoWeb para este titular</legend>
+    <label>URL XML de InmoWeb <input id="crmDelegatedUrl" type="password" autocomplete="off" spellcheck="false"></label>
+    <label><input id="crmDelegatedAttest" type="checkbox"> Confirmo que el titular ha autorizado expresamente configurar su fuente y publicar sus inmuebles.</label>
+    <button type="button" id="crmDelegatedSave">Guardar fuente y registrar autorización</button>
+  </fieldset>
   <button type="button" id="crmDelegatedConsent"></button>
   <button type="button" id="crmDelegatedSimulate">Simular importación</button>
   <section id="crmDelegatedResults" aria-label="Resultado de la simulación"></section>
   <p id="crmDelegatedStatus" role="status"></p>
   <button type="button" id="crmDelegatedClose">Cerrar</button>
 </dialog>
-<script src="/js/admin-crm.js"></script>
+<script src="/js/admin-crm.js?v=2"></script>
 <script src="/js/seo-slug.js"></script>
 <script src="/js/precios.js?v=2"></script>
 <script src="/js/public-location.js?v=1"></script>

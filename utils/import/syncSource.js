@@ -18,24 +18,37 @@ export function safeSourceStatus(source) {
 }
 
 export function createSyncSourceManager({ ImportSourceModel = ImportSource, PropiedadModel = Propiedad, env = process.env, validateTarget = assertPublicFeedTarget, now = () => new Date() } = {}) {
+  // Validate and encrypt before any write. Neither configuration path downloads XML.
+  async function prepare(feedUrl, feedType) {
+    if (!["generic_xml", "inmoweb"].includes(feedType)) throw Object.assign(new Error("Tipo de feed no soportado."), { code: "UNSUPPORTED_FEED_TYPE" });
+    const parsed = parseAndValidateFeedUrl(feedUrl);
+    // Validate the key before DNS or writes; configuration never downloads the feed.
+    const encrypted = encryptFeedUrl(parsed.toString(), env);
+    let timer;
+    try {
+      await Promise.race([
+        validateTarget(parsed),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error("DNS timeout"), { code: "FEED_TIMEOUT" })), DEFAULT_FEED_TIMEOUT_MS); })
+      ]);
+    } finally { clearTimeout(timer); }
+    return encrypted;
+  }
   return {
+    prepare,
+    // Initial onboarding only: a unique usuarioId index prevents concurrent
+    // inserts from replacing an existing source, including one of another type.
+    async createInitialInmoweb(usuarioId, prepared, session) {
+      if (!session) throw new Error("Se requiere transacción.");
+      const [source] = await ImportSourceModel.create([{ usuarioId, ...prepared, feedType: "inmoweb", activo: true }], { session });
+      return { id: source._id, hash: source.feedUrlHash };
+    },
     async get(usuarioId) {
       let query = ImportSourceModel.findOne({ usuarioId });
       if (query?.select) query = query.select("_id feedType activo feedUrlMasked feedUrlKeyVersion +encryptedFeedUrl lastSuccessfulSyncAt lastSyncStatus");
       return safeSourceStatus(await query);
     },
     async configure(usuarioId, feedUrl, feedType = "generic_xml") {
-      if (!["generic_xml", "inmoweb"].includes(feedType)) throw Object.assign(new Error("Tipo de feed no soportado."), { code: "UNSUPPORTED_FEED_TYPE" });
-      const parsed = parseAndValidateFeedUrl(feedUrl);
-      // Validate the key before DNS or writes; configuration never downloads the feed.
-      const encrypted = encryptFeedUrl(parsed.toString(), env);
-      let timer;
-      try {
-        await Promise.race([
-          validateTarget(parsed),
-          new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error("DNS timeout"), { code: "FEED_TIMEOUT" })), DEFAULT_FEED_TIMEOUT_MS); })
-        ]);
-      } finally { clearTimeout(timer); }
+      const encrypted = await prepare(feedUrl, feedType);
       await ImportSourceModel.init?.();
       const lockToken = crypto.randomUUID();
       const start = now();

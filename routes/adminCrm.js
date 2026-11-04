@@ -1,6 +1,7 @@
 import express from "express";
 import { requireAdmin } from "../middleware/auth.js";
 import { getPublicationAvailability } from "../utils/propertyCreation.js";
+import { publicationTransactionOptions } from "../utils/publicationCapacity.js";
 import { publicationPlanIsCurrent } from "../utils/publishEligibility.js";
 import { maskFeedUrl } from "../utils/import/feedSecurity.js";
 import { z } from "../utils/validation.js";
@@ -59,7 +60,7 @@ export function delegatedContext({ actorAdminId, expiresAt, userId, grant, Usuar
 }
 
 export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantModel, PropiedadModel,
-  ImportSyncRunModel, runSimulation, runNewImport, runReader, simulationLimits, importLimits }) {
+  ImportSyncRunModel, sourceManager, runSimulation, runNewImport, runReader, simulationLimits, importLimits }) {
   const router = express.Router({ mergeParams: true });
   router.use(requireAdmin);
   router.use((req, res, next) => {
@@ -73,10 +74,13 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
     const userId = req.params.userId;
     const user = await UsuarioModel.findOne({ _id: userId, role: "user", ...(includeInactive ? {} : { activo: true }) })
       .select("_id nombre plan activo role planActivo planFechaFin trialAccepted trialEndDate professionalPromoStatus professionalPromoEndsAt").lean();
-    if (!user || String(user._id) !== userId) throw denied();
-    const source = await ImportSourceModel.findOne({ usuarioId: userId, activo: true, feedType: "inmoweb" })
+    if (!user || String(user._id) !== userId) {
+      if (includeInactive) throw Object.assign(new Error(), { status: 404 });
+      throw denied();
+    }
+    const source = await ImportSourceModel.findOne({ usuarioId: userId })
       .select("_id usuarioId feedType activo feedUrlHash feedUrlMasked").lean();
-    if (source && (String(source.usuarioId) !== userId || source.feedType !== "inmoweb" || !source.activo)) throw denied();
+    if (source && String(source.usuarioId) !== userId) throw denied();
     const grant = await GrantModel.findOne({ usuarioId: userId, provider: "inmoweb", enabled: true })
       .select("+sourceIdentityHash").lean();
     return { user, source, grant, userId };
@@ -104,10 +108,46 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
   router.get("/source", handle(async (req, res) => {
     const { user, source, userId, grant } = await load(req, true);
     const capacity = await getPublicationAvailability(user, { usuarioId: userId, PropiedadModel });
-    res.json({ userId, nombre: user.nombre, sourceConfigured: Boolean(source), provider: source?.feedType || null,
+    const configured = source?.activo === true && source.feedType === "inmoweb" && Boolean(source.feedUrlHash);
+    res.json({ userId, nombre: user.nombre, sourceConfigured: configured, provider: source?.feedType || null,
+      sourceState: !source ? "missing" : configured ? "configured" : "other_or_inactive",
       feedUrlMasked: source ? maskFeedUrl(source.feedUrlMasked) : null,
       active: user.activo === true, grantActive: Boolean(grant), authorized: user.activo === true && Boolean(matchesSource(source, userId, grant)),
       plan: capacity.plan, planActive: publicationPlanIsCurrent(user), available: capacity.cupoDisponible });
+  }));
+  // Bootstrap a source-bound grant and its source atomically. This endpoint
+  // deliberately cannot edit or adopt a source, even for the same owner.
+  router.post("/source", ...simulationLimits, handle(async (req, res) => {
+    const parsed = z.object({ feedType: z.literal("inmoweb"), feedUrl: z.string().trim().url().max(2000),
+      expressConsentConfirmed: z.literal(true) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Indica una URL válida y confirma la autorización expresa." });
+    const { userId, source, grant } = await load(req);
+    if (source || grant) return res.status(409).json({ error: "Revisa la fuente y la autorización existentes." });
+    let prepared;
+    try {
+      prepared = await sourceManager.prepare(parsed.data.feedUrl, "inmoweb");
+    } catch (error) {
+      if (["INVALID_URL", "INVALID_PROTOCOL", "PRIVATE_HOST", "PRIVATE_IP"].includes(error.code)) {
+        return res.status(400).json({ error: "La URL del feed no está permitida." });
+      }
+      throw error;
+    }
+    await Promise.all([ImportSourceModel.init(), GrantModel.init()]);
+    const session = await UsuarioModel.startSession();
+    try {
+      await session.withTransaction(async () => {
+        if (req.adminTokenExpiresAt != null && Date.now() >= req.adminTokenExpiresAt) throw denied();
+        for (const filter of [{ _id: req.user.id, role: "admin", activo: true }, { _id: userId, role: "user", activo: true }]) {
+          const fenced = await UsuarioModel.updateOne(filter, { $inc: { crmDelegationFence: 1 } }, { session, timestamps: false });
+          if (fenced.matchedCount !== 1) throw denied();
+        }
+        const created = await sourceManager.createInitialInmoweb(userId, prepared, session);
+        await GrantModel.create([{ usuarioId: userId, importSourceId: created.id, sourceIdentityHash: created.hash,
+          provider: "inmoweb", enabled: true, grantedBy: req.user.id, sourceConfiguredBy: req.user.id,
+          grantedAt: new Date() }], { session });
+      }, publicationTransactionOptions);
+    } finally { await session.endSession(); }
+    res.status(201).json({ configured: true, authorized: true, provider: "inmoweb", feedUrlMasked: prepared.feedUrlMasked });
   }));
   router.put("/authorization", handle(async (req, res) => {
     const body = authorization.safeParse(req.body);

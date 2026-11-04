@@ -125,7 +125,7 @@ export function createCrmImportRouter({
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml });
 
   router.use("/admin/users/:userId", createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantModel,
-    PropiedadModel, ImportSyncRunModel, runSimulation, runNewImport, runReader,
+    PropiedadModel, ImportSyncRunModel, sourceManager, runSimulation, runNewImport, runReader,
     simulationLimits: [userRateLimitMiddleware, rateLimitMiddleware],
     importLimits: [newImportUserRateLimitMiddleware, newImportRateLimitMiddleware] }));
 

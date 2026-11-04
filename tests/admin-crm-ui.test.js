@@ -48,3 +48,50 @@ test("admin opens the target's CRM, simulates without importing, and confirms se
   assert.match(prompts[0], /Titular ficticio.*directamente en su cuenta/);
   assert.equal(get("Results").children.some(el => el.textContent === "Importar seleccionados"), false);
 });
+
+test("missing source shows setup; saving needs consent, clears the URL, and enables simulation only after reloading", async () => {
+  const elements = new Map(), calls = [];
+  const document = { getElementById(id) {
+    if (!elements.has(id)) elements.set(id, element("div"));
+    return elements.get(id);
+  } };
+  const get = key => document.getElementById("crmDelegated" + key);
+  let configured = false, failureStatus = null;
+  const context = vm.createContext({ window: {}, document, adminToken: "admin-test-token",
+    fetch: async (path, options) => {
+      calls.push([path, options.method]);
+      if (failureStatus) return { ok: false, status: failureStatus };
+      if (options.method === "POST") {
+        const body = JSON.parse(options.body);
+        assert.deepEqual(body, { expressConsentConfirmed: true, feedType: "inmoweb", feedUrl: "https://example.test/feed?key=synthetic-only" });
+        configured = true;
+        return { ok: true, json: async () => ({ configured: true }) };
+      }
+      return { ok: true, json: async () => ({ nombre: "Titular de prueba", active: true, plan: "vip", available: 3,
+        planActive: true, sourceState: configured ? "configured" : "missing", sourceConfigured: configured,
+        feedUrlMasked: configured ? "https://example.test/...?..." : null, authorized: configured, grantActive: configured }) };
+    } });
+  vm.runInContext(script, context);
+  await context.window.abrirCrmDelegado("target");
+  assert.match(get("Source").textContent, /todavía no tiene una fuente CRM configurada/);
+  assert.match(get("Source").textContent, /Autorización no registrada/);
+  assert.equal(get("Status").textContent, "");
+  assert.equal(get("Simulate").disabled, true);
+  assert.equal(get("Configure").hidden, false);
+  get("Configure").onclick(); assert.equal(get("Setup").hidden, false);
+  get("Url").value = "https://example.test/feed?key=synthetic-only";
+  await get("Save").onclick(); assert.equal(calls.length, 1);
+  get("Attest").checked = true; await get("Save").onclick();
+  assert.equal(get("Url").value, ""); assert.equal(get("Setup").hidden, true);
+  assert.equal(get("Simulate").disabled, false); assert.equal(get("Configure").hidden, true);
+  assert.match(get("Source").textContent, /Autorización activa/);
+  assert.doesNotMatch([...elements.values()].map(el => el.textContent).join(" "), /synthetic-only|key=/);
+  assert.deepEqual(calls, [
+    ["/api/crm-import/admin/users/target/source", "GET"], ["/api/crm-import/admin/users/target/source", "POST"],
+    ["/api/crm-import/admin/users/target/source", "GET"] ]);
+  get("Close").onclick(); failureStatus = 500;
+  await context.window.abrirCrmDelegado("target"); assert.match(get("Status").textContent, /No se pudo cargar el estado CRM/);
+  assert.equal(get("Configure").hidden, true);
+  get("Close").onclick(); failureStatus = 401;
+  await context.window.abrirCrmDelegado("target"); assert.match(get("Status").textContent, /sesión ha caducado/);
+});

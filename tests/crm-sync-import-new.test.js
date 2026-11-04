@@ -18,7 +18,8 @@ import { createSelectedImporter } from "../utils/import/selectedImport.js";
 import { buildSyncSnapshot } from "../utils/import/syncSnapshot.js";
 import { parseGenericPropertyNodes, analyzeGenericPropertyNodes } from "../utils/importers/genericXmlImporter.js";
 import { prepareSyncPlan, snapshotDigest, runVersions, safeRunSummary, evaluateRunApplyEligibility } from "../utils/import/syncPlan.js";
-import { encryptFeedUrl } from "../utils/import/feedUrlCrypto.js";
+import { createSyncSourceManager } from "../utils/import/syncSource.js";
+import { decryptFeedUrl, encryptFeedUrl } from "../utils/import/feedUrlCrypto.js";
 import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { securityRateLimits } from "../utils/security.js";
 import { createMissingHider } from "../utils/import/syncHideMissing.js";
@@ -163,7 +164,12 @@ function harness({ count = 1, photos = 0, plan = "vip", feedXml, feedType = "gen
   };
   const sources = {
     init: async () => {},
-    findOne(filter) { return query(session => matches(current(session).source, filter) ? current(session).source : null); },
+    findOne(filter) { return query(session => [current(session).source, faults.foreignSource].find(doc => matches(doc, filter)) || null); },
+    async create([doc], { session }) {
+      assert.ok(session);
+      if (current(session).source) throw Object.assign(new Error(), { code: 11000 });
+      current(session).source = { _id: S, ...doc }; return [current(session).source];
+    },
     async findOneAndUpdate(filter, op) {
       effects.acquire++; if (!matches(state.source, filter)) return null;
       update(state.source, op); return structuredClone(state.source);
@@ -997,7 +1003,14 @@ async function delegatedFixture(t) {
   let grant, grantCount = 0;
   const grants = {
     init: async () => {},
-    create: async data => { grant = { _id: grantCount++ === 0 ? G : S, ...data }; },
+    create: async (data, options) => {
+      if (Array.isArray(data)) {
+        assert.ok(options.session);
+        if (h.faults.createGrant) throw new Error("private driver error");
+        data = data[0];
+      }
+      grant = { _id: grantCount++ === 0 ? G : S, ...data };
+    },
     findOne: filter => q(() => matches(grant, filter) ? grant : null),
     exists: filter => q(() => matches(grant, filter)),
     async updateOne(filter, op) {
@@ -1020,15 +1033,17 @@ async function delegatedFixture(t) {
   const providerSnapshots = createProviderSnapshots({ now, env: h.dependencies.env, SnapshotModel: db.Model });
   const fetchXml = createFeedAccess({ now, snapshots: providerSnapshots, log: () => {},
     fetchXml: async () => ({ xml: inmoXml() }) });
+  const validatedHosts = [];
   const deps = { ...h.dependencies, UsuarioModel: users, providerSnapshots, fetchXml };
+  const syncSourceManager = createSyncSourceManager({ ...deps, validateTarget: async url => { validatedHosts.push(url.hostname); } });
   const app = express(); app.use(express.json()); const pass = (req, res, next) => next();
-  app.use("/api/crm-import", createCrmImportRouter({ ...deps, GrantModel: grants, ProviderSnapshotModel: db.Model,
+  app.use("/api/crm-import", createCrmImportRouter({ ...deps, syncSourceManager, GrantModel: grants, ProviderSnapshotModel: db.Model,
     feedAccessNow: now, simulateSync: createSyncSimulator(deps), importNewSync: createSyncNewImporter(deps),
     rateLimitMiddleware: pass, userRateLimitMiddleware: pass, newImportRateLimitMiddleware: pass, newImportUserRateLimitMiddleware: pass }));
   const call = (method, path, body = {}, auth = A) => http(app, method, "/api/crm-import/admin/users/" + U + "/" + path, body, auth);
   const allow = () => call("PUT", "authorization", { enabled: true, expressConsentConfirmed: true });
   const publish = () => call("POST", "import-new", { runId: R, externalIds: ["IW-0"] });
-  return { h, A, admin, db, call, allow, publish, grant: () => grant };
+  return { h, A, admin, db, call, allow, publish, validatedHosts, grant: () => grant };
 }
 
 test("delegated simulation and NEW use the target throughout; audit, receipts and replay are bound to actor", async t => {
@@ -1091,3 +1106,57 @@ for (const failure of ["source", "inactive", "source-identity", "actor", "grant"
     assert.equal(h.state.properties.length, before);
   });
 }
+
+const configureBody = { feedUrl: "https://synthetic.example/private.xml?key=mock-only", feedType: "inmoweb", expressConsentConfirmed: true };
+test("delegated onboarding: missing source is a readable state; create for target then simulate using its source", async t => {
+  const { h, A, call, validatedHosts, grant } = await delegatedFixture(t);
+  // Another owner already has exactly the same URL. Its document must stay intact.
+  const foreign = { ...h.state.source, _id: R, usuarioId: A, ...encryptFeedUrl(configureBody.feedUrl, h.dependencies.env) };
+  h.faults.foreignSource = structuredClone(foreign);
+  h.state.source = null;
+  const missing = await call("GET", "source");
+  assert.equal(missing.status, 200); assert.equal(missing.body.sourceState, "missing");
+  assert.equal(missing.body.authorized, false); assert.equal(missing.body.sourceConfigured, false);
+  const created = await call("POST", "source", configureBody);
+  assert.equal(created.status, 201);
+  assert.deepEqual(Object.keys(created.body).sort(), ["authorized", "configured", "feedUrlMasked", "provider"]);
+  assert.doesNotMatch(JSON.stringify(created.body), /private.xml|mock-only|encrypted|feedUrlHash|key=/);
+  assert.deepEqual(validatedHosts, ["synthetic.example"]);
+  assert.equal(h.state.source.usuarioId, U); assert.equal(h.state.source.feedType, "inmoweb");
+  assert.notEqual(h.state.source._id, foreign._id); assert.equal(h.state.source.feedUrlHash, foreign.feedUrlHash);
+  assert.deepEqual(h.faults.foreignSource, foreign);
+  assert.equal(grant().importSourceId, h.state.source._id); assert.equal(grant().usuarioId, U);
+  assert.equal(grant().sourceConfiguredBy, A); assert.equal(grant().sourceIdentityHash, h.state.source.feedUrlHash);
+  assert.equal(decryptFeedUrl(h.state.source, h.dependencies.env), configureBody.feedUrl);
+  assert.ok(h.state.source.encryptedFeedUrl); assert.doesNotMatch(JSON.stringify(h.state.source), /mock-only|private.xml/);
+  assert.equal((await call("GET", "source")).body.authorized, true);
+  assert.equal((await call("POST", "simulate")).status, 200);
+  assert.equal(h.state.run.usuarioId, U); assert.equal(h.state.run.importSourceId, S);
+  const saved = structuredClone(h.state.source);
+  assert.equal((await call("POST", "source", configureBody)).status, 409);
+  assert.deepEqual(h.state.source, saved);
+});
+test("setup rejects unauthenticated, nonadmin, absent consent, foreign source ID, other provider and private URL", async t => {
+  const { h, call, grant } = await delegatedFixture(t); h.state.source = null;
+  assert.equal((await call("POST", "source", configureBody, false)).status, 401);
+  assert.equal((await call("POST", "source", configureBody, U)).status, 403);
+  for (const change of [{ expressConsentConfirmed: undefined }, { expressConsentConfirmed: false }, { importSourceId: R },
+    { usuarioId: S }, { feedType: "generic_xml" }, { feedUrl: "http://127.0.0.1/private" }]) {
+    assert.equal((await call("POST", "source", { ...configureBody, ...change })).status, 400);
+  }
+  h.state.user.activo = false;
+  assert.equal((await call("GET", "source")).body.active, false);
+  assert.equal((await call("POST", "source", configureBody)).status, 403);
+  assert.equal(h.state.source, null); assert.equal(grant(), undefined);
+});
+test("failed grant rolls back first source; an existing generic source is never replaced", async t => {
+  const { h, call, grant } = await delegatedFixture(t);
+  const previous = { ...h.state.source, feedType: "generic_xml" };
+  h.state.source = null; h.faults.createGrant = true;
+  assert.equal((await call("POST", "source", configureBody)).status, 500);
+  assert.equal(h.state.source, null); assert.equal(grant(), undefined);
+  h.state.source = previous;
+  assert.equal((await call("GET", "source")).body.sourceState, "other_or_inactive");
+  assert.equal((await call("POST", "source", configureBody)).status, 409);
+  assert.deepEqual(h.state.source, previous);
+});

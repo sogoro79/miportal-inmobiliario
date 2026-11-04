@@ -8,27 +8,36 @@
       method, cache: "no-store", headers: { Authorization: "Bearer " + adminToken, "Content-Type": "application/json" },
       ...(body && { body: JSON.stringify(body) })
     });
-    if (!response.ok) throw new Error();
+    if (!response.ok) throw Object.assign(new Error(), { status: response.status });
     return response.json();
   }
-  async function action(fn) {
+  async function action(fn, failureMessage) {
     if (busy) return;
     busy = true;
     el("Status").textContent = "Procesando…";
     try { await fn(); }
-    catch { el("Status").textContent = "No se pudo confirmar la operación. Consulta el estado antes de volver a intentarlo."; }
+    catch (error) {
+      const common = { 401: "La sesión ha caducado. Vuelve a entrar en el panel.",
+        403: "No tienes autorización para realizar esta acción con este titular.",
+        404: "No se encontró el titular o la revisión solicitada." };
+      el("Status").textContent = common[error.status] || failureMessage || "No se pudo confirmar la operación. Consulta el estado antes de volver a intentarlo.";
+    }
     finally { busy = false; }
   }
   async function load() {
     source = await api("source");
+    resetSetup();
     el("Target").textContent = "Estás importando inmuebles para: " + source.nombre;
     el("Source").textContent = [
-      source.sourceConfigured ? "InmoWeb · " + source.feedUrlMasked : "Sin fuente InmoWeb activa",
-      source.authorized ? "Autorización activa" : "Sin autorización válida",
+      source.active ? "Usuario activo" : "Usuario inactivo",
+      source.sourceConfigured ? "InmoWeb · " + source.feedUrlMasked : source.sourceState === "other_or_inactive"
+        ? "Ya existe otra fuente CRM o una fuente inactiva." : "Este usuario todavía no tiene una fuente CRM configurada.",
+      source.authorized ? "Autorización activa" : source.grantActive ? "Autorización no aplicable" : "Autorización no registrada",
       "Plan " + source.plan + (source.planActive ? " activo" : " inactivo"),
       "Cupo disponible: " + (source.available ?? "sin límite")
     ].join(" · ");
     el("Consent").textContent = source.grantActive ? "Revocar autorización" : "Registrar autorización expresa";
+    el("Configure").hidden = !(source.active && source.sourceState === "missing" && !source.grantActive);
     el("Consent").disabled = !source.grantActive && (!source.sourceConfigured || !source.active);
     el("Simulate").disabled = !source.authorized;
     el("Status").textContent = "";
@@ -36,11 +45,12 @@
   window.abrirCrmDelegado = id => {
     if (busy || dialog.open) return;
     userId = id; source = null;
+    resetSetup(); el("Configure").hidden = true;
     el("Target").textContent = ""; el("Source").textContent = "";
     el("Consent").disabled = el("Simulate").disabled = true;
     el("Results").replaceChildren();
     dialog.showModal();
-    return action(load);
+    return action(load, "No se pudo cargar el estado CRM del titular. Cierra y vuelve a abrir la ventana.");
   };
   function render(run) {
     const output = el("Results"); output.replaceChildren();
@@ -117,6 +127,35 @@
     await api("authorization", "PUT", enabled ? { enabled, expressConsentConfirmed: true } : { enabled });
     el("Results").replaceChildren(); await load();
   });
+  function resetSetup() {
+    el("Url").value = ""; el("Attest").checked = false; el("Setup").hidden = true;
+  }
+  el("Configure").onclick = () => {
+    if (!busy && !el("Configure").hidden) el("Setup").hidden = false;
+  };
+  el("Save").onclick = () => action(async () => {
+    if (!source?.active || source.sourceState !== "missing" || source.grantActive) return;
+    const feedUrl = el("Url").value.trim();
+    if (!feedUrl || !el("Attest").checked) {
+      el("Status").textContent = "Indica la URL y confirma la autorización expresa del titular."; return;
+    }
+    resetSetup(); el("Configure").hidden = true;
+    try {
+      await api("source", "POST", { feedType: "inmoweb", feedUrl, expressConsentConfirmed: true });
+    } catch (error) {
+      // A lost response may follow a successful commit. Only read the state again.
+      await load();
+      if (source.authorized) {
+        el("Status").textContent = "Ya existe una fuente autorizada. Comprueba la fuente mostrada.";
+        return;
+      }
+      if (error.status === 400) { el("Status").textContent = "Revisa la URL pública de InmoWeb y la autorización."; return; }
+      throw error;
+    }
+    await load();
+    el("Status").textContent = "Fuente configurada y autorización registrada.";
+  }, "No se pudo confirmar la configuración. Revisa el estado del titular y la URL indicada.");
+  dialog.addEventListener("close", resetSetup);
   el("Close").onclick = () => { if (!busy) dialog.close(); };
   dialog.addEventListener("cancel", event => { if (busy) event.preventDefault(); });
 })();

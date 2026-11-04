@@ -8,6 +8,7 @@ const schema = new mongoose.Schema({
   sourceIdentityHash: { type: String, required: true, select: false },
   provider: { type: String, enum: ["inmoweb"], required: true },
   enabled: { type: Boolean, required: true },
+  sourceConfiguredBy: { type: id, ref: "Usuario" },
   grantedAt: { type: Date, required: true },
   grantedBy: { type: id, ref: "Usuario", required: true },
   revokedAt: Date,
