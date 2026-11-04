@@ -1,4 +1,5 @@
 import express from "express";
+import { delegatedTargetFilter, delegatedTargetFieldAllowed } from "../utils/import/delegatedTarget.js";
 import { requireAdmin } from "../middleware/auth.js";
 import { getPublicationAvailability } from "../utils/propertyCreation.js";
 import { publicationTransactionOptions } from "../utils/publicationCapacity.js";
@@ -28,7 +29,7 @@ export function delegatedContext({ actorAdminId, expiresAt, userId, grant, Usuar
     if ((expiresAt != null && Date.now() >= expiresAt) || !matchesSource(source, userId, grant)) throw denied();
     return {
       actor: { _id: actorAdminId, activo: true, role: "admin" },
-      target: { _id: userId, activo: true, role: "user" },
+      target: delegatedTargetFilter(userId),
       consent: { _id: grant._id, usuarioId: userId, importSourceId: source._id, provider: "inmoweb",
         enabled: true, sourceIdentityHash: source.feedUrlHash }
     };
@@ -46,6 +47,7 @@ export function delegatedContext({ actorAdminId, expiresAt, userId, grant, Usuar
       if (!session) throw denied();
       const { actor, target, consent } = filters(source);
       const owner = await UsuarioModel.findOne(target).session(session);
+      if (!owner) throw denied();
       if (!publicationPlanIsCurrent(owner)) {
         throw Object.assign(new Error(), { code: "SYNC_NEW_PLAN_REQUIRED", status: 403 });
       }
@@ -72,12 +74,13 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
   });
   async function load(req, includeInactive = false) {
     const userId = req.params.userId;
-    const user = await UsuarioModel.findOne({ _id: userId, role: "user", ...(includeInactive ? {} : { activo: true }) })
+    const user = await UsuarioModel.findOne({ _id: userId })
       .select("_id nombre plan activo role planActivo planFechaFin trialAccepted trialEndDate professionalPromoStatus professionalPromoEndsAt").lean();
     if (!user || String(user._id) !== userId) {
-      if (includeInactive) throw Object.assign(new Error(), { status: 404 });
-      throw denied();
+      throw Object.assign(new Error(), { status: 404, code: "CRM_TARGET_NOT_FOUND" });
     }
+    if (!delegatedTargetFieldAllowed(user, "role")) throw Object.assign(denied(), { code: "CRM_TARGET_NOT_ALLOWED" });
+    if (!includeInactive && !delegatedTargetFieldAllowed(user, "activo")) throw Object.assign(denied(), { code: "CRM_TARGET_INACTIVE" });
     const source = await ImportSourceModel.findOne({ usuarioId: userId })
       .select("_id usuarioId feedType activo feedUrlHash feedUrlMasked").lean();
     if (source && String(source.usuarioId) !== userId) throw denied();
@@ -91,7 +94,7 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
       catch (err) {
         const status = err.code === "CRM_DELEGATION_DENIED" ? 403 : err.code === 11000 ? 409 :
           [400, 403, 404, 409, 429, 503, 504].includes(err.status) ? err.status : 500;
-        res.status(status).json({ error: status === 403 ? "Importación delegada no autorizada." :
+        res.status(status).json({ ...(["CRM_TARGET_NOT_FOUND", "CRM_TARGET_NOT_ALLOWED", "CRM_TARGET_INACTIVE"].includes(err.code) ? { code: err.code } : {}), error: status === 403 ? "Importación delegada no autorizada." :
           "No se pudo completar la operación. Consulta la revisión antes de volver a intentarlo." });
       }
     };
@@ -112,7 +115,7 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
     res.json({ userId, nombre: user.nombre, sourceConfigured: configured, provider: source?.feedType || null,
       sourceState: !source ? "missing" : configured ? "configured" : "other_or_inactive",
       feedUrlMasked: source ? maskFeedUrl(source.feedUrlMasked) : null,
-      active: user.activo === true, grantActive: Boolean(grant), authorized: user.activo === true && Boolean(matchesSource(source, userId, grant)),
+      active: delegatedTargetFieldAllowed(user, "activo"), grantActive: Boolean(grant), authorized: delegatedTargetFieldAllowed(user, "activo") && Boolean(matchesSource(source, userId, grant)),
       plan: capacity.plan, planActive: publicationPlanIsCurrent(user), available: capacity.cupoDisponible });
   }));
   // Bootstrap a source-bound grant and its source atomically. This endpoint
@@ -137,7 +140,7 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
     try {
       await session.withTransaction(async () => {
         if (req.adminTokenExpiresAt != null && Date.now() >= req.adminTokenExpiresAt) throw denied();
-        for (const filter of [{ _id: req.user.id, role: "admin", activo: true }, { _id: userId, role: "user", activo: true }]) {
+        for (const filter of [{ _id: req.user.id, role: "admin", activo: true }, delegatedTargetFilter(userId)]) {
           const fenced = await UsuarioModel.updateOne(filter, { $inc: { crmDelegationFence: 1 } }, { session, timestamps: false });
           if (fenced.matchedCount !== 1) throw denied();
         }

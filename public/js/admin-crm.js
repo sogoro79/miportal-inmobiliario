@@ -8,7 +8,10 @@
       method, cache: "no-store", headers: { Authorization: "Bearer " + adminToken, "Content-Type": "application/json" },
       ...(body && { body: JSON.stringify(body) })
     });
-    if (!response.ok) throw Object.assign(new Error(), { status: response.status });
+    if (!response.ok) {
+      const body = await Promise.resolve().then(() => response.json()).catch(() => ({}));
+      throw Object.assign(new Error(), { status: response.status, code: body.code });
+    }
     return response.json();
   }
   async function action(fn, failureMessage) {
@@ -20,7 +23,10 @@
       const common = { 401: "La sesión ha caducado. Vuelve a entrar en el panel.",
         403: "No tienes autorización para realizar esta acción con este titular.",
         404: "No se encontró el titular o la revisión solicitada." };
-      el("Status").textContent = common[error.status] || failureMessage || "No se pudo confirmar la operación. Consulta el estado antes de volver a intentarlo.";
+      const targetMessages = { CRM_TARGET_NOT_FOUND: "No se encontró el titular.",
+        CRM_TARGET_NOT_ALLOWED: "Este titular no está autorizado para la importación delegada.",
+        CRM_TARGET_INACTIVE: "El titular está inactivo." };
+      el("Status").textContent = targetMessages[error.code] || common[error.status] || failureMessage || "No se pudo confirmar la operación. Consulta el estado antes de volver a intentarlo.";
     }
     finally { busy = false; }
   }

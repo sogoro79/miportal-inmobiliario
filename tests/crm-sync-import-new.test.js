@@ -109,6 +109,7 @@ const equal = (a, b) => a instanceof Date && b instanceof Date ? +a === +b
   : Array.isArray(a) && Array.isArray(b) ? JSON.stringify(a) === JSON.stringify(b) : String(a) === String(b);
 function matches(doc, filter) {
   return Boolean(doc) && Object.entries(filter).every(([key, value]) => {
+    if (key === "$and") return value.every(f => matches(doc, f));
     if (key === "$or") return value.some(f => matches(doc, f));
     const actual = values(doc, key.split("."));
     if (value && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
@@ -1160,3 +1161,62 @@ test("failed grant rolls back first source; an existing generic source is never 
   assert.equal((await call("POST", "source", configureBody)).status, 409);
   assert.deepEqual(h.state.source, previous);
 });
+
+for (const role of ['user', undefined, 'admin', 'otro', null]) {
+  test(`delegated target role ${String(role)} is checked across all endpoints`, async t => {
+    const { h, call, allow, publish } = await delegatedFixture(t);
+    if (role === undefined) delete h.state.user.role; else h.state.user.role = role;
+    const permitted = role === 'user' || role === undefined;
+    const result = await call('GET', 'source');
+    assert.equal(result.status, permitted ? 200 : 403);
+    if (!permitted) {
+      assert.equal(result.body.code, 'CRM_TARGET_NOT_ALLOWED');
+      assert.equal((await allow()).status, 403);
+      assert.equal((await call('POST', 'source', configureBody)).status, 403);
+      assert.equal((await call('POST', 'simulate')).status, 403);
+      assert.equal((await call('GET', `runs/${R}`)).status, 403);
+      assert.equal((await publish()).status, 403);
+    } else {
+      assert.equal((await allow()).status, 200);
+      assert.equal((await call('POST', 'simulate')).status, 200);
+      assert.equal((await call('GET', `runs/${R}`)).status, 200);
+      assert.equal((await publish()).body.newImport.counts.imported, 1);
+    }
+  });
+}
+for (const active of [true, undefined, false, null]) {
+  test(`legacy delegated target active ${String(active)} including initial setup and publication`, async t => {
+    const { h, call, publish } = await delegatedFixture(t);
+    delete h.state.user.role;
+    if (active === undefined) delete h.state.user.activo; else h.state.user.activo = active;
+    h.state.user.verificado = true;
+    h.state.source = null;
+    const permitted = active === true || active === undefined;
+    const result = await call('GET', 'source');
+    assert.equal(result.status, 200); assert.equal(result.body.active, permitted);
+    assert.equal(result.body.plan, 'vip');
+    const setup = await call('POST', 'source', configureBody);
+    assert.equal(setup.status, permitted ? 201 : 403);
+    if (permitted) {
+      assert.equal(h.state.source.usuarioId, U);
+      assert.equal((await call('POST', 'simulate')).status, 200);
+      assert.equal((await publish()).body.newImport.counts.imported, 1);
+      assert.equal(Object.hasOwn(h.state.user, 'role'), false);
+      if (active === undefined) assert.equal(Object.hasOwn(h.state.user, 'activo'), false);
+    } else assert.equal(setup.body.code, 'CRM_TARGET_INACTIVE');
+  });
+}
+for (const phase of ['setup', 'publication']) for (const change of [{ role: 'admin' }, { role: 'otro' }, { role: null }, { activo: false }, { activo: null }]) {
+  test(`legacy target transaction rejects ${JSON.stringify(change)} during ${phase}`, async t => {
+    const { h, call, allow, publish } = await delegatedFixture(t);
+    delete h.state.user.role; delete h.state.user.activo;
+    if (phase === 'setup') h.state.source = null;
+    else { await allow(); assert.equal((await call('POST', 'simulate')).status, 200); }
+    let reached = false;
+    h.faults.beforeTransaction = state => { reached = true; Object.assign(state.user, change); };
+    const result = phase === 'setup' ? await call('POST', 'source', configureBody) : await publish();
+    assert.equal(reached, true); assert.equal(result.status, 403);
+    assert.equal(h.state.properties.length, 0);
+    if (phase === 'setup') assert.equal(h.state.source, null);
+  });
+}

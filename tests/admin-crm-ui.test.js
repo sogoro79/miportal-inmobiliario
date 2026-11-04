@@ -56,11 +56,11 @@ test("missing source shows setup; saving needs consent, clears the URL, and enab
     return elements.get(id);
   } };
   const get = key => document.getElementById("crmDelegated" + key);
-  let configured = false, failureStatus = null;
+  let configured = false, failureStatus = null, failureCode;
   const context = vm.createContext({ window: {}, document, adminToken: "admin-test-token",
     fetch: async (path, options) => {
       calls.push([path, options.method]);
-      if (failureStatus) return { ok: false, status: failureStatus };
+      if (failureStatus) return { ok: false, status: failureStatus, json: async () => ({ code: failureCode }) };
       if (options.method === "POST") {
         const body = JSON.parse(options.body);
         assert.deepEqual(body, { expressConsentConfirmed: true, feedType: "inmoweb", feedUrl: "https://example.test/feed?key=synthetic-only" });
@@ -75,6 +75,7 @@ test("missing source shows setup; saving needs consent, clears the URL, and enab
   await context.window.abrirCrmDelegado("target");
   assert.match(get("Source").textContent, /todavía no tiene una fuente CRM configurada/);
   assert.match(get("Source").textContent, /Autorización no registrada/);
+  assert.match(get("Source").textContent, /Usuario activo/);
   assert.equal(get("Status").textContent, "");
   assert.equal(get("Simulate").disabled, true);
   assert.equal(get("Configure").hidden, false);
@@ -94,4 +95,14 @@ test("missing source shows setup; saving needs consent, clears the URL, and enab
   assert.equal(get("Configure").hidden, true);
   get("Close").onclick(); failureStatus = 401;
   await context.window.abrirCrmDelegado("target"); assert.match(get("Status").textContent, /sesión ha caducado/);
+  for (const [code, status, message] of [
+    ['CRM_TARGET_NOT_FOUND', 404, 'No se encontró el titular.'],
+    ['CRM_TARGET_NOT_ALLOWED', 403, 'Este titular no está autorizado para la importación delegada.'],
+    ['CRM_TARGET_INACTIVE', 403, 'El titular está inactivo.']
+  ]) {
+    get("Close").onclick(); failureStatus = status; failureCode = code;
+    await context.window.abrirCrmDelegado("target");
+    assert.equal(get("Status").textContent, message);
+    assert.equal(get("Simulate").disabled, true);
+  }
 });
