@@ -20,7 +20,7 @@ import { parseGenericPropertyNodes, analyzeGenericPropertyNodes } from "../utils
 import { prepareSyncPlan, snapshotDigest, runVersions, safeRunSummary, evaluateRunApplyEligibility } from "../utils/import/syncPlan.js";
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { decryptFeedUrl, encryptFeedUrl } from "../utils/import/feedUrlCrypto.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
+import { createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { securityRateLimits } from "../utils/security.js";
 import { createMissingHider } from "../utils/import/syncHideMissing.js";
 import { createSyncApplier } from "../utils/import/syncApply.js";
@@ -271,7 +271,7 @@ const inmowebFixture = fs.readFileSync(new URL("./fixtures/crm/inmoweb-synthetic
 function inmoXml(count = 1, photos = 0) {
   const record = inmowebFixture.match(/<propiedad\b[\s\S]*?<\/propiedad>/)[0];
   return `<properties>${Array.from({ length: count }, (_, i) => record.replace('id="0001"', `id="IW-${i}"`)
-    .replace(/<imagenes>[\s\S]*?<\/imagenes>/, `<imagenes>${Array.from({ length: photos }, (_, n) =>
+    .replace(/<imagenes>[\s\S]*?<\/imagenes>/, `<imagenes>${Array.from({ length: Array.isArray(photos) ? photos[i] : photos }, (_, n) =>
       `<imagen url="https://images.example/${i}/${n}.jpg" principal="${n === 1 ? 1 : 0}"/>`).join("")}</imagenes>`)).join("")}</properties>`;
 }
 function inmoHarness({ enabled = true, count = 1, photos = 0, feedXml, plan = "vip",
@@ -381,12 +381,12 @@ test("InmoWeb per-plan photo cap is reported, not silently truncated", async () 
   assert.equal(result.newImport.counts.importedImages, limit); assert.equal(result.newImport.counts.skippedImages, 2);
   assert.ok(result.newImport.results[0].imageWarnings > 0);
 });
-test("InmoWeb retains 10 properties/100 images/120s and rejects excess", async () => {
+test("InmoWeb keeps the property and time limits and processes additional photos", async () => {
   const h = inmoHarness({ count: 10, photos: 10 });
   assert.equal((await h.run(h.request)).newImport.counts.imported, 10); assert.equal(h.effects.uploads, 100);
   const many = inmoHarness({ count: 11 }); await assert.rejects(() => many.run(many.request), { code: "SYNC_NEW_SELECTION_INVALID" });
-  const photos = inmoHarness({ count: 2, photos: 51 }); await assert.rejects(() => photos.run(photos.request));
-  assert.equal(photos.effects.uploads, 0); assert.deepEqual([MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS], [10, 100, 120000]);
+  const photos = inmoHarness({ count: 2, photos: 51 }); await photos.run(photos.request);
+  assert.equal(photos.effects.uploads, 102); assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 120000]);
 });
 for (const mode of ["photo", "upload", "failCreate", "unconfirmed"]) test(`InmoWeb shared image/persistence failure ${mode}`, async () => {
   const h = inmoHarness({ photos: 2 }); h.faults[mode] = true;
@@ -696,11 +696,11 @@ for (const plan of ["vip", "vip_trial"]) test(`${plan}: 10 properties/100 photos
   const result = await h.run({ ...h.request, externalIds: Array.from({ length: 10 }, (_, i) => `N-${i}`) });
   assert.equal(result.newImport.counts.imported, 10); assert.equal(h.effects.uploads, 100);
 });
-test("101 photos rejected, technical budgets unchanged", async () => {
+test("generic_xml processes 102 photos within the existing time budget", async () => {
   const h = harness({ count: 2, photos: 51 });
-  await assert.rejects(() => h.run({ ...h.request, externalIds: ["N-0", "N-1"] }));
-  assert.equal(h.effects.uploads, 0);
-  assert.deepEqual([MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS], [10, 100, 120000]);
+  await h.run({ ...h.request, externalIds: ["N-0", "N-1"] });
+  assert.equal(h.effects.uploads, 102);
+  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 120000]);
 });
 test("full snapshot mapping retains entries beyond preview cap; truncated runs stay blocked", async () => {
   const h = harness({ count: 501 });
@@ -990,7 +990,7 @@ test("InmoWeb publication persists cleaned public text while preserving provider
 
 // Exercise the admin HTTP boundary, the same simulator, encrypted snapshot store
 // and transactional importer. Only models, image transport and feed transport are fakes.
-async function delegatedFixture(t) {
+async function delegatedFixture(t, { count = 1, photos = 0 } = {}) {
   const h = inmoHarness({ allowlist: "OTHER-ID" });
   const A = "507f1f77bcf86cd799439044", G = "507f1f77bcf86cd799439045";
   const admin = { _id: A, role: "admin", activo: true, plan: "gratis", nombre: "Admin de prueba" };
@@ -1033,7 +1033,7 @@ async function delegatedFixture(t) {
   const db = providerSnapshotStore(), now = () => +h.dependencies.now();
   const providerSnapshots = createProviderSnapshots({ now, env: h.dependencies.env, SnapshotModel: db.Model });
   const fetchXml = createFeedAccess({ now, snapshots: providerSnapshots, log: () => {},
-    fetchXml: async () => ({ xml: inmoXml() }) });
+    fetchXml: async () => ({ xml: inmoXml(count, photos) }) });
   const validatedHosts = [];
   const deps = { ...h.dependencies, UsuarioModel: users, providerSnapshots, fetchXml };
   const syncSourceManager = createSyncSourceManager({ ...deps, validateTarget: async url => { validatedHosts.push(url.hostname); } });
@@ -1228,3 +1228,63 @@ for (const phase of ['setup', 'publication']) for (const change of [{ role: 'adm
     if (phase === 'setup') assert.equal(h.state.source, null);
   });
 }
+
+for (const [name, count, photos, listed] of [
+  ["one listed", 1, 0, true], ["one unlisted", 1, 0, false],
+  ["ten unlisted with 100 photos", 10, 10, false],
+  ["ten unlisted with 314 photos", 10, [66,33,40,25,25,25,25,25,25,25], false]
+]) test("delegated HTTP batch diagnosis: " + name, async t => {
+  const { h, call, allow } = await delegatedFixture(t, { count, photos });
+  if (listed) h.dependencies.env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS = "IW-0";
+  await allow();
+  const sim = await call("POST", "simulate");
+  assert.equal(sim.status, 200);
+  const ids = sim.body.results.filter(row => row.importNewEligible).map(row => row.externalId);
+  assert.equal(ids.length, count);
+  const result = await call("POST", "import-new", { runId: R, externalIds: ids });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.newImport.counts.imported, count);
+  const total = Array.isArray(photos) ? photos.reduce((a, b) => a + b, 0) : count * photos;
+  assert.equal(result.body.newImport.counts.importedImages, total);
+});
+
+for (const [plan, count, available, permitted] of [
+  ["vip", 1, 20, 20], ["vip", 1, 160, 160], ["vip_trial", 1, 160, 160],
+  ["starter", 1, 50, 20], ["starter", 6, 50, 20]
+]) test(`${plan}: ${count} properties import ${permitted} of ${available} photos each`, async () => {
+  const h = inmoHarness({ plan, count, photos: available });
+  const result = await h.run(h.request);
+  assert.equal(result.newImport.counts.imported, count);
+  assert.equal(result.newImport.counts.skippedImages, count * (available - permitted));
+  assert.equal(h.effects.downloads, count * permitted);
+  assert.ok(h.state.properties.every(p => p.imagenes.length === permitted));
+});
+
+test("second chunk failure cleans only the failed property; replay preserves the first receipt", async () => {
+  const h = inmoHarness({ count: 2, photos: [1, 160] });
+  h.faults.download = (_, url) => {
+    if (url.endsWith("/1/100.jpg")) h.faults.failCreate = true;
+  };
+  const first = await h.run(h.request);
+  assert.equal(first.newImport.counts.imported, 1);
+  assert.equal(first.newImport.results.find(r => r.externalId === "IW-1").reason, "CREATION_FAILED");
+  assert.deepEqual(h.effects.deletedPublicIds, h.effects.uploadedPublicIds.slice(1));
+  assert.equal(h.state.reconciliations.length, 0);
+  assert.equal((await h.run(h.request)).alreadyImported, true);
+  assert.equal(h.state.properties.length, 1);
+  assert.equal(h.effects.uploads, 161);
+});
+
+test("a download error in the second chunk omits only that image", async () => {
+  const h = inmoHarness({ photos: 160 });
+  h.faults.download = (_, url) => {
+    if (url.endsWith("/100.jpg")) throw new Error("synthetic download failure");
+  };
+  const result = await h.run(h.request);
+  assert.equal(result.newImport.counts.importedImages, 159);
+  assert.equal(result.newImport.counts.skippedImages, 1);
+  assert.equal(h.state.properties[0].imagenes.length, 159);
+  assert.equal(h.state.reconciliations.length, 0);
+  assert.equal((await h.run(h.request)).alreadyImported, true);
+  assert.equal(h.effects.uploads, 159);
+});

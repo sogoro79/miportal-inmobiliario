@@ -1,5 +1,5 @@
 export const MAX_BATCH_PROPERTIES = 10;
-export const MAX_BATCH_PHOTOS = 100;
+export const PHOTO_CHUNK_SIZE = 100;
 export const MAX_BATCH_MS = 120000;
 
 export function createImportBudget({ now = Date.now, timeoutMs = MAX_BATCH_MS } = {}) {

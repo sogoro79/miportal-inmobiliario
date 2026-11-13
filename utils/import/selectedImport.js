@@ -6,7 +6,7 @@ import ImportReconciliation from "../../models/ImportReconciliation.js";
 import mongoose from "mongoose";
 import { getPublicationAvailability } from "../propertyCreation.js";
 import { createPublicationPersistence } from "../publicationPersistence.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS } from "./importBudget.js";
+import { createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE } from "./importBudget.js";
 import { propiedadCrmCreateSchema } from "../propertySchemas.js";
 import { getLimiteFotosPlan } from "../planLimits.js";
 import { getPlanParaFotos } from "../publishEligibility.js";
@@ -87,8 +87,6 @@ export function createSelectedImporter({
       if (selected.some(id => !matches.has(id))) throw new ImportError("La selección no corresponde al feed actual. Analízalo de nuevo.");
       const maxPhotosForBatch = getLimiteFotosPlan(getPlanParaFotos(user));
       const plannedPhotos = new Map(selected.map(id => [id, matches.get(id)[0].fotos.slice(0, maxPhotosForBatch)]));
-      const importablePhotos = [...plannedPhotos.values()].reduce((total, photos) => total + photos.length, 0);
-      if (importablePhotos > MAX_BATCH_PHOTOS) throw new ImportError("El lote supera 100 fotos importables. Reduce la selección.");
       // Esperar a los índices antes de permitir escrituras CRM en producción.
       await budget.run(() => Promise.all([PropiedadModel.init?.(), ImportSourceModel.init?.(), ReconciliationModel.init?.()]));
       let source = internalContext?.source || await budget.run(() => ImportSourceModel.findOne({ usuarioId }));
@@ -171,29 +169,32 @@ export function createSelectedImporter({
             }
             await budget.run(() => ReconciliationModel.create({ propiedadId: propertyId, usuarioId, importSourceId: source._id, externalId, publicIds: [], state: "prepared" }));
             journaled = true;
-            for (const url of photosToImport) {
-              budget.assertActive();
-              attemptedImages += 1;
-              let phase = "download";
-              try {
-                const buffer = await budget.run(() => downloadImage(url, { budget }));
+            for (let offset = 0; offset < photosToImport.length; offset += PHOTO_CHUNK_SIZE) {
+              if (offset > 0) await internalContext?.assert?.();
+              for (const url of photosToImport.slice(offset, offset + PHOTO_CHUNK_SIZE)) {
                 budget.assertActive();
-                phase = "upload";
-                images.push(await budget.run(() => uploadImage(buffer), { onLateResult: async image => {
-                  if (!await cleanup([image])) {
-                    await ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: {
-                      usuarioId, importSourceId: source._id, externalId, state: "cleanup_required"
-                    }, $addToSet: { publicIds: image.publicId } }, { upsert: true }).catch(() => {});
-                  }
-                } }));
+                attemptedImages += 1;
+                let phase = "download";
+                try {
+                  const buffer = await budget.run(() => downloadImage(url, { budget }));
+                  budget.assertActive();
+                  phase = "upload";
+                  images.push(await budget.run(() => uploadImage(buffer), { onLateResult: async image => {
+                    if (!await cleanup([image])) {
+                      await ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: {
+                        usuarioId, importSourceId: source._id, externalId, state: "cleanup_required"
+                      }, $addToSet: { publicIds: image.publicId } }, { upsert: true }).catch(() => {});
+                    }
+                  } }));
+                }
+                catch (error) {
+                  skippedImages += 1;
+                  logImageFailure(error, phase, attemptedImages);
+                  if (error.code === "IMPORT_TIMEOUT") throw error;
+                  warnings.push("No se pudo importar una imagen: formato, tamaño, conexión o subida.");
+                }
+                await budget.run(() => ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: { publicIds: images.map(image => image.publicId) } }));
               }
-              catch (error) {
-                skippedImages += 1;
-                logImageFailure(error, phase, attemptedImages);
-                if (error.code === "IMPORT_TIMEOUT") throw error;
-                warnings.push("No se pudo importar una imagen: formato, tamaño, conexión o subida.");
-              }
-              await budget.run(() => ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: { publicIds: images.map(image => image.publicId) } }));
             }
             // Revalidar después de las descargas, antes de publicar.
             const finalUser = await budget.run(() => UsuarioModel.findById(usuarioId));

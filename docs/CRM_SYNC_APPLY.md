@@ -78,7 +78,7 @@ including idempotent calls, are subject to those request limits.
 
 Runs/results/logs contain safe IDs, counters, dates and allowlisted codes, not full
 before/after values, descriptions, XML, feed URLs, ciphertext or secrets. Phase 2
-remains 10 properties / 100 photos / 120 seconds; commercial plan limits are unchanged.
+remains 10 properties / 120 seconds; commercial plan limits are unchanged.
 
 Tests use mock persistence/transport and a mocked Mongoose collection to verify
 save CAS. No real MongoDB or Cloudinary is used for this implementation's checks.

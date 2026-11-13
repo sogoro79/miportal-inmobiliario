@@ -6,7 +6,7 @@ import { normalizeInmowebXml, isInmowebXml } from "../utils/import/adapters/inmo
 import { analyzeGenericXml } from "../utils/importers/genericXmlImporter.js";
 import { buildSyncSnapshot } from "../utils/import/syncSnapshot.js";
 import { tipoInmuebleSchema } from "../utils/propertySchemas.js";
-import { MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
+import { MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 
 const xml = fs.readFileSync(new URL("./fixtures/crm/inmoweb-synthetic.xml", import.meta.url), "utf8");
 const generic = '<properties><property><id>GENERIC-A</id><title>Prueba</title><operation>sale</operation><price>10</price><address>Dirección ficticia</address><bedrooms>2</bedrooms><propertyType>flat</propertyType></property></properties>';
@@ -233,5 +233,5 @@ test("generic registry defaults and snapshot semantics remain unchanged", () => 
   assert.deepEqual(buildFeedSnapshot(generic), buildSyncSnapshot(generic));
   assert.throws(() => analyzeFeedXml(xml), { code: "XML_EMPTY" });
   assert.throws(() => analyzeFeedXml(generic, { feedType: "constructor" }), { code: "UNSUPPORTED_FEED_TYPE" });
-  assert.deepEqual([MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS], [10, 100, 120000]);
+  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 120000]);
 });

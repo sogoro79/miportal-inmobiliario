@@ -26,7 +26,7 @@ fuente, lease existente, presupuesto compartido y hooks MongoDB. No se adquiere
 un segundo lock. El orquestador libera solamente su lease. El endpoint publico de
 Fase 2 sigue usando su camino original, sin este contexto.
 
-Se conservan los limites de 10 inmuebles, 100 fotos y 120 segundos, asi como los
+Se conservan los limites de 10 inmuebles y 120 segundos, asi como los
 limites comerciales vigentes. VIP y vip_trial no eliminan los limites tecnicos.
 Las comprobaciones de plan/cupo, descarga, subida, cleanup, reconciliacion y
 publicationVersion pertenecen a los servicios existentes.

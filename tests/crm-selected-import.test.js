@@ -18,7 +18,7 @@ import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { createSyncSimulator } from "../utils/import/syncSimulation.js";
 import { createSyncEnroller } from "../utils/import/syncEnroll.js";
 import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES, MAX_BATCH_PHOTOS, MAX_BATCH_MS } from "../utils/import/importBudget.js";
+import { createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { isPrivateOrReservedIp, maskFeedUrl, assertPublicFeedTarget } from "../utils/import/feedSecurity.js";
 
 const USER = "507f1f77bcf86cd799439099";
@@ -398,15 +398,15 @@ test("lote con 11 inmuebles se rechaza antes de crear fuente o descargar", async
   assert.equal(f.sources.length, 0); assert.equal(f.downloaded.length, 0);
 });
 
-test("lote VIP de 10 inmuebles con 101 fotos se rechaza sin cambiar límites comerciales", async () => {
+test("lote VIP de 10 inmuebles con 101 fotos se importa sin cambiar límites comerciales", async () => {
   const f = fixture({ plan: "vip" });
   f.analyzed.properties = Array.from({ length: 10 }, (_, i) => ({ ...f.analyzed.properties[0], externalId: `REF-${i}`,
     fotos: Array.from({ length: i === 0 ? 11 : 10 }, (_, j) => `https://example.com/${i}/${j}.png`) }));
-  await assert.rejects(() => f.run({ ...f.input, selectedExternalIds: f.analyzed.properties.map(p => p.externalId) }), /100 fotos/);
-  assert.equal(f.downloaded.length, 0); assert.equal(f.sources.length, 0); assert.equal(getLimiteFotosPlan("vip"), Infinity);
+  const result = await f.run({ ...f.input, selectedExternalIds: f.analyzed.properties.map(p => p.externalId) });
+  assert.equal(result.imported, 10); assert.equal(f.downloaded.length, 101); assert.equal(getLimiteFotosPlan("vip"), Infinity);
 });
 
-for (const plan of ["vip", "vip_trial"]) test(`lote de 10 inmuebles y 100 fotos está permitido para ${plan}`, async () => {
+for (const plan of ["vip", "vip_trial"]) test(`lote de 10 inmuebles está permitido para ${plan}`, async () => {
   const f = fixture({ plan, count: 300 });
   f.analyzed.properties = Array.from({ length: 10 }, (_, i) => ({ ...f.analyzed.properties[0], externalId: `REF-${i}`,
     fotos: Array.from({ length: 10 }, (_, j) => `https://example.com/${i}/${j}.png`) }));
@@ -417,7 +417,7 @@ for (const plan of ["vip", "vip_trial"]) test(`lote de 10 inmuebles y 100 fotos 
 
 test("solo cambia el máximo de inmuebles: fotos y presupuesto permanecen iguales", () => {
   assert.equal(MAX_BATCH_PROPERTIES, 10);
-  assert.equal(MAX_BATCH_PHOTOS, 100);
+  assert.equal(PHOTO_CHUNK_SIZE, 100);
   assert.equal(MAX_BATCH_MS, 120000);
 });
 
@@ -659,6 +659,7 @@ test("selección frontend bloquea cupo excedido y copia solo referencias selecci
   assert.equal(get("btnImportCrm").disabled, true);
   selected.pop();
   vm.runInContext("crmPreviewData.properties[0].fotosImportables = 11; actualizarSeleccionCrm();", context);
-  assert.equal(get("btnImportCrm").disabled, true);
-  assert.match(html, /Por lote: hasta 10 inmuebles y 100 fotos, con un máximo de 120 segundos\. Los límites comerciales de tu plan no cambian\./);
+  assert.equal(get("btnImportCrm").disabled, false);
+  assert.doesNotMatch(html, /photos > 100|hasta 10 inmuebles y 100 fotos/);
+  assert.match(html, /Por lote: hasta 10 inmuebles, con un máximo de 120 segundos\. Los límites comerciales de tu plan no cambian\./);
 });
