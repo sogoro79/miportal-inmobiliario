@@ -1,0 +1,11 @@
+{
+  "existing": [{
+    "_id":"000000000000000000000001","referencia":"MAN-1","titulo":"Chalet con mirador de piedra","descripcion":"Vivienda con mirador de piedra sobre los bancales y una escalera de caracol hasta la buhardilla",
+    "precio":250000,"localidad":"Villa Azul","provincia":"Costa Azul","superficie":120,"habitaciones":3,"banos":2,"tipoInmueble":"chalet","tipoOperacion":"venta","imagenes":["https://example.invalid/mirador.jpg"]
+  }],
+  "incoming": [
+    {"externalId":"DEMO-A","referencia":"CRM-A","titulo":"Chalet con mirador de piedra","descripcion":"Vivienda con mirador de piedra sobre los bancales y una escalera de caracol hasta la buhardilla","precio":250000,"localidad":"Villa Azul","provincia":"Costa Azul","superficie":120,"habitaciones":3,"banos":2,"tipoInmueble":"chalet","tipoOperacion":"venta","imagenes":["https://example.invalid/mirador.jpg"]},
+    {"externalId":"DEMO-B","referencia":"CRM-B","titulo":"Casa en los bancales","descripcion":"Vivienda con mirador de piedra sobre los bancales y una escalera de caracol hasta la buhardilla","precio":280000,"localidad":"Villa Azul","provincia":"Costa Azul","superficie":122,"habitaciones":3,"banos":2,"tipoInmueble":"chalet","tipoOperacion":"venta","imagenes":["https://example.invalid/otra.jpg"]},
+    {"externalId":"DEMO-C","referencia":"CRM-C","titulo":"Estudio en casco viejo","descripcion":"Estudio reformado junto al mercado municipal","precio":680,"localidad":"Villa Verde","provincia":"Valle Verde","superficie":32,"habitaciones":1,"banos":1,"tipoInmueble":"estudio","tipoOperacion":"alquiler","imagenes":[]}
+  ]
+}

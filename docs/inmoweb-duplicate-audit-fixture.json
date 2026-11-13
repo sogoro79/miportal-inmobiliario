@@ -1,0 +1,110 @@
+{
+  "origen": "Fixtures sintéticos, sin datos de Miguel",
+  "totalNEW": 3,
+  "resumen": {
+    "PROBABLEMENTE NUEVA": 1,
+    "POSIBLE DUPLICADA": 1,
+    "SEGURAMENTE DUPLICADA": 1
+  },
+  "filas": [
+    {
+      "externalId": "DEMO-A",
+      "referenciaCRM": "CRM-A",
+      "tituloNormalizado": "chalet con mirador de piedra",
+      "precio": 250000,
+      "localidad": "Villa Azul",
+      "provincia": "Costa Azul",
+      "m2": 120,
+      "dormitorios": 3,
+      "banos": 2,
+      "fotos": 1,
+      "clasificacion": "SEGURAMENTE DUPLICADA",
+      "confianzaCoincidencia": "alta",
+      "puntos": 114,
+      "evidenceFamilies": [
+        "visual",
+        "textual",
+        "location_commercial",
+        "structural"
+      ],
+      "candidata": {
+        "_id": "000000000000000000000001",
+        "referencia": "MAN-1",
+        "titulo": "Chalet con mirador de piedra"
+      },
+      "alternativas": [],
+      "razones": [
+        "misma imagen principal, 1 URL de foto coincidente(s), mismo conjunto de fotos",
+        "descripción 100% similar",
+        "título 100% similar",
+        "mismo precio",
+        "misma localidad",
+        "misma provincia",
+        "mismos m² construidos",
+        "mismos dormitorios",
+        "mismos baños",
+        "mismo tipo",
+        "misma operación"
+      ]
+    },
+    {
+      "externalId": "DEMO-B",
+      "referenciaCRM": "CRM-B",
+      "tituloNormalizado": "casa en los bancales",
+      "precio": 280000,
+      "localidad": "Villa Azul",
+      "provincia": "Costa Azul",
+      "m2": 122,
+      "dormitorios": 3,
+      "banos": 2,
+      "fotos": 1,
+      "clasificacion": "POSIBLE DUPLICADA",
+      "confianzaCoincidencia": "media",
+      "puntos": 52,
+      "evidenceFamilies": [
+        "textual",
+        "location_commercial",
+        "structural"
+      ],
+      "candidata": {
+        "_id": "000000000000000000000001",
+        "referencia": "MAN-1",
+        "titulo": "Chalet con mirador de piedra"
+      },
+      "alternativas": [],
+      "razones": [
+        "descripción 100% similar",
+        "misma localidad",
+        "misma provincia",
+        "mismos dormitorios",
+        "mismos baños",
+        "mismo tipo",
+        "misma operación",
+        "precio distinto"
+      ]
+    },
+    {
+      "externalId": "DEMO-C",
+      "referenciaCRM": "CRM-C",
+      "tituloNormalizado": "estudio en casco viejo",
+      "precio": 680,
+      "localidad": "Villa Verde",
+      "provincia": "Valle Verde",
+      "m2": 32,
+      "dormitorios": 1,
+      "banos": 1,
+      "fotos": 0,
+      "clasificacion": "PROBABLEMENTE NUEVA",
+      "confianzaCoincidencia": "baja",
+      "puntos": 0,
+      "evidenceFamilies": [],
+      "candidata": null,
+      "alternativas": [],
+      "razones": [
+        "discrepancia de ubicación u operación",
+        "precio distinto",
+        "Sin combinación significativa"
+      ]
+    }
+  ]
+}
