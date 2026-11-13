@@ -1,5 +1,5 @@
 import { safeRunSummary, runVersions, snapshotDigest } from "./syncPlan.js";
-import { assertInmowebNewSelectionAllowed, receivedNewSnapshotValid } from "./inmowebPolicy.js";
+import { assertInmowebNewSelectionAllowed, matchesDelegatedRun, receivedNewSnapshotValid } from "./inmowebPolicy.js";
 import { SNAPSHOT_REQUIRED } from "./providerSnapshots.js";
 
 const reusable = run => run.status === "simulated" && !run.blocked && !run.errorCode &&
@@ -21,17 +21,18 @@ export function createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, 
     if (query?.lean) query = query.lean();
     return query;
   }
-  async function evaluate(run, owner, source, actorAdminId) {
+  async function evaluate(run, owner, source, delegation) {
     const dto = safeRunSummary(run, now(), env);
     if (run.feedType !== "inmoweb") return dto;
     source ??= await sourceFor(owner);
     let evidence, blocked = dto.newImportBlockedReason;
     if (!sameSource(run, source, owner)) blocked = "SYNC_NEW_SOURCE_CHANGED";
-    else if (run.actorAdminId && String(run.actorAdminId) !== String(actorAdminId)) blocked = "CRM_DELEGATION_REQUIRED";
+    else if ((run.actorAdminId || run.delegationId || delegation) && !matchesDelegatedRun(run, delegation)) blocked = "CRM_DELEGATION_REQUIRED";
     else if (!reusable(run)) blocked = blocked || "SYNC_NEW_RUN_CHANGED";
     else if (!(new Date(run.expiresAt).getTime() > +now())) blocked = "RUN_EXPIRED";
     else {
       try {
+        if (delegation) await delegation.assert(source);
         evidence = await providerSnapshots.readPersisted({ run, usuarioId: owner, source });
         if (!receivedNewSnapshotValid(evidence.snapshot) || snapshotDigest(evidence.snapshot) !== run.snapshotDigest ||
             new Date(evidence.expiresAt).getTime() < +now()) throw new Error("Unavailable review");
@@ -51,10 +52,11 @@ export function createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, 
       if (row.type === "REAPPEARED") row.restoreEligible = false;
       if (row.type !== "NEW") continue;
       let reason = blocked;
+      if (!reason && delegation && row.importNewEligible !== true) reason = "SYNC_NEW_INVALID_DATA";
       const items = evidence?.snapshot.properties.filter(p => p.data.externalId === row.externalId) || [];
       if (!reason && (items.length !== 1 || items[0].publishableByData !== true || items[0].errors.length)) reason = "SYNC_NEW_INVALID_DATA";
       if (!reason) {
-        try { assertInmowebNewSelectionAllowed("inmoweb", [row.externalId], env); }
+        try { assertInmowebNewSelectionAllowed("inmoweb", [row.externalId], env, delegation); }
         catch (error) { reason = error.code === "INMOWEB_NEW_DISABLED" ? error.code : "INMOWEB_NEW_EXTERNAL_ID_NOT_ALLOWED"; }
       }
       row.importNewEligible = !reason;
@@ -66,12 +68,12 @@ export function createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, 
   }
   return {
     evaluate,
-    async byId(id, owner, actorAdminId) {
+    async byId(id, owner, delegation) {
       let query = ImportSyncRunModel.findOne({ _id: id, usuarioId: owner });
       if (query?.select) query = query.select("+plan");
       if (query?.lean) query = query.lean();
       const run = await query;
-      return run && String(run.usuarioId) === String(owner) ? evaluate(run, owner, undefined, actorAdminId) : null;
+      return run && String(run.usuarioId) === String(owner) ? evaluate(run, owner, undefined, delegation) : null;
     },
     async latest(owner) {
       const source = await sourceFor(owner);

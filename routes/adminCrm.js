@@ -175,7 +175,7 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
     const { userId, source, delegation } = await permitted(req);
     const result = await runSimulation({ usuarioId: userId, importSourceId: source._id, delegation });
     await delegation.assert(source);
-    res.json(await runReader.byId(result.runId, userId, delegation.actorAdminId));
+    res.json(await runReader.byId(result.runId, userId, delegation));
   }));
   router.post("/import-new", ...importLimits, handle(async (req, res) => {
     const body = selection.safeParse(req.body);
@@ -205,7 +205,7 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
     const run = await ImportSyncRunModel.findOne({ _id: req.params.runId, usuarioId: userId, importSourceId: source._id,
       feedType: "inmoweb", actorAdminId: delegation.actorAdminId, delegationId: delegation.id }).select("+plan").lean();
     if (!run) return res.status(404).json({ error: "Revisión no encontrada." });
-    res.json(await runReader.evaluate(run, userId, source, delegation.actorAdminId));
+    res.json(await runReader.evaluate(run, userId, source, delegation));
   }));
   return router;
 }

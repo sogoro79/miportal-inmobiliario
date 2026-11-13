@@ -10,9 +10,15 @@ export function assertInmowebNewEnabled(feedType, env = process.env) {
   }
 }
 
-export function assertInmowebNewSelectionAllowed(feedType, externalIds, env = process.env) {
+export function matchesDelegatedRun(run, delegation) {
+  return Boolean(delegation?.actorAdminId && delegation.id && run.feedType === "inmoweb" &&
+    String(run.actorAdminId) === String(delegation.actorAdminId) &&
+    String(run.delegationId) === String(delegation.id));
+}
+
+export function assertInmowebNewSelectionAllowed(feedType, externalIds, env = process.env, delegation) {
   assertInmowebNewEnabled(feedType, env);
-  if (feedType !== "inmoweb") return;
+  if (feedType !== "inmoweb" || delegation) return;
   const configured = env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS;
   const allowed = new Set(typeof configured === "string"
     ? configured.split(",").map(id => id.trim()).filter(id => id && !id.includes("*"))

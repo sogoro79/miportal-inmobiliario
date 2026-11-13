@@ -10,7 +10,7 @@ import { analyzeGenericPropertyNodes, parseGenericPropertyNodes } from "../impor
 import { fetchFeedXml } from "./feedFetcher.js";
 import { MAX_SYNC_PROPERTIES } from "./syncSnapshot.js";
 import { buildFeedSnapshot } from "../importers/importerRegistry.js";
-import { assertInmowebNewSelectionAllowed, receivedNewSnapshotValid } from "./inmowebPolicy.js";
+import { assertInmowebNewSelectionAllowed, matchesDelegatedRun, receivedNewSnapshotValid } from "./inmowebPolicy.js";
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { evaluateRunNewImportEligibility, snapshotDigest } from "./syncPlan.js";
 import { acquireSyncLock } from "./syncLock.js";
@@ -45,8 +45,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const run = await query;
       if (!run) throw newImportError("SYNC_RUN_NOT_FOUND", 404);
       if (run.actorAdminId || run.delegationId || delegation) {
-        if (!delegation || String(run.actorAdminId) !== String(delegation.actorAdminId) ||
-            String(run.delegationId) !== String(delegation.id) || run.feedType !== "inmoweb") {
+        if (!matchesDelegatedRun(run, delegation)) {
           throw newImportError("CRM_DELEGATION_DENIED", 403);
         }
       }
@@ -61,6 +60,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       for (const id of selected) {
         const entries = run.plan.filter(item => item.externalId === id);
         if (entries.length !== 1 || entries[0].type !== "NEW") throw newImportError("SYNC_NEW_SELECTION_INVALID", 400);
+        if (delegation && entries[0].importNewEligible !== true) throw newImportError("SYNC_NEW_INVALID_DATA");
       }
       if (operationStarted && (run.newImport?.status !== "importing" || !sameSelection(run.newImport.selectedExternalIds, selected))) {
         throw newImportError("SYNC_NEW_RUN_CHANGED");
@@ -72,7 +72,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       if (!source) throw newImportError("SYNC_SOURCE_NOT_FOUND", 404);
       if ((initial.feedType || "generic_xml") !== source.feedType) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
       if (delegation) await budget.run(() => delegation.assert(source));
-      assertInmowebNewSelectionAllowed(source.feedType, selected, env);
+      assertInmowebNewSelectionAllowed(source.feedType, selected, env, delegation);
       if (initial.sourceIdentityHash !== source.feedUrlHash) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
       if (initial.newImport && initial.newImport.status !== "idle") {
         if (!sameSelection(initial.newImport.selectedExternalIds, selected)) throw newImportError("SYNC_NEW_SELECTION_MISMATCH");
@@ -162,15 +162,15 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         budget.assertActive();
         if (delegation) {
           await delegation.assert(lock.source, session);
-          assertInmowebNewSelectionAllowed(lock.source.feedType, selected, env);
         }
+        assertInmowebNewSelectionAllowed(lock.source.feedType, selected, env, delegation);
         await lock.assert(session);
         const run = await readRun(session);
         checkRun(run, lock.source, true);
         if (run.snapshotDigest !== freshRun.snapshotDigest) throw newImportError("SYNC_NEW_RUN_CHANGED");
         if (lock.source.feedType === "inmoweb") await leasedSnapshot(session);
       };
-      const internalContext = { source: lock.source, lock,
+      const internalContext = { delegation, source: lock.source, lock,
         assert: () => budget.run(() => assertOperation()),
         beforePersist: async session => {
           if (delegation) await delegation.fence(lock.source, session);

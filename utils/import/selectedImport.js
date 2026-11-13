@@ -68,7 +68,7 @@ export function createSelectedImporter({
     const budget = suppliedBudget || createImportBudget({ now: () => now().getTime() });
     try {
       budget.assertActive();
-      assertInmowebNewSelectionAllowed(analyzed.feedType, selectedExternalIds, env);
+      assertInmowebNewSelectionAllowed(analyzed.feedType, selectedExternalIds, env, internalContext?.delegation);
       if (analyzed.feedType === "inmoweb" && !internalContext) {
         throw new ImportError("InmoWeb requiere una simulación vigente.", 409, "INMOWEB_NEW_REQUIRES_SYNC");
       }

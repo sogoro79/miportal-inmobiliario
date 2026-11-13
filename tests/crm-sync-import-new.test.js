@@ -991,7 +991,7 @@ test("InmoWeb publication persists cleaned public text while preserving provider
 // Exercise the admin HTTP boundary, the same simulator, encrypted snapshot store
 // and transactional importer. Only models, image transport and feed transport are fakes.
 async function delegatedFixture(t) {
-  const h = inmoHarness();
+  const h = inmoHarness({ allowlist: "OTHER-ID" });
   const A = "507f1f77bcf86cd799439044", G = "507f1f77bcf86cd799439045";
   const admin = { _id: A, role: "admin", activo: true, plan: "gratis", nombre: "Admin de prueba" };
   Object.assign(h.state.user, { role: "user", nombre: "Titular de prueba" });
@@ -1052,12 +1052,14 @@ test("delegated simulation and NEW use the target throughout; audit, receipts an
   assert.equal((await call("GET", "source", {}, U)).status, 403);
   assert.equal((await call("GET", "source", {}, false)).status, 401);
   assert.equal((await call("POST", "simulate")).status, 403);
+  assert.equal((await publish()).status, 403);
   assert.equal((await call("PUT", "authorization", { enabled: true })).status, 400);
   assert.equal((await allow()).status, 200); assert.equal(grant().grantedBy, A);
   const source = await call("GET", "source"); assert.equal(source.body.nombre, "Titular de prueba");
   assert.equal(source.body.plan, "vip"); assert.equal(source.body.authorized, true);
   assert.equal((await call("POST", "simulate", { usuarioId: A })).status, 400);
   const sim = await call("POST", "simulate"); assert.equal(sim.status, 200); assert.equal(sim.body.newImportEligible, true);
+  assert.equal(sim.body.results.find(row => row.externalId === "IW-0").importNewEligible, true);
   assert.equal(sim.body.snapshotComplete, false);
   assert.doesNotMatch(JSON.stringify([source.body, sim.body]), /encrypted|catalog\.xml|feedUrlHash|token=secret|snapshotDigest/);
   assert.equal(String(db.docs.get(R).usuarioId), U); assert.equal(String(db.docs.get(R).importSourceId), S);
@@ -1079,7 +1081,7 @@ test("delegated simulation and NEW use the target throughout; audit, receipts an
   await assert.rejects(h.run(h.request), { code: "CRM_DELEGATION_DENIED" }); // Owner route cannot impersonate the actor.
 });
 
-for (const failure of ["source", "inactive", "source-identity", "actor", "grant", "gate", "allowlist", "capacity",
+for (const failure of ["source", "inactive", "source-identity", "actor", "grant", "gate", "ineligible-row", "expired-snapshot", "gate-before-persist", "capacity",
   "revoked-before-persist", "demoted-before-persist", "expired-plan", "existing"]) {
   test(`delegated NEW protects target publication: ${failure}`, async t => {
     const { h, call, allow, publish, grant, admin } = await delegatedFixture(t);
@@ -1090,9 +1092,15 @@ for (const failure of ["source", "inactive", "source-identity", "actor", "grant"
     if (failure === "actor") h.state.run.actorAdminId = U;
     if (failure === "grant") h.state.run.delegationId = R;
     if (failure === "gate") h.dependencies.env.INMOWEB_NEW_ENABLED = "false";
-    if (failure === "allowlist") h.dependencies.env.INMOWEB_NEW_ALLOWED_EXTERNAL_IDS = "other";
+    if (failure === "ineligible-row") h.state.run.plan[0].importNewEligible = false;
+    if (["ineligible-row", "gate"].includes(failure)) {
+      const review = await call("GET", "runs/" + R);
+      assert.equal(review.body.results[0].importNewEligible, false);
+    }
+    if (failure === "expired-snapshot") h.advance(300001);
     if (failure === "capacity") { h.state.user.plan = "gratis"; h.state.properties.push({ usuarioId: U }, { usuarioId: U }); }
     let reachedTransaction = false;
+    if (failure === "gate-before-persist") h.faults.beforeTransaction = () => { reachedTransaction = true; h.dependencies.env.INMOWEB_NEW_ENABLED = "false"; };
     if (failure === "revoked-before-persist") h.faults.beforeTransaction = () => { reachedTransaction = true; grant().enabled = false; };
     if (failure === "demoted-before-persist") h.faults.beforeTransaction = () => { reachedTransaction = true; admin.role = "user"; };
     if (failure === "expired-plan") h.state.user.planFechaFin = new Date(0);
@@ -1100,7 +1108,7 @@ for (const failure of ["source", "inactive", "source-identity", "actor", "grant"
     const before = h.state.properties.length;
     const result = await publish();
     if (failure === "existing") assert.equal(result.body.newImport.counts.alreadyExists, 1);
-    else if (["capacity", "gate", "allowlist"].includes(failure)) assert.ok([400, 409].includes(result.status));
+    else if (["capacity", "gate", "ineligible-row", "gate-before-persist", "expired-snapshot"].includes(failure)) assert.ok([400, 409].includes(result.status));
     else assert.equal(result.status, 403);
     if (failure.endsWith("before-persist")) assert.equal(reachedTransaction, true);
     if (["source", "source-identity", "inactive"].includes(failure)) assert.equal((await call("POST", "simulate")).status, 403);
