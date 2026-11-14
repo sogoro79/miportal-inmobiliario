@@ -418,7 +418,7 @@ for (const plan of ["vip", "vip_trial"]) test(`lote de 10 inmuebles está permit
 test("solo cambia el máximo de inmuebles: fotos y presupuesto permanecen iguales", () => {
   assert.equal(MAX_BATCH_PROPERTIES, 10);
   assert.equal(PHOTO_CHUNK_SIZE, 100);
-  assert.equal(MAX_BATCH_MS, 600000);
+  assert.equal(MAX_BATCH_MS, 900000);
 });
 
 test("timeout durante persistencia retiene recursos mientras termina la transacción", async () => {
@@ -661,7 +661,7 @@ test("selección frontend bloquea cupo excedido y copia solo referencias selecci
   vm.runInContext("crmPreviewData.properties[0].fotosImportables = 11; actualizarSeleccionCrm();", context);
   assert.equal(get("btnImportCrm").disabled, false);
   assert.doesNotMatch(html, /photos > 100|hasta 10 inmuebles y 100 fotos/);
-  assert.match(html, /Por lote: hasta 10 inmuebles, con un máximo de 600 segundos\. Los límites comerciales de tu plan no cambian\./);
+  assert.match(html, /Por lote: hasta 10 inmuebles, con un máximo de 900 segundos\. Los límites comerciales de tu plan no cambian\./);
 });
 
 test("property deadlines restart within the remaining batch time; stalled work is bounded", async () => {
@@ -669,16 +669,16 @@ test("property deadlines restart within the remaining batch time; stalled work i
   const batch = createBatchBudget({ now: () => clock });
   const first = batch.forProperty();
   try {
-    clock = 179999;
+    clock = 199999;
     assert.equal(first.remainingMs(), 1);
     const second = batch.forProperty();
     try {
-      assert.equal(second.remainingMs(), 180000);
-      clock += 180000;
+      assert.equal(second.remainingMs(), 200000);
+      clock += 200000;
       assert.throws(() => second.assertActive(), { code: "IMPORT_TIMEOUT", propertyTimeout: true });
       batch.assertActive();
     } finally { second.dispose(); }
-    clock = 599999;
+    clock = 899999;
     const last = batch.forProperty();
     try {
       assert.equal(last.remainingMs(), 1);

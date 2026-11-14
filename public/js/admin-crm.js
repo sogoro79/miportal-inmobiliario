@@ -58,6 +58,15 @@
     dialog.showModal();
     return action(load, "No se pudo cargar el estado CRM del titular. Cierra y vuelve a abrir la ventana.");
   };
+  function importStatus(receipt) {
+    switch (receipt?.status) {
+      case "importing": return "La importación continúa procesándose…";
+      case "completed": return receipt.counts?.skipped ? "Importación finalizada con anuncios omitidos." : "Importación completada.";
+      case "failed": return "La importación ha fallado." + (receipt.failureCode ? " Código: " + receipt.failureCode : "");
+      case "indeterminate": return "Resultado pendiente de reconciliación. Consulta el estado antes de repetir la importación.";
+      default: return "Aún no consta un resultado de importación para esta revisión.";
+    }
+  }
   function render(run) {
     const output = el("Results"); output.replaceChildren();
     const summary = document.createElement("p");
@@ -92,12 +101,19 @@
       const outcomes = { imported: "Importado", skipped: "Omitido", already_exists: "Ya existe", indeterminate: "Pendiente de comprobación" };
       for (const item of run.newImport.results || []) {
         const detail = document.createElement("p");
-        detail.textContent = item.externalId + " · " + (item.reason === "PROPERTY_TIMEOUT" ? "Omitido por tiempo máximo del inmueble" : outcomes[item.status] || "Consulta el estado");
+        const reasons = { PROPERTY_TIMEOUT: "Tiempo máximo del inmueble alcanzado", INVALID_DATA: "Datos no válidos",
+          CREATION_FAILED: "No se pudo crear", RECONCILIATION_REQUIRED: "Pendiente de reconciliación", NOT_STARTED: "Sin iniciar" };
+        detail.textContent = [item.externalId, outcomes[item.status] || "Consulta el estado", reasons[item.reason]].filter(Boolean).join(" · ");
         output.append(detail);
       }
     }
     const consult = document.createElement("button"); consult.textContent = "Consultar estado";
-    consult.onclick = () => action(async () => { render(await api("runs/" + run.runId)); el("Status").textContent = ""; });
+    async function consultRun() {
+      const current = await api("runs/" + run.runId);
+      render(current);
+      el("Status").textContent = importStatus(current.newImport);
+    }
+    consult.onclick = () => action(consultRun, "No se pudo leer el estado de la importación. Vuelve a consultar.");
     output.append(consult);
     if (!selection.length) return;
     const button = document.createElement("button"); button.textContent = "Importar seleccionados";
@@ -114,10 +130,16 @@
       }
       button.disabled = true;
       selection.forEach(input => { input.disabled = true; });
-      const result = await api("import-new", "POST", { runId: run.runId, externalIds: ids });
-      render({ ...run, newImportEligible: false, newImport: result.newImport });
-      el("Status").textContent = "Consulta el resultado de la importación.";
-    });
+      try {
+        const result = await api("import-new", "POST", { runId: run.runId, externalIds: ids });
+        if (!result?.newImport?.status) throw new Error();
+        render({ ...run, newImportEligible: false, newImport: result.newImport });
+        el("Status").textContent = importStatus(result.newImport);
+      } catch (error) {
+        if ([401, 403].includes(error.status)) throw error;
+        await consultRun();
+      }
+    }, "No se pudo leer el resultado. Usa Consultar estado antes de volver a importar.");
     output.append(button);
   }
   el("Simulate").onclick = () => action(async () => {

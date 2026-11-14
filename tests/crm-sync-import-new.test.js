@@ -386,7 +386,7 @@ test("InmoWeb keeps the property and time limits and processes additional photos
   assert.equal((await h.run(h.request)).newImport.counts.imported, 10); assert.equal(h.effects.uploads, 100);
   const many = inmoHarness({ count: 11 }); await assert.rejects(() => many.run(many.request), { code: "SYNC_NEW_SELECTION_INVALID" });
   const photos = inmoHarness({ count: 2, photos: 51 }); await photos.run(photos.request);
-  assert.equal(photos.effects.uploads, 102); assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 600000]);
+  assert.equal(photos.effects.uploads, 102); assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 900000]);
 });
 for (const mode of ["photo", "upload", "failCreate", "unconfirmed"]) test(`InmoWeb shared image/persistence failure ${mode}`, async () => {
   const h = inmoHarness({ photos: 2 }); h.faults[mode] = true;
@@ -703,7 +703,7 @@ test("generic_xml processes 102 photos within the existing time budget", async (
   const h = harness({ count: 2, photos: 51 });
   await h.run({ ...h.request, externalIds: ["N-0", "N-1"] });
   assert.equal(h.effects.uploads, 102);
-  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 600000]);
+  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 900000]);
 });
 test("full snapshot mapping retains entries beyond preview cap; truncated runs stay blocked", async () => {
   const h = harness({ count: 501 });
@@ -1299,8 +1299,23 @@ test("a download error in the second chunk omits only that image", async () => {
   assert.equal(h.effects.uploads, 159);
 });
 
-for (const slowFourth of [false, true]) {
-  test(`delegated 314 photos with a simulated clock, fourth property timeout=${slowFourth}`, async t => {
+test("delegated property completes after 199 seconds of processing", async t => {
+  const { h, call, allow } = await delegatedFixture(t, { count: 1, photos: 1, timed: true });
+  await allow();
+  const sim = await call("POST", "simulate");
+  assert.equal(sim.status, 200);
+  h.faults.download = () => h.advance(199000);
+  const result = await call("POST", "import-new", {
+    runId: R, externalIds: [sim.body.results[0].externalId]
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.newImport.counts.imported, 1);
+  assert.equal(result.body.newImport.counts.importedImages, 1);
+});
+
+for (const durationMs of [480000, 720000, 200000]) {
+  const slowFourth = durationMs === 200000;
+  test(`delegated 314 photos with simulated duration ${durationMs}ms, fourth property timeout=${slowFourth}`, async t => {
     const { h, call, allow } = await delegatedFixture(t, { count: 10, photos: [66,33,40,25,25,25,25,25,25,25], timed: true });
     await allow();
     const sim = await call("POST", "simulate");
@@ -1308,8 +1323,8 @@ for (const slowFourth of [false, true]) {
     const ids = sim.body.results.map(row => row.externalId);
     const start = +h.dependencies.now();
     h.faults.download = (_, url) => {
-      if (!slowFourth) h.advance(url.includes("/0/") ? 2000 : 1000);
-      else h.advance(url.endsWith("/3/0.jpg") ? 180001 : 10);
+      if (!slowFourth) h.advance(url.endsWith("/0/1.jpg") ? durationMs % 314 + Math.floor(durationMs / 314) : Math.floor(durationMs / 314));
+      else h.advance(url.endsWith("/3/0.jpg") ? 200000 : 10);
     };
     const body = { runId: R, externalIds: ids };
     const result = await call("POST", "import-new", body);
@@ -1318,7 +1333,8 @@ for (const slowFourth of [false, true]) {
     assert.equal(receipt.status, "completed");
     assert.equal(receipt.counts.imported, slowFourth ? 9 : 10);
     assert.equal(receipt.counts.importedImages, slowFourth ? 289 : 314);
-    assert.ok(+h.dependencies.now() - start > (slowFourth ? 180000 : 300000));
+    assert.ok(+h.dependencies.now() - start > (slowFourth ? 200000 : 300000));
+    if (!slowFourth) assert.equal(+h.dependencies.now() - start, durationMs);
     assert.ok(+h.dependencies.now() - start < MAX_BATCH_MS);
     if (slowFourth) {
       assert.equal(receipt.results.find(row => row.externalId === "IW-3").reason, "PROPERTY_TIMEOUT");

@@ -106,3 +106,42 @@ test("missing source shows setup; saving needs consent, clears the URL, and enab
     assert.equal(get("Simulate").disabled, true);
   }
 });
+
+for (const terminal of ["completed", "failed", "indeterminate"]) {
+  test(`lost POST reads importing once and manual consultation shows ${terminal}`, async () => {
+    const elements = new Map(), paths = [];
+    const document = { getElementById(id) {
+      if (!elements.has(id)) elements.set(id, element("div"));
+      return elements.get(id);
+    }, createElement: element, createTextNode: text => Object.assign(element("text"), { textContent: text }) };
+    const get = key => document.getElementById("crmDelegated" + key);
+    const until = new Date(Date.now() + 60000).toISOString();
+    const run = { runId: "r", snapshotCount: 10, newCount: 10, expiresAt: until, snapshotExpiresAt: until,
+      newImportEligible: true, results: [{ type: "NEW", externalId: "ref", importNewEligible: true }] };
+    let status = "importing";
+    const context = vm.createContext({ window: {}, document, Date, adminToken: "test", confirm: () => true,
+      fetch: async path => {
+        paths.push(path);
+        if (path.endsWith("/import-new")) throw new TypeError("network error");
+        const receipt = { status, counts: { imported: status === "importing" ? 8 : 10 },
+          ...(status === "failed" && { failureCode: "SYNC_NEW_PLAN_LIMIT" }) };
+        const result = path.endsWith("/source") ? { authorized: true, planActive: true, available: 10 }
+          : path.endsWith("/simulate") ? run : { ...run, newImportEligible: false, newImport: receipt };
+        return { ok: true, json: async () => result };
+      } });
+    vm.runInContext(script, context);
+    await context.window.abrirCrmDelegado("target");
+    await get("Simulate").onclick();
+    const button = name => get("Results").children.find(el => el.textContent === name);
+    get("Results").children.flatMap(el => el.children).find(el => el.tag === "input").checked = true;
+    await button("Importar seleccionados").onclick();
+    assert.equal(get("Status").textContent, "La importación continúa procesándose…");
+    assert.equal(paths.filter(p => p.endsWith("/runs/r")).length, 1);
+    status = terminal;
+    await button("Consultar estado").onclick();
+    assert.match(get("Status").textContent, { completed: /completada/, failed: /SYNC_NEW_PLAN_LIMIT/, indeterminate: /reconciliación/ }[terminal]);
+    assert.equal(paths.filter(p => p.endsWith("/runs/r")).length, 2);
+    assert.equal(paths.filter(p => p.endsWith("/import-new")).length, 1);
+    if (terminal === "completed") assert.ok(get("Results").children.some(el => el.textContent.includes("Anuncios importados: 10")));
+  });
+}

@@ -1,7 +1,7 @@
 export const MAX_BATCH_PROPERTIES = 10;
 export const PHOTO_CHUNK_SIZE = 100;
-export const MAX_BATCH_MS = 600_000;
-export const MAX_PROPERTY_MS = 180_000;
+export const MAX_BATCH_MS = 900_000;
+export const MAX_PROPERTY_MS = 200_000;
 const DEFAULT_OPERATION_MS = 120_000;
 
 export function createBatchBudget(options) {
