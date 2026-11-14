@@ -71,12 +71,18 @@ export function createFeedAccess({ fetchXml = fetchFeedXml, now = Date.now,
     const started = now();
     entry.pending = (async () => {
       let status = null;
+      let transportInfo;
+      let observedStatus = null;
       let cooldownMs = 0;
       const transportBudget = fresh && budget ? budget : createImportBudget({ timeoutMs: 45_000 });
       try {
         // Shared reads have their own transport deadline: one waiter's cancellation
         // must not abort other readers. Fresh writes retain their operation budget.
         const result = await transportBudget.run(() => fetchXml(url, { ...transport, budget: transportBudget,
+          ...(feedType === "inmoweb" && {
+            onHttpStatus: value => { observedStatus = value; },
+            onFeedResponse: info => { transportInfo = info; }
+          }),
           signal: fresh && signal ? signal : transportBudget.signal }));
         status = result.httpStatus || 200;
         const capture = { xml: result.xml, fetchedAt: new Date(now()).toISOString(), expiresAt: now() + ttlMs, cached: false };
@@ -96,7 +102,8 @@ export function createFeedAccess({ fetchXml = fetchFeedXml, now = Date.now,
         if (transportBudget !== budget) transportBudget.dispose();
         // An explicit whitelist; never pass the error, URL, headers or response body.
         try { log({ provider: ["inmoweb", "generic_xml", "auto"].includes(feedType) ? feedType : "other",
-          httpStatus: status, durationMs: Math.max(0, now() - started), timestamp: new Date(now()).toISOString(),
+          httpStatus: observedStatus ?? status, durationMs: Math.max(0, now() - started), timestamp: new Date(now()).toISOString(),
+          ...(transportInfo && { transport: transportInfo, runtime: process.version }),
           instance: safeLabel(instance), version: safeLabel(version), cooldownMs }); } catch { /* telemetry must not affect imports */ }
       }
     })();

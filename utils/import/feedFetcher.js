@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import http from "node:http";
 import https from "node:https";
 import {
@@ -47,10 +49,42 @@ function getHeader(headers = {}, name = "") {
   return found?.[1];
 }
 
+const sha256 = value => createHash("sha256").update(value).digest("hex");
+
+function transportSummary(initialHost, url, target, redirects, response) {
+  const peer = response.peerAddress;
+  const info = {
+    initialHostHash: sha256(initialHost), finalHostHash: sha256(url.hostname),
+    protocol: url.protocol.slice(0, -1), redirects,
+    resolvedIpHash: sha256(target.address), resolvedFamily: target.family,
+    ...(isIP(peer || "") && { peerIpHash: sha256(peer), peerFamily: isIP(peer) })
+  };
+  if (response.statusCode !== 403) return info;
+  const header = name => getHeader(response.headers, name);
+  const prefix = response.body.slice(0, 8192).toString().trimStart();
+  const type = String(header("content-type") || "").split(";")[0].trim().toLowerCase();
+  const format = !response.body.length ? "empty" : type === "text/html" || /^(?:<!doctype html|<html)/i.test(prefix)
+    ? "html" : type.endsWith("/xml") || type.endsWith("+xml") || /^<\?xml/i.test(prefix) ? "xml"
+    : type.startsWith("text/") || /^[\x20-\x7e\s]+$/.test(prefix) ? "text" : "unknown";
+  // Emit fixed categories and header presence only; values can echo customer data.
+  const server = String(header("server") || "").toLowerCase();
+  const denied = /access denied|forbidden/i.test(prefix);
+  return { ...info, bodyBytes: response.bodyBytes ?? Buffer.byteLength(response.body),
+    bodySha256: response.bodySha256 ?? sha256(response.body), bodyFormat: format,
+    responseBodyClass: denied && (server === "cloudflare" || /cloudflare/i.test(prefix)) ? "cloudflare-access-denied"
+      : denied ? "generic-forbidden" : format === "html" ? "unknown-html" : format,
+    serverClass: ["cloudflare", "nginx", "cloudfront", "varnish", "envoy"].includes(server) ? server : "unknown",
+    headerPresence: ["server", "via", "cf-ray", "x-cache", "x-served-by", "x-request-id", "retry-after"]
+      .filter(name => header(name) !== undefined),
+    retryAfterPresent: header("retry-after") !== undefined };
+}
+
 export function defaultRequestOnce(url, {
   timeoutMs = DEFAULT_FEED_TIMEOUT_MS,
   maxBytes = DEFAULT_MAX_XML_BYTES,
   binary = false,
+  observeFeed = false,
+  onHttpStatus,
   target,
   signal
 } = {}) {
@@ -80,6 +114,8 @@ export function defaultRequestOnce(url, {
         "User-Agent": "HomeClick24 CRM Importer/1.0"
       }
     }, res => {
+      onHttpStatus?.(res.statusCode);
+      const peerAddress = observeFeed ? res.socket?.remoteAddress : undefined;
       const chunks = [];
       let received = 0;
 
@@ -97,10 +133,13 @@ export function defaultRequestOnce(url, {
         settled = true;
         clearTimeout(deadline);
         if (abort) signal?.removeEventListener("abort", abort);
+        const bytes = Buffer.concat(chunks);
         resolve({
+          ...(observeFeed && { peerAddress }),
+          ...(observeFeed && res.statusCode === 403 && { bodyBytes: received, bodySha256: sha256(bytes) }),
           statusCode: res.statusCode || 0,
           headers: res.headers || {},
-          body: binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8")
+          body: binary ? bytes : bytes.toString("utf8")
         });
       });
       res.on("aborted", () => {
@@ -132,12 +171,17 @@ export async function fetchPublicResource(rawUrl, {
   maxBytes = DEFAULT_MAX_XML_BYTES,
   binary = false,
   requestOnce = defaultRequestOnce,
+  onFeedResponse,
+  onHttpStatus,
   budget,
   signal = budget?.signal
 } = {}) {
   let currentUrl = parseAndValidateFeedUrl(rawUrl);
 
+  const initialHost = currentUrl.hostname;
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    // A DNS or connection failure on a new hop has no HTTP response.
+    onHttpStatus?.(null);
     budget?.assertActive();
     let target;
     try {
@@ -148,10 +192,11 @@ export async function fetchPublicResource(rawUrl, {
     }
 
     budget?.assertActive();
-    const request = () => requestOnce(currentUrl, { timeoutMs: budget ? Math.min(timeoutMs, budget.remainingMs()) : timeoutMs, maxBytes, target, binary, signal });
+    const request = () => requestOnce(currentUrl, { timeoutMs: budget ? Math.min(timeoutMs, budget.remainingMs()) : timeoutMs, maxBytes, target, binary, signal, onHttpStatus, observeFeed: !binary && Boolean(onFeedResponse) });
     const response = await (budget ? budget.run(request) : request());
     const status = Number(response.statusCode || 0);
 
+    onHttpStatus?.(status || null);
     if ([301, 302, 303, 307, 308].includes(status)) {
       if (redirectCount >= maxRedirects) {
         throw new FeedFetchError("El feed redirige demasiadas veces.", "TOO_MANY_REDIRECTS");
@@ -162,6 +207,10 @@ export async function fetchPublicResource(rawUrl, {
       continue;
     }
 
+    if (!binary && onFeedResponse) {
+      try { onFeedResponse(transportSummary(initialHost, currentUrl, target, redirectCount, response)); }
+      catch { /* Diagnostics never affect the request. */ }
+    }
     if (status < 200 || status >= 300) {
       const error = new FeedFetchError(`El feed respondió con estado ${status}.`, "BAD_STATUS");
       error.httpStatus = status;

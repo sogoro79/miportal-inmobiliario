@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createFeedAccess, PROVIDER_BLOCKED, retryAfterMs } from "../utils/import/feedAccess.js";
@@ -113,4 +114,71 @@ test("fresh request retains import budget and does not fall back to stale cache 
     await assert.rejects(h.access(url, read), { code: PROVIDER_BLOCKED });
     assert.equal(calls, 2);
   } finally { budget.dispose(); }
+});
+
+for (const [status, ipv6, redirect, waf, retry] of [
+  [200,false,false,false,false], [206,false,false,false,false], [403,false,false,false,false],
+  [403,false,false,false,true], [403,true,true,true,false]
+]) test(`feed transport event ${status}, IPv${ipv6 ? 6 : 4}, redirect=${redirect}, retry=${retry}`, async () => {
+  const ip = ipv6 ? "2606:4700:4700::1111" : "8.8.8.8";
+  const body = waf ? "<html>Cloudflare Access Denied private marker</html>" : "Forbidden private marker";
+  let calls = 0;
+  const h = harness({ fetchXml: (raw, options) => fetchFeedXml(raw, { ...options,
+    lookup: async () => [{ address: ip, family: ipv6 ? 6 : 4 }],
+    requestOnce: async () => {
+      if (++calls === 1 && redirect) return { statusCode: 302, headers: { location: "https://edge.example/hidden?key=private" } };
+      return { statusCode: status, peerAddress: ip, body: status === 403 ? body : "<xml/>", headers: {
+        server: waf ? "cloudflare" : "sensitive-backend", "x-request-id": "private-id",
+        cookie: "private-cookie", ...(retry && { "retry-after": "123" }) } };
+    } }) });
+  if (status === 403) {
+    await assert.rejects(h.access(url, read), { code: PROVIDER_BLOCKED });
+    await assert.rejects(h.access(url, read), { code: PROVIDER_BLOCKED });
+  } else await h.access(url, read);
+  assert.equal(calls, redirect ? 2 : 1);
+  assert.equal(h.logs.length, 1);
+  const { httpStatus, transport } = h.logs[0];
+  assert.equal(httpStatus, status);
+  assert.equal(transport.peerFamily, ipv6 ? 6 : 4);
+  assert.equal(transport.redirects, Number(redirect));
+  assert.equal(transport.initialHostHash === transport.finalHostHash, !redirect);
+  assert.doesNotMatch(JSON.stringify(h.logs), /feed\.example|edge\.example|synthetic-secret|key=|private|<html>|sensitive-backend|8\.8\.8\.8|2606:/);
+  if (status === 403) {
+    assert.equal(transport.retryAfterPresent, retry);
+    assert.equal(transport.bodyFormat, waf ? "html" : "text");
+    assert.equal(transport.responseBodyClass, waf ? "cloudflare-access-denied" : "generic-forbidden");
+    assert.equal(transport.bodyBytes, Buffer.byteLength(body));
+    assert.equal(transport.bodySha256, createHash("sha256").update(body).digest("hex"));
+  }
+});
+
+for (const feedType of ["inmoweb", "generic_xml"]) {
+  for (const [status, type] of [[206, "text/xml"], [200, "text/html"], [403, "text/html"]]) {
+    test(`${feedType}: event scope for ${status} ${type}`, async () => {
+      const h = harness({ fetchXml: fetchFeedXml });
+      const request = h.access(url, { ...read, feedType, lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+        requestOnce: async () => ({ statusCode: status, headers: { "content-type": type, cookie: "private-cookie" }, body: "<private/>" }) });
+      if (status === 403) await assert.rejects(request, { code: PROVIDER_BLOCKED });
+      else if (type === "text/html") await assert.rejects(request, { code: "INVALID_CONTENT_TYPE" });
+      else await request;
+      const [event] = h.logs;
+      if (feedType === "generic_xml") {
+        assert.deepEqual(Object.keys(event).sort(), ["cooldownMs","durationMs","httpStatus","instance","provider","timestamp","version"]);
+        assert.equal(event.httpStatus, status === 206 ? 200 : status === 403 ? 403 : null);
+      } else assert.equal(event.httpStatus, status);
+      assert.doesNotMatch(JSON.stringify(event), /private|synthetic-secret|key=|feed\.example/);
+    });
+  }
+}
+
+test("DNS failure after a redirect has no status for the failed hop", async () => {
+  const h = harness({ fetchXml: fetchFeedXml });
+  let calls = 0;
+  await assert.rejects(h.access(url, { ...read, lookup: async () => {
+    if (calls) throw new Error("DNS failure");
+    return [{ address: "8.8.8.8", family: 4 }];
+  }, requestOnce: async () => { calls++; return { statusCode: 302, headers: { location: "https://edge.example/" } }; } }),
+  { code: PROVIDER_BLOCKED });
+  assert.equal(h.logs[0].httpStatus, null);
+  assert.equal(calls, 1);
 });
