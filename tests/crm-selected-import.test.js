@@ -18,7 +18,7 @@ import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { createSyncSimulator } from "../utils/import/syncSimulation.js";
 import { createSyncEnroller } from "../utils/import/syncEnroll.js";
 import { capturePropertyContent, markManualContentChanges } from "../utils/propertyContent.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS } from "../utils/import/importBudget.js";
+import { createBatchBudget, createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { isPrivateOrReservedIp, maskFeedUrl, assertPublicFeedTarget } from "../utils/import/feedSecurity.js";
 
 const USER = "507f1f77bcf86cd799439099";
@@ -418,7 +418,7 @@ for (const plan of ["vip", "vip_trial"]) test(`lote de 10 inmuebles está permit
 test("solo cambia el máximo de inmuebles: fotos y presupuesto permanecen iguales", () => {
   assert.equal(MAX_BATCH_PROPERTIES, 10);
   assert.equal(PHOTO_CHUNK_SIZE, 100);
-  assert.equal(MAX_BATCH_MS, 120000);
+  assert.equal(MAX_BATCH_MS, 600000);
 });
 
 test("timeout durante persistencia retiene recursos mientras termina la transacción", async () => {
@@ -661,5 +661,37 @@ test("selección frontend bloquea cupo excedido y copia solo referencias selecci
   vm.runInContext("crmPreviewData.properties[0].fotosImportables = 11; actualizarSeleccionCrm();", context);
   assert.equal(get("btnImportCrm").disabled, false);
   assert.doesNotMatch(html, /photos > 100|hasta 10 inmuebles y 100 fotos/);
-  assert.match(html, /Por lote: hasta 10 inmuebles, con un máximo de 120 segundos\. Los límites comerciales de tu plan no cambian\./);
+  assert.match(html, /Por lote: hasta 10 inmuebles, con un máximo de 600 segundos\. Los límites comerciales de tu plan no cambian\./);
+});
+
+test("property deadlines restart within the remaining batch time; stalled work is bounded", async () => {
+  let clock = 0;
+  const batch = createBatchBudget({ now: () => clock });
+  const first = batch.forProperty();
+  try {
+    clock = 179999;
+    assert.equal(first.remainingMs(), 1);
+    const second = batch.forProperty();
+    try {
+      assert.equal(second.remainingMs(), 180000);
+      clock += 180000;
+      assert.throws(() => second.assertActive(), { code: "IMPORT_TIMEOUT", propertyTimeout: true });
+      batch.assertActive();
+    } finally { second.dispose(); }
+    clock = 599999;
+    const last = batch.forProperty();
+    try {
+      assert.equal(last.remainingMs(), 1);
+      clock++;
+      assert.throws(() => last.assertActive(), { code: "IMPORT_TIMEOUT", propertyTimeout: false });
+    } finally { last.dispose(); }
+  } finally { first.dispose(); batch.dispose(); }
+
+  const short = createBatchBudget({ timeoutMs: 20 });
+  const child = short.forProperty();
+  const keepAlive = setTimeout(() => {}, 100);
+  try {
+    await assert.rejects(child.run(() => new Promise(() => {})), { code: "IMPORT_TIMEOUT" });
+    assert.ok(child.signal.aborted);
+  } finally { child.dispose(); short.dispose(); clearTimeout(keepAlive); }
 });

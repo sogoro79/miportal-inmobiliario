@@ -92,7 +92,7 @@
       const outcomes = { imported: "Importado", skipped: "Omitido", already_exists: "Ya existe", indeterminate: "Pendiente de comprobación" };
       for (const item of run.newImport.results || []) {
         const detail = document.createElement("p");
-        detail.textContent = item.externalId + " · " + (outcomes[item.status] || "Consulta el estado");
+        detail.textContent = item.externalId + " · " + (item.reason === "PROPERTY_TIMEOUT" ? "Omitido por tiempo máximo del inmueble" : outcomes[item.status] || "Consulta el estado");
         output.append(detail);
       }
     }

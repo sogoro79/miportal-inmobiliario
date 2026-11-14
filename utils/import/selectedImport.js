@@ -6,7 +6,7 @@ import ImportReconciliation from "../../models/ImportReconciliation.js";
 import mongoose from "mongoose";
 import { getPublicationAvailability } from "../propertyCreation.js";
 import { createPublicationPersistence } from "../publicationPersistence.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE } from "./importBudget.js";
+import { createBatchBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE } from "./importBudget.js";
 import { propiedadCrmCreateSchema } from "../propertySchemas.js";
 import { getLimiteFotosPlan } from "../planLimits.js";
 import { getPlanParaFotos } from "../publishEligibility.js";
@@ -65,7 +65,7 @@ export function createSelectedImporter({
   now = () => new Date(), env = process.env
 } = {}) {
   return async ({ usuarioId, feedUrl, analyzed, selectedExternalIds, budget: suppliedBudget, internalContext }) => {
-    const budget = suppliedBudget || createImportBudget({ now: () => now().getTime() });
+    const budget = suppliedBudget || createBatchBudget({ now: () => now().getTime() });
     try {
       budget.assertActive();
       assertInmowebNewSelectionAllowed(analyzed.feedType, selectedExternalIds, env, internalContext?.delegation);
@@ -153,13 +153,14 @@ export function createSelectedImporter({
           let persisted = false;
           let journaled = false;
           const propertyId = new mongoose.Types.ObjectId();
+          const propertyBudget = budget.forProperty();
           try {
-            budget.assertActive();
-            const pending = await budget.run(() => ReconciliationModel.findOne({ usuarioId, importSourceId: source._id, externalId }));
+            propertyBudget.assertActive();
+            const pending = await propertyBudget.run(() => ReconciliationModel.findOne({ usuarioId, importSourceId: source._id, externalId }));
             if (pending) throw new ImportError("Hay recursos pendientes de reconciliación para este inmueble. Solicita revisión antes de repetirlo.", 409);
-            const freshUser = await budget.run(() => UsuarioModel.findById(usuarioId));
+            const freshUser = await propertyBudget.run(() => UsuarioModel.findById(usuarioId));
             if (!freshUser || freshUser.activo === false) throw new ImportError("El usuario ya no está disponible.");
-            const fresh = await budget.run(() => getPublicationAvailability(freshUser, { usuarioId, PropiedadModel }));
+            const fresh = await propertyBudget.run(() => getPublicationAvailability(freshUser, { usuarioId, PropiedadModel }));
             if (!fresh.puedePublicarAhora) throw new ImportError("El plan o el cupo disponible ha cambiado.");
             const maxPhotos = getLimiteFotosPlan(getPlanParaFotos(freshUser));
             const photosToImport = plannedPhotos.get(externalId).slice(0, maxPhotos);
@@ -167,19 +168,22 @@ export function createSelectedImporter({
               skippedImages = properties[0].fotos.length - photosToImport.length;
               warnings.push("Se han omitido imágenes por el límite de fotos del plan.");
             }
-            await budget.run(() => ReconciliationModel.create({ propiedadId: propertyId, usuarioId, importSourceId: source._id, externalId, publicIds: [], state: "prepared" }));
+            await propertyBudget.run(() => ReconciliationModel.create({ propiedadId: propertyId, usuarioId, importSourceId: source._id, externalId, publicIds: [], state: "prepared" }), {
+              // No upload starts until this insert is acknowledged.
+              onLateResult: () => ReconciliationModel.deleteOne({ propiedadId: propertyId, state: "prepared" })
+            });
             journaled = true;
             for (let offset = 0; offset < photosToImport.length; offset += PHOTO_CHUNK_SIZE) {
-              if (offset > 0) await internalContext?.assert?.();
+              if (offset > 0 && internalContext) await propertyBudget.run(() => internalContext.assert());
               for (const url of photosToImport.slice(offset, offset + PHOTO_CHUNK_SIZE)) {
-                budget.assertActive();
+                propertyBudget.assertActive();
                 attemptedImages += 1;
                 let phase = "download";
                 try {
-                  const buffer = await budget.run(() => downloadImage(url, { budget }));
-                  budget.assertActive();
+                  const buffer = await propertyBudget.run(() => downloadImage(url, { budget: propertyBudget }));
+                  propertyBudget.assertActive();
                   phase = "upload";
-                  images.push(await budget.run(() => uploadImage(buffer), { onLateResult: async image => {
+                  images.push(await propertyBudget.run(() => uploadImage(buffer), { onLateResult: async image => {
                     if (!await cleanup([image])) {
                       await ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: {
                         usuarioId, importSourceId: source._id, externalId, state: "cleanup_required"
@@ -193,18 +197,18 @@ export function createSelectedImporter({
                   if (error.code === "IMPORT_TIMEOUT") throw error;
                   warnings.push("No se pudo importar una imagen: formato, tamaño, conexión o subida.");
                 }
-                await budget.run(() => ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: { publicIds: images.map(image => image.publicId) } }));
+                await propertyBudget.run(() => ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: { publicIds: images.map(image => image.publicId) } }));
               }
             }
             // Revalidar después de las descargas, antes de publicar.
-            const finalUser = await budget.run(() => UsuarioModel.findById(usuarioId));
+            const finalUser = await propertyBudget.run(() => UsuarioModel.findById(usuarioId));
             if (!finalUser || finalUser.activo === false) throw new ImportError("El usuario ya no está disponible.");
-            const finalAvailability = await budget.run(() => getPublicationAvailability(finalUser, { usuarioId, PropiedadModel }));
-            budget.assertActive();
+            const finalAvailability = await propertyBudget.run(() => getPublicationAvailability(finalUser, { usuarioId, PropiedadModel }));
+            propertyBudget.assertActive();
             if (!finalAvailability.puedePublicarAhora) throw new ImportError("El plan o cupo disponible ha cambiado.");
             if (images.length > getLimiteFotosPlan(getPlanParaFotos(finalUser))) throw new ImportError("El límite de fotos del plan ha cambiado.");
             const date = now();
-            const created = await persist({ usuarioId, body: validation.data, propertyId, budget,
+            const created = await persist({ usuarioId, body: validation.data, propertyId, budget: propertyBudget,
               ...(analyzed.feedType === "inmoweb" ? { sourceFeedType: "inmoweb" } : {}),
               imagenes: images.map(image => image.url), extra: { ...identity(externalId), visiblePublicamente: true, importedAt: date, lastImportedAt: date },
               ...(internalContext ? { transactionHooks: {
@@ -229,13 +233,16 @@ export function createSelectedImporter({
                 else await ReconciliationModel.updateOne({ propiedadId: propertyId }, { $set: { state: "cleanup_required" } }).catch(() => {});
               }
             }
-            results.push({ externalId, status: "skipped", reason: error.retainImages ? "reconciliation_required" : error?.code === 11000 ? "duplicate" : "creation_failed",
+            const individualTimeout = error.code === "IMPORT_TIMEOUT" && error.propertyTimeout;
+            results.push({ externalId, status: "skipped", reason: error.retainImages ? "reconciliation_required" : error?.code === 11000 ? "duplicate" : individualTimeout ? "property_timeout" : "creation_failed",
               attemptedImages, importedImages: 0, skippedImages,
               errors: [error instanceof ImportError || error.status ? error.message : "No se pudo crear el inmueble."], warnings });
-            if (error.code === "IMPORT_TIMEOUT" || error.retainImages) {
+            if ((error.code === "IMPORT_TIMEOUT" && !individualTimeout) || error.retainImages) {
               for (const remaining of selected.slice(selected.indexOf(externalId) + 1)) results.push({ externalId: remaining, status: "skipped", reason: "not_started" });
               break;
             }
+          } finally {
+            propertyBudget.dispose();
           }
         }
         await ImportSourceModel.updateOne({ _id: source._id, importLockToken: lockToken }, { $set: { lastImportedAt: now() } }).catch(() => console.warn("[CRM Import]", { code: "SOURCE_TIMESTAMP_FAILED" }));

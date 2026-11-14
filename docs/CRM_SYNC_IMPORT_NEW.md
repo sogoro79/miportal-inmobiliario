@@ -26,8 +26,8 @@ fuente, lease existente, presupuesto compartido y hooks MongoDB. No se adquiere
 un segundo lock. El orquestador libera solamente su lease. El endpoint publico de
 Fase 2 sigue usando su camino original, sin este contexto.
 
-Se conservan los limites de 10 inmuebles y 120 segundos, asi como los
-limites comerciales vigentes. VIP y vip_trial no eliminan los limites tecnicos.
+Se conservan los limites de 10 inmuebles y 600 segundos, asi como los
+limites comerciales vigentes. Cada inmueble dispone de hasta 180 segundos dentro del plazo restante del lote. Un timeout individual previo a persistir se registra como PROPERTY_TIMEOUT. Si la confirmación de la transacción es incierta se conserva la reconciliación. Cada petición InmoWeb exige una snapshot vigente para admitir la importación o devolver un recibo completado. Tras reclamar el run, esa ejecución usa su copia validada mientras conserve autorización, identidad y digest. El TTL de la snapshot y la caducidad independiente del run mantienen sus valores originales. VIP y vip_trial no eliminan los limites tecnicos.
 Las comprobaciones de plan/cupo, descarga, subida, cleanup, reconciliacion y
 publicationVersion pertenecen a los servicios existentes.
 

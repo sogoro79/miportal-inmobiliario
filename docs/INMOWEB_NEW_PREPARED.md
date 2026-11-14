@@ -34,7 +34,7 @@ It reacquires the existing source lease, downloads through the pinned fetcher,
 rechecks the canonical snapshot digest and data eligibility, then delegates to
 the same selected importer, images, plan/capacity fences and reconciliation journal
 used by generic XML. Persistence and NEW receipts are atomic per property, not
-globally across the batch. Each request allows 10 properties and 120 seconds. The importer processes each
+globally across the batch. Each request allows 10 properties and 600 seconds. The importer processes each
 property’s permitted photos in sequential chunks of up to 100. Plan photo caps are reported as omitted images for InmoWeb.
 
 The current analysis UI remains read-only. With the gate OFF, a simulation cannot

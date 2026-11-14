@@ -24,7 +24,7 @@ import { getPublicationAvailability } from "../utils/propertyCreation.js";
 import { getLimiteFotosPlan, planTieneLimiteFotos } from "../utils/planLimits.js";
 import { getPlanParaFotos } from "../utils/publishEligibility.js";
 import { z } from "../utils/validation.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES } from "../utils/import/importBudget.js";
+import { createBatchBudget, MAX_BATCH_PROPERTIES } from "../utils/import/importBudget.js";
 import { createSyncSimulator, safeSimulationCode } from "../utils/import/syncSimulation.js";
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { createSyncEnroller } from "../utils/import/syncEnroll.js";
@@ -313,7 +313,7 @@ export function createCrmImportRouter({
     }
     const parsed = importSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: `Indica un feed válido y selecciona entre 1 y ${MAX_BATCH_PROPERTIES} inmuebles por lote.` });
-    const budget = createImportBudget();
+    const budget = createBatchBudget();
     try {
       const fetched = await fetchFeedXml(parsed.data.feedUrl, { budget, usuarioId: req.user.id, fresh: true });
       if (detectFeedType(fetched.xml) === "inmoweb") {

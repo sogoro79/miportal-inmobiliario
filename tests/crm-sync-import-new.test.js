@@ -20,7 +20,7 @@ import { parseGenericPropertyNodes, analyzeGenericPropertyNodes } from "../utils
 import { prepareSyncPlan, snapshotDigest, runVersions, safeRunSummary, evaluateRunApplyEligibility } from "../utils/import/syncPlan.js";
 import { createSyncSourceManager } from "../utils/import/syncSource.js";
 import { decryptFeedUrl, encryptFeedUrl } from "../utils/import/feedUrlCrypto.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS } from "../utils/import/importBudget.js";
+import { createBatchBudget, createImportBudget, MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS } from "../utils/import/importBudget.js";
 import { securityRateLimits } from "../utils/security.js";
 import { createMissingHider } from "../utils/import/syncHideMissing.js";
 import { createSyncApplier } from "../utils/import/syncApply.js";
@@ -386,7 +386,7 @@ test("InmoWeb keeps the property and time limits and processes additional photos
   assert.equal((await h.run(h.request)).newImport.counts.imported, 10); assert.equal(h.effects.uploads, 100);
   const many = inmoHarness({ count: 11 }); await assert.rejects(() => many.run(many.request), { code: "SYNC_NEW_SELECTION_INVALID" });
   const photos = inmoHarness({ count: 2, photos: 51 }); await photos.run(photos.request);
-  assert.equal(photos.effects.uploads, 102); assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 120000]);
+  assert.equal(photos.effects.uploads, 102); assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 600000]);
 });
 for (const mode of ["photo", "upload", "failCreate", "unconfirmed"]) test(`InmoWeb shared image/persistence failure ${mode}`, async () => {
   const h = inmoHarness({ photos: 2 }); h.faults[mode] = true;
@@ -403,8 +403,11 @@ for (const mode of ["photo", "upload", "failCreate", "unconfirmed"]) test(`InmoW
   }
 });
 test("InmoWeb image timeout retains the shared budget and unconfirmed receipt", async () => {
-  const h = inmoHarness({ photos: 1 }); h.faults.timeout = 10; h.faults.download = () => new Promise(resolve => setTimeout(resolve, 30));
-  await assert.rejects(() => h.run(h.request), { code: "SYNC_NEW_UNCONFIRMED" });
+  const h = inmoHarness({ photos: 1 });
+  let clock = 0;
+  const run = createSyncNewImporter({ ...h.dependencies, budgetFactory: () => createBatchBudget({ now: () => clock }) });
+  h.faults.download = () => { clock = MAX_BATCH_MS + 1; };
+  await assert.rejects(() => run(h.request), { code: "SYNC_NEW_UNCONFIRMED" });
   assert.equal(h.state.source.importLockToken, undefined); assert.equal(h.state.properties.length, 0); assert.equal(h.effects.fetch, 0);
 });
 test("InmoWeb transactional callback retries do not repeat image uploads", async () => {
@@ -700,7 +703,7 @@ test("generic_xml processes 102 photos within the existing time budget", async (
   const h = harness({ count: 2, photos: 51 });
   await h.run({ ...h.request, externalIds: ["N-0", "N-1"] });
   assert.equal(h.effects.uploads, 102);
-  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 120000]);
+  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 600000]);
 });
 test("full snapshot mapping retains entries beyond preview cap; truncated runs stay blocked", async () => {
   const h = harness({ count: 501 });
@@ -885,10 +888,12 @@ for (const failure of ["expired", "restart", "digest", "identity", "user", "plan
   });
 }
 
-for (const change of ["expiry", "user", "plan", "capacity"]) test(`InmoWeb ${change} during images is rechecked before persistence`, async () => {
+for (const change of ["digest", "version", "identity", "user", "plan", "capacity"]) test(`InmoWeb ${change} during images is rechecked before persistence`, async () => {
   const h = await realLeaseHarness({ photos: 1 });
   h.faults.download = () => {
-    if (change === "expiry") h.advance(300_001);
+    if (change === "digest") h.state.run.snapshotDigest = "f".repeat(64);
+    if (change === "version") h.state.run.providerNormalizationVersion++;
+    if (change === "identity") h.state.source.feedUrlHash = "f".repeat(64);
     if (change === "user") h.state.user.activo = false;
     if (change === "plan") h.state.user.planActivo = false;
     if (change === "capacity") { h.state.user.plan = "gratis"; h.state.properties.push({ usuarioId: U }, { usuarioId: U }); }
@@ -930,14 +935,18 @@ for (const change of ["expired", "identity", "digest", "version", "gate", "allow
     if (["gate", "allowlist"].includes(change)) assert.equal(h.snapshotDb.effects.reads, 0);
   });
 }
-test("persisted snapshot expiring during images is rejected inside transaction and uploaded resources cleaned", async () => {
+test("accepted import uses its pinned snapshot after TTL and expired replay cannot import", async () => {
   const h = await realLeaseHarness({ persisted: true, photos: 1 });
   const run = createSyncNewImporter({ ...h.dependencies, providerSnapshots: h.createSnapshotCache() });
-  h.faults.download = () => h.advance(300_001);
-  try { await run(h.request); } catch (error) { assert.ok(error.code); }
-  assert.equal(h.state.properties.length, 0); assert.equal(h.fetches(), 1);
-  assert.equal(h.effects.uploads, h.effects.deletes);
-  assert.equal(h.snapshotDb.docs.size, 1); // TTL cleanup has not run; application still rejects.
+  const before = structuredClone([...h.snapshotDb.docs]);
+  h.advance(299_000);
+  h.faults.download = () => h.advance(2000);
+  assert.equal((await run(h.request)).newImport.counts.imported, 1);
+  assert.deepEqual([...h.snapshotDb.docs], before);
+  await assert.rejects(run(h.request), { code: "INMOWEB_FRESH_SNAPSHOT_REQUIRED" });
+  assert.equal(h.effects.uploads, 1);
+  assert.equal(h.state.properties.length, 1);
+  assert.equal(h.fetches(), 1);
 });
 test("generic XML NEW retains refetch and never accesses provider snapshot persistence", async () => {
   const h = harness();
@@ -990,7 +999,7 @@ test("InmoWeb publication persists cleaned public text while preserving provider
 
 // Exercise the admin HTTP boundary, the same simulator, encrypted snapshot store
 // and transactional importer. Only models, image transport and feed transport are fakes.
-async function delegatedFixture(t, { count = 1, photos = 0 } = {}) {
+async function delegatedFixture(t, { count = 1, photos = 0, timed = false } = {}) {
   const h = inmoHarness({ allowlist: "OTHER-ID" });
   const A = "507f1f77bcf86cd799439044", G = "507f1f77bcf86cd799439045";
   const admin = { _id: A, role: "admin", activo: true, plan: "gratis", nombre: "Admin de prueba" };
@@ -1035,7 +1044,8 @@ async function delegatedFixture(t, { count = 1, photos = 0 } = {}) {
   const fetchXml = createFeedAccess({ now, snapshots: providerSnapshots, log: () => {},
     fetchXml: async () => ({ xml: inmoXml(count, photos) }) });
   const validatedHosts = [];
-  const deps = { ...h.dependencies, UsuarioModel: users, providerSnapshots, fetchXml };
+  const deps = { ...h.dependencies, UsuarioModel: users, providerSnapshots, fetchXml,
+    ...(timed && { budgetFactory: () => createBatchBudget({ now }) }) };
   const syncSourceManager = createSyncSourceManager({ ...deps, validateTarget: async url => { validatedHosts.push(url.hostname); } });
   const app = express(); app.use(express.json()); const pass = (req, res, next) => next();
   app.use("/api/crm-import", createCrmImportRouter({ ...deps, syncSourceManager, GrantModel: grants, ProviderSnapshotModel: db.Model,
@@ -1287,4 +1297,60 @@ test("a download error in the second chunk omits only that image", async () => {
   assert.equal(h.state.reconciliations.length, 0);
   assert.equal((await h.run(h.request)).alreadyImported, true);
   assert.equal(h.effects.uploads, 159);
+});
+
+for (const slowFourth of [false, true]) {
+  test(`delegated 314 photos with a simulated clock, fourth property timeout=${slowFourth}`, async t => {
+    const { h, call, allow } = await delegatedFixture(t, { count: 10, photos: [66,33,40,25,25,25,25,25,25,25], timed: true });
+    await allow();
+    const sim = await call("POST", "simulate");
+    assert.equal(sim.status, 200);
+    const ids = sim.body.results.map(row => row.externalId);
+    const start = +h.dependencies.now();
+    h.faults.download = (_, url) => {
+      if (!slowFourth) h.advance(url.includes("/0/") ? 2000 : 1000);
+      else h.advance(url.endsWith("/3/0.jpg") ? 180001 : 10);
+    };
+    const body = { runId: R, externalIds: ids };
+    const result = await call("POST", "import-new", body);
+    assert.equal(result.status, 200);
+    const receipt = result.body.newImport;
+    assert.equal(receipt.status, "completed");
+    assert.equal(receipt.counts.imported, slowFourth ? 9 : 10);
+    assert.equal(receipt.counts.importedImages, slowFourth ? 289 : 314);
+    assert.ok(+h.dependencies.now() - start > (slowFourth ? 180000 : 300000));
+    assert.ok(+h.dependencies.now() - start < MAX_BATCH_MS);
+    if (slowFourth) {
+      assert.equal(receipt.results.find(row => row.externalId === "IW-3").reason, "PROPERTY_TIMEOUT");
+      assert.equal(h.effects.deletedPublicIds.length, 1);
+      assert.equal(h.state.reconciliations.length, 0);
+    }
+    const uploads = h.effects.uploads;
+    const replay = await call("POST", "import-new", body);
+    if (slowFourth) assert.equal(replay.body.alreadyImported, true);
+    else assert.equal(replay.status, 409);
+    assert.equal(h.effects.uploads, uploads);
+    assert.equal(h.state.properties.length, receipt.counts.imported);
+  });
+}
+
+test("fresh delegated simulation after three committed properties excludes their identities", async t => {
+  const { h, call, allow } = await delegatedFixture(t, { count: 10, photos: 1 });
+  await allow();
+  const first = await call("POST", "simulate");
+  const ids = first.body.results.map(row => row.externalId);
+  h.faults.download = (_, url) => {
+    if (url.includes("/3/")) h.faults.unconfirmed = true;
+  };
+  const partial = await call("POST", "import-new", { runId: R, externalIds: ids });
+  assert.equal(partial.status, 503);
+  assert.equal(h.state.run.newImport.status, "indeterminate");
+  assert.equal(h.state.run.newImport.results.filter(r => r.status === "imported").length, 3);
+  assert.equal(h.state.properties.length, 3);
+  assert.equal((await call("POST", "import-new", { runId: R, externalIds: ids })).status, 503);
+  const next = await call("POST", "simulate");
+  assert.equal(next.status, 200);
+  assert.deepEqual(next.body.results.filter(r => r.type === "NEW").map(r => r.externalId), ids.slice(3));
+  assert.equal(h.state.properties.length, 3);
+  assert.equal(h.state.reconciliations.length, 1);
 });

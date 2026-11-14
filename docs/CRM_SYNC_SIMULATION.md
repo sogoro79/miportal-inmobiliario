@@ -2,7 +2,7 @@
 
 The normal simulation only simulates. No property insert/update/delete, photo download/upload,
 visibility change, quota reservation, automatic job or scheduled synchronization.
-The existing selected import remains 10 properties / 120 seconds.
+The existing selected import remains 10 properties / 600 seconds.
 
 ## Source configuration
 

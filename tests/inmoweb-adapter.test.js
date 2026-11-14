@@ -233,5 +233,5 @@ test("generic registry defaults and snapshot semantics remain unchanged", () => 
   assert.deepEqual(buildFeedSnapshot(generic), buildSyncSnapshot(generic));
   assert.throws(() => analyzeFeedXml(xml), { code: "XML_EMPTY" });
   assert.throws(() => analyzeFeedXml(generic, { feedType: "constructor" }), { code: "UNSUPPORTED_FEED_TYPE" });
-  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 120000]);
+  assert.deepEqual([MAX_BATCH_PROPERTIES, PHOTO_CHUNK_SIZE, MAX_BATCH_MS], [10, 100, 600000]);
 });

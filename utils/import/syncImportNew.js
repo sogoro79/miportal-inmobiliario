@@ -14,7 +14,7 @@ import { assertInmowebNewSelectionAllowed, matchesDelegatedRun, receivedNewSnaps
 import { compareSyncSnapshot } from "./syncDiff.js";
 import { evaluateRunNewImportEligibility, snapshotDigest } from "./syncPlan.js";
 import { acquireSyncLock } from "./syncLock.js";
-import { createImportBudget, MAX_BATCH_PROPERTIES } from "./importBudget.js";
+import { createBatchBudget, MAX_BATCH_PROPERTIES } from "./importBudget.js";
 import { safeNewResult, safeNewImportSummary, newImportCounts, NEW_IMPORT_FAILURE_CODES } from "./newImportState.js";
 
 export function newImportError(code, status = 409) {
@@ -27,7 +27,7 @@ export const safeNewFailureCode = error => NEW_IMPORT_FAILURE_CODES.has(error?.c
 
 export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel = Usuario, ImportSourceModel = ImportSource,
   ImportSyncRunModel = ImportSyncRun, ReconciliationModel = ImportReconciliation,
-  fetchXml = fetchFeedXml, providerSnapshots, importSelected, env = process.env, now = () => new Date(), budgetFactory = createImportBudget } = {}) {
+  fetchXml = fetchFeedXml, providerSnapshots, importSelected, env = process.env, now = () => new Date(), budgetFactory = createBatchBudget } = {}) {
   const runImport = importSelected || createSelectedImporter({ PropiedadModel, UsuarioModel, ImportSourceModel, ReconciliationModel, now, env });
   return async ({ usuarioId, runId, externalIds, delegation }) => {
     if (!/^[a-fA-F0-9]{24}$/.test(String(runId)) || !Array.isArray(externalIds) || externalIds.length < 1 ||
@@ -51,7 +51,12 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       }
       return run;
     }
+    function readFreshSnapshot(run, source) {
+      if (!providerSnapshots) throw newImportError(SNAPSHOT_REQUIRED);
+      return budget.run(() => providerSnapshots.get({ run, usuarioId, source }));
+    }
     function checkRun(run, source, operationStarted = false) {
+      if ((run.feedType || "generic_xml") !== source.feedType) throw newImportError("SYNC_NEW_SOURCE_CHANGED");
       const eligibility = evaluateRunNewImportEligibility(operationStarted ? { ...run, newImport: undefined } : run, now(), usuarioId, env);
       if (!eligibility.newImportEligible) throw newImportError(eligibility.newImportBlockedReason);
       if (String(run.importSourceId) !== String(source._id) || run.sourceIdentityHash !== source.feedUrlHash) {
@@ -77,6 +82,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       if (initial.newImport && initial.newImport.status !== "idle") {
         if (!sameSelection(initial.newImport.selectedExternalIds, selected)) throw newImportError("SYNC_NEW_SELECTION_MISMATCH");
         if (initial.newImport.status === "completed") {
+          if (source.feedType === "inmoweb") await readFreshSnapshot(initial, source);
           const results = initial.newImport.results || [];
           if (results.length !== selected.length || !sameSelection(results.map(r => r.externalId), selected) ||
               results.some(r => !["imported", "already_exists", "skipped"].includes(r.status) ||
@@ -98,11 +104,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const freshRun = await budget.run(() => readRun());
       checkRun(freshRun, lock.source);
       let fetched, snapshot;
-      const leasedSnapshot = session => {
-        if (!providerSnapshots) throw newImportError(SNAPSHOT_REQUIRED);
-        return budget.run(() => providerSnapshots.get({ run: freshRun, usuarioId, source: lock.source, session }));
-      };
-      if (lock.source.feedType === "inmoweb") snapshot = await leasedSnapshot();
+      if (lock.source.feedType === "inmoweb") snapshot = await readFreshSnapshot(freshRun, lock.source);
       else {
         fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: true });
         snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
@@ -145,8 +147,10 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
       const user = await budget.run(() => UsuarioModel.findById(usuarioId));
       if (!user || user.activo === false) throw newImportError("SYNC_NEW_FAILED", 403);
       checkRun(await budget.run(() => readRun()), lock.source);
-      if (lock.source.feedType === "inmoweb") await leasedSnapshot();
       if (delegation) await budget.run(() => delegation.assert(lock.source));
+      // Admission requires a live lease. Only this invocation owns the validated
+      // snapshot copy used to build analyzed; the claim binds its digest to the run.
+      if (lock.source.feedType === "inmoweb") await readFreshSnapshot(freshRun, lock.source);
       const claimed = await budget.run(() => ImportSyncRunModel.updateOne({ _id: runId, usuarioId, status: "simulated",
         sourceIdentityHash: source.feedUrlHash, snapshotDigest: freshRun.snapshotDigest, expiresAt: { $gt: now() },
         reappearedRestore: { $exists: false },
@@ -168,7 +172,6 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         const run = await readRun(session);
         checkRun(run, lock.source, true);
         if (run.snapshotDigest !== freshRun.snapshotDigest) throw newImportError("SYNC_NEW_RUN_CHANGED");
-        if (lock.source.feedType === "inmoweb") await leasedSnapshot(session);
       };
       const internalContext = { delegation, source: lock.source, lock,
         assert: () => budget.run(() => assertOperation()),
@@ -197,7 +200,7 @@ export function createSyncNewImporter({ PropiedadModel = Propiedad, UsuarioModel
         byId.set(item.externalId, safeNewResult({ ...item,
           status: item.reason === "duplicate" ? "already_exists" : item.reason === "reconciliation_required" ? "indeterminate" : "skipped",
           reason: ({ duplicate: "ALREADY_EXISTS", reconciliation_required: "RECONCILIATION_REQUIRED", invalid_data: "INVALID_DATA",
-            not_started: "NOT_STARTED", creation_failed: "CREATION_FAILED" })[item.reason], imageWarnings: item.warnings?.length || 0 }));
+            property_timeout: "PROPERTY_TIMEOUT", not_started: "NOT_STARTED", creation_failed: "CREATION_FAILED" })[item.reason], imageWarnings: item.warnings?.length || 0 }));
       }
       const results = selected.map(id => byId.get(id) || safeNewResult({ externalId: id, status: "skipped", reason: "NOT_STARTED" }));
       const indeterminate = results.some(r => r.status === "indeterminate");

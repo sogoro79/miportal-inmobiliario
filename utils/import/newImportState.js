@@ -12,7 +12,7 @@ export const NEW_IMPORT_FAILURE_CODES = new Set([
   "RUN_EXPIRED", "RUN_PLAN_TRUNCATED", "RUN_SNAPSHOT_INCOMPLETE", "RUN_STATUS_NOT_APPLICABLE", "RUN_BLOCKED",
   "IMPORT_TIMEOUT", "FEED_TIMEOUT", "NEW_IMPORT_STARTED", "NEW_IMPORT_CONSUMED", "NEW_IMPORT_FAILED"
 ]);
-const reasons = new Set(["ALREADY_EXISTS", "INVALID_DATA", "CREATION_FAILED", "RECONCILIATION_REQUIRED", "NOT_STARTED"]);
+const reasons = new Set(["ALREADY_EXISTS", "INVALID_DATA", "CREATION_FAILED", "PROPERTY_TIMEOUT", "RECONCILIATION_REQUIRED", "NOT_STARTED"]);
 const safeId = value => typeof value === "string" && value.length > 0 && value.length <= 200 &&
   !/https?:\/\/|[<>&?=\u0000-\u001f]/i.test(value);
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;

@@ -52,7 +52,9 @@
     const labels = { imported: "Importado", already_exists: "Ya existe; no se ha duplicado", skipped: "Omitido", indeterminate: "Pendiente de confirmación" };
     for (const item of (receipt.results || []).slice(0, 10)) {
       const row = document.createElement("p");
-      row.textContent = `${item.externalId}: ${labels[item.status] || "Consulta el estado"}${item.reason === "ALREADY_EXISTS" ? " · Ya existe" : item.reason === "RECONCILIATION_REQUIRED" ? " · Pendiente de comprobación" : ""}`;
+      const reasons = { ALREADY_EXISTS: " · Ya existe", RECONCILIATION_REQUIRED: " · Pendiente de comprobación",
+        PROPERTY_TIMEOUT: " · Tiempo máximo del inmueble alcanzado" };
+      row.textContent = `${item.externalId}: ${labels[item.status] || "Consulta el estado"}${reasons[item.reason] || ""}`;
       block.append(row);
     }
     if (counts.imported > 0) {

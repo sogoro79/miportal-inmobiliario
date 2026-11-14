@@ -759,7 +759,7 @@
   <div class="crm-import-card" id="crmImportCard">
     <h3>Importar desde CRM</h3>
     <p>Pega la URL de tu feed XML para analizar tus inmuebles antes de importarlos.</p>
-    <p>Por lote: hasta 10 inmuebles, con un máximo de 120 segundos. Los límites comerciales de tu plan no cambian.</p>
+    <p>Por lote: hasta 10 inmuebles, con un máximo de 600 segundos. Los límites comerciales de tu plan no cambian.</p>
     <label for="crmFeedType">Formato del feed</label>
     <select id="crmFeedType">
       <option value="generic_xml">XML genérico</option>
@@ -1169,7 +1169,7 @@ async function importarSeleccionadosCrm() {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "No se pudo completar la importación.");
-    const reasons = { duplicate: "Ya importado", invalid_data: "Error de datos", creation_failed: "No se pudo crear" };
+    const reasons = { property_timeout: "Tiempo máximo del inmueble alcanzado", duplicate: "Ya importado", invalid_data: "Error de datos", creation_failed: "No se pudo crear" };
     results.innerHTML = `<strong>Importación completada</strong>${lineasResumenCrm(data).map(line => `<p>${line}</p>`).join("")}<ul>${(data.results || []).map(item => `<li>${escaparHtml(item.externalId)}: ${item.status === "imported" ? "Importado" : escaparHtml(reasons[item.reason] || "Omitido")}${[...(item.errors || []), ...(item.warnings || [])].map(message => ` · ${escaparHtml(message)}`).join("")}</li>`).join("")}</ul><a href="/perfil.html?crm=${Date.now()}#listaPropiedades">Ver mis propiedades</a>`;
     const importedIds = new Set((data.results || []).filter(item => item.status === "imported" || item.reason === "duplicate").map(item => item.externalId));
     for (const property of crmPreviewData.properties) if (importedIds.has(property.externalId)) property.duplicado = true;

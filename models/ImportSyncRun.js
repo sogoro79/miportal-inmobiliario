@@ -9,7 +9,7 @@ const newResultSchema = new mongoose.Schema({
   externalId: { type: String, required: true, maxlength: 200 },
   status: { type: String, enum: NEW_IMPORT_RESULT_STATUSES, required: true },
   propertyId: mongoose.Schema.Types.ObjectId,
-  reason: { type: String, enum: ["ALREADY_EXISTS", "INVALID_DATA", "CREATION_FAILED", "RECONCILIATION_REQUIRED", "NOT_STARTED"] },
+  reason: { type: String, enum: ["ALREADY_EXISTS", "INVALID_DATA", "CREATION_FAILED", "PROPERTY_TIMEOUT", "RECONCILIATION_REQUIRED", "NOT_STARTED"] },
   attemptedImages: Number, importedImages: Number, skippedImages: Number, imageWarnings: Number
 }, { _id: false, strict: "throw" });
 const newImportSchema = new mongoose.Schema({
