@@ -1964,6 +1964,12 @@
           <span id="countPropiedades"></span>
           <button onclick="exportarPropiedades()" class="btn-exportar">⬇ Exportar Excel</button>
         </div>
+        <div id="filtroPropietario" hidden>
+          <div class="propiedades-toolbar">
+            <strong id="nombreFiltroPropietario"></strong>
+            <button class="btn-estadisticas" onclick="quitarFiltroPropietario()">Quitar filtro</button>
+          </div>
+        </div>
         <div class="propiedades-toolbar">
           <label for="filtroRedesPropiedades">Redes</label>
           <select id="filtroRedesPropiedades" onchange="cambiarFiltroRedesPropiedades(this.value)">
@@ -2379,6 +2385,23 @@ let chartGeneralContactos = null;
 let chartUsuarioVisitas = null;
 let chartUsuarioContactos = null;
 let propiedadesAdmin = [];
+let vistaPropietario = null;
+
+function propiedadesDeTabla() {
+  return vistaPropietario?.propiedades ?? propiedadesAdmin;
+}
+
+function buscarPropiedadAdmin(id) {
+  return propiedadesDeTabla().find(p => String(p._id) === String(id))
+    || propiedadesAdmin.find(p => String(p._id) === String(id));
+}
+
+function actualizarPropiedadEnListas(id, cambios) {
+  for (const lista of [propiedadesAdmin, vistaPropietario?.propiedades || []]) {
+    const propiedad = lista.find(p => String(p._id) === String(id));
+    if (propiedad) Object.assign(propiedad, cambios);
+  }
+}
 let codigosVipTrialAdmin = [];
 let filtroRedesPropiedades = 'todas';
 const FACEBOOK_PAGE_URL = 'https://www.facebook.com/profile.php?id=61589930586330';
@@ -2785,8 +2808,9 @@ function renderMenuAccionesUsuario(u, estaActivo) {
     <div class="user-actions">
       <button class="btn-acciones" onclick="toggleMenuAcciones(event, '${u._id}')">Acciones ▾</button>
       <div class="acciones-menu" id="acciones-${u._id}">
-        ${!esAdministrador ? `<button onclick="abrirCrmDelegado('${u._id}'); cerrarMenusAcciones();">CRM / Importar inmuebles</button>` : ''}
         <button onclick="verEstadisticas('${u._id}'); cerrarMenusAcciones();">Ver estadísticas</button>
+        <button onclick="verPublicacionesUsuario('${u._id}'); cerrarMenusAcciones();">Ver publicaciones</button>
+        ${!esAdministrador ? `<button onclick="abrirCrmDelegado('${u._id}'); cerrarMenusAcciones();">CRM / Importar inmuebles</button>` : ''}
         ${!u.verificado ? `<button onclick="verificarUsuario('${u._id}'); cerrarMenusAcciones();">Verificar usuario</button>` : ''}
         ${!u.verificado ? `<button disabled title="Pendiente de implementar">Reenviar verificación</button>` : ''}
         ${estaActivo ? `
@@ -4073,12 +4097,54 @@ async function cancelarSuscripcion(usuarioId, btn) {
   }
 }
 
+function restablecerFiltroRedes() {
+  filtroRedesPropiedades = 'todas';
+  document.getElementById('filtroRedesPropiedades').value = 'todas';
+}
+
+async function verPublicacionesUsuario(id) {
+  const usuario = todosLosUsuarios.find(u => u._id === id);
+  if (!usuario) return;
+  const vista = { id, propiedades: [], estado: 'Cargando publicaciones…' };
+  vistaPropietario = vista;
+  restablecerFiltroRedes();
+  document.getElementById('nombreFiltroPropietario').textContent =
+    'Publicaciones de: ' + ([usuario.nombre, usuario.email].filter(Boolean).join(' · ') || id);
+  document.getElementById('filtroPropietario').hidden = false;
+  document.getElementById('propiedades-admin').scrollIntoView();
+  renderTablaPropiedades();
+  await cargarPublicacionesUsuario(vista);
+}
+
+async function cargarPublicacionesUsuario(vista) {
+  try {
+    const res = await fetch('/admin/propiedades?usuarioId=' + encodeURIComponent(vista.id), {
+      headers: { 'Authorization': 'Bearer ' + adminToken }
+    });
+    if (!res.ok) throw new Error();
+    vista.propiedades = await res.json();
+    vista.estado = '';
+  } catch {
+    vista.propiedades = [];
+    vista.estado = 'No se pudieron cargar las publicaciones.';
+  }
+  if (vistaPropietario === vista) renderTablaPropiedades();
+}
+
+function quitarFiltroPropietario() {
+  vistaPropietario = null;
+  document.getElementById('filtroPropietario').hidden = true;
+  restablecerFiltroRedes();
+  renderTablaPropiedades();
+}
+
 async function cargarPropiedades() {
   const res = await fetch('/admin/propiedades', {
     headers: { 'Authorization': 'Bearer ' + adminToken }
   });
   const propiedades = await res.json();
   propiedadesAdmin = propiedades;
+  if (vistaPropietario) await cargarPublicacionesUsuario(vistaPropietario);
 
   renderPublicacionesRedes();
   renderRecomendacionesRedes();
@@ -4092,12 +4158,12 @@ function propiedadPublicadaEnRedes(propiedad = {}) {
 
 function propiedadesFiltradasPorRedes() {
   if (filtroRedesPropiedades === 'no-publicadas') {
-    return propiedadesAdmin.filter(p => !propiedadPublicadaEnRedes(p));
+    return propiedadesDeTabla().filter(p => !propiedadPublicadaEnRedes(p));
   }
   if (filtroRedesPropiedades === 'publicadas') {
-    return propiedadesAdmin.filter(propiedadPublicadaEnRedes);
+    return propiedadesDeTabla().filter(propiedadPublicadaEnRedes);
   }
-  return propiedadesAdmin;
+  return propiedadesDeTabla();
 }
 
 function cambiarFiltroRedesPropiedades(valor) {
@@ -4352,18 +4418,19 @@ function renderTablaPropiedades() {
   const countEl = document.getElementById('countPropiedades');
   if (countEl) {
     countEl.textContent = filtroRedesPropiedades === 'todas'
-      ? `${propiedadesAdmin.length} anuncios`
-      : `${filtradas.length} de ${propiedadesAdmin.length} anuncios`;
+      ? `${propiedadesDeTabla().length} anuncios`
+      : `${filtradas.length} de ${propiedadesDeTabla().length} anuncios`;
   }
 
   const tabla = document.getElementById('tablaPropiedades');
   if (!tabla) return;
 
   if (!filtradas.length) {
-    tabla.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:22px;">No hay propiedades con este filtro.</td></tr>';
+    tabla.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#999;padding:22px;">${vistaPropietario?.estado || 'No hay propiedades con este filtro.'}</td></tr>`;
     return;
   }
 
+  const propietarios = new Map(todosLosUsuarios.map(u => [u._id, u.nombre || u.email]));
   tabla.innerHTML = filtradas.map(p => {
     const fecha = p.createdAt ? new Date(p.createdAt).toLocaleDateString('es-ES') : '—';
     const fechaCaducidad = p.fechaExpiracion ? new Date(p.fechaExpiracion) : null;
@@ -4381,7 +4448,8 @@ function renderTablaPropiedades() {
       : '';
     return `
       <tr>
-        <td class="tabla-title-cell" data-label="Título"><span class="cell-title-text">${escapeHtml(p.titulo || 'Sin título')}</span></td>
+        <td class="tabla-title-cell" data-label="Título"><span class="cell-title-text">${escapeHtml(p.titulo || 'Sin título')}</span>
+          <small>${escapeHtml([p.referencia, propietarios.get(p.usuarioId) || p.usuarioId].filter(Boolean).join(' · '))}</small></td>
         <td class="tabla-muted-cell" data-label="Ubicación">${window.HomeClickLocation.locationHtml(p)}</td>
         <td data-label="Precio">${formatearPrecioPropiedad(p.precio, p.tipoOperacion, p.periodicidadPrecio)}</td>
         <td data-label="Operación">${tipo}</td>
@@ -4419,13 +4487,7 @@ async function marcarPropiedadPublicadaRedes(id, btn) {
 
     if (!res.ok) throw new Error(data.error || 'No se pudo marcar la propiedad');
 
-    const index = propiedadesAdmin.findIndex(p => String(p._id) === String(id));
-    if (index !== -1) {
-      propiedadesAdmin[index] = {
-        ...propiedadesAdmin[index],
-        ...data.propiedad
-      };
-    }
+    actualizarPropiedadEnListas(id, data.propiedad);
 
     renderRecomendacionesRedes();
     renderCalendarioRedes();
@@ -4441,7 +4503,7 @@ async function marcarPropiedadPublicadaRedes(id, btn) {
 }
 
 function abrirModalProgramacionRedes(id) {
-  const propiedad = propiedadesAdmin.find(p => String(p._id) === String(id));
+  const propiedad = buscarPropiedadAdmin(id);
   if (!propiedad) return alert('No se encontró la propiedad');
 
   propiedadProgramacionRedesActual = propiedad;
@@ -4488,13 +4550,7 @@ async function guardarProgramacionRedes() {
 
     if (!res.ok) throw new Error(data.error || 'No se pudo guardar la programación');
 
-    const index = propiedadesAdmin.findIndex(p => String(p._id) === String(id));
-    if (index !== -1) {
-      propiedadesAdmin[index] = {
-        ...propiedadesAdmin[index],
-        ...data.propiedad
-      };
-    }
+    actualizarPropiedadEnListas(id, data.propiedad);
 
     renderRecomendacionesRedes();
     renderCalendarioRedes();
@@ -5249,7 +5305,7 @@ function generarPublicacionPropiedadSeleccionada() {
 }
 
 function generarTextoRedes(id) {
-  const propiedad = propiedadesAdmin.find(p => String(p._id) === String(id));
+  const propiedad = buscarPropiedadAdmin(id);
   if (!propiedad) return alert('No se encontró la propiedad');
   if (propiedad.visiblePublicamente === false) {
     return alert('Esta propiedad no está visible públicamente.');
@@ -5346,7 +5402,7 @@ async function copiarTextoRedesCampo(textareaId, etiqueta = 'texto') {
 }
 
 function editarPropiedadAdmin(id) {
-  const propiedad = propiedadesAdmin.find(p => String(p._id) === String(id));
+  const propiedad = buscarPropiedadAdmin(id);
   if (!propiedad) return alert('No se encontró la propiedad');
 
   document.getElementById('editPropiedadId').value = propiedad._id;
@@ -5529,7 +5585,8 @@ function exportarUsuarios() {
 }
 
 async function exportarPropiedades() {
-  const res = await fetch('/admin/propiedades', {
+  const url = vistaPropietario ? '/admin/propiedades?usuarioId=' + encodeURIComponent(vistaPropietario.id) : '/admin/propiedades';
+  const res = await fetch(url, {
     headers: { 'Authorization': 'Bearer ' + adminToken }
   });
   const propiedades = await res.json();

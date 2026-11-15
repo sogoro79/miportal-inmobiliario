@@ -1070,9 +1070,13 @@ router.get('/usuarios/:id/estadisticas', requireAdmin, async (req, res) => {
 // Lista de propiedades
 router.get('/propiedades', requireAdmin, async (req, res) => {
   try {
-    const propiedades = await Propiedad.find({})
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const { usuarioId } = req.query;
+    if (usuarioId !== undefined && (typeof usuarioId !== 'string' || !esObjectId(usuarioId))) {
+      return res.status(400).json({ error: 'ID de usuario inválido' });
+    }
+    const consulta = Propiedad.find(usuarioId ? { usuarioId } : {}).sort({ createdAt: -1 });
+    if (!usuarioId) consulta.limit(100);
+    const propiedades = await consulta;
     res.json(propiedades);
   } catch (err) {
     res.status(500).json({ error: err.message });
