@@ -1,0 +1,50 @@
+.crm-guide-trigger, .crm-import-guide button {
+  background: white;
+  border: 1px solid #186043;
+  border-radius: .55rem;
+  color: #165237;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: .6rem .9rem;
+}
+
+dialog.crm-import-guide {
+  box-sizing: border-box;
+  width: min(42rem, calc(100% - 2rem));
+  max-height: 90vh;
+  max-height: 90dvh;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 1rem;
+  background: white;
+  color: #20352b;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+.crm-import-guide[open] { display: flex; flex-direction: column; }
+.crm-import-guide::backdrop { background: rgb(16 32 24 / 65%); }
+.crm-import-guide > header {
+  position: static;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: 1rem;
+  background: #f3f8f5;
+  border-bottom: 1px solid #ceded4;
+}
+.crm-import-guide h2 { margin: 0; font-size: 1.25rem; color: #154b34; }
+.crm-guide-body { overflow-y: auto; overscroll-behavior: contain; padding: 1rem clamp(1rem, 4vw, 2rem); }
+.crm-guide-body ol { margin: 0; padding-left: 1.6rem; list-style: decimal; }
+.crm-guide-body ol > li { margin: 0 0 1rem; padding-left: .25rem; }
+.crm-guide-body ol > li::marker { font-weight: bold; color: #186043; }
+.crm-guide-body h3 { margin: 0; font-size: 1.05rem; }
+.crm-guide-body p, .crm-guide-body dl { margin: .35rem 0; }
+.crm-guide-body dt { font-weight: bold; margin-top: .55rem; }
+.crm-guide-body dd { margin: 0; }
+.crm-guide-notice, .crm-guide-body aside { padding: .7rem .9rem; background: #f0f6f2; border-left: 3px solid #327652; }
+.crm-guide-body aside ul { margin: .4rem 0 0; padding-left: 1.2rem; list-style: disc; }
+.crm-guide-trigger:focus-visible, .crm-import-guide :focus-visible { outline: 3px solid #165cab; outline-offset: -3px; }
