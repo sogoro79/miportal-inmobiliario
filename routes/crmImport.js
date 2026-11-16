@@ -116,7 +116,7 @@ export function createCrmImportRouter({
   const runApply = applySync || createSyncApplier({ ImportSourceModel, ImportSyncRunModel, PropiedadModel, fetchXml: fetchFeedXml });
   const runNewImport = importNewSync || createSyncNewImporter({ ImportSourceModel, ImportSyncRunModel,
     PropiedadModel, UsuarioModel, fetchXml: fetchFeedXml, providerSnapshots, env });
-  const runReader = createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, providerSnapshots, env,
+  const runReader = createInmowebRunReader({ PropiedadModel, ImportSourceModel, ImportSyncRunModel, providerSnapshots, env,
     now: () => new Date(feedAccessNow()) });
   const sourceManager = syncSourceManager || createSyncSourceManager({ ImportSourceModel, PropiedadModel, env });
   const runMissingHide = hideMissingSync || createMissingHider({ ImportSourceModel, ImportSyncRunModel,

@@ -53,6 +53,7 @@ export function prepareSyncPlan(snapshot, existing, context = {}) {
       importNewEligible: item.publishableByData === true,
       importNewBlockCode: item.publishableByData === true ? null : "SYNC_NEW_INVALID_DATA" };
     if (snapshot.feedType === "inmoweb") return { ...base, blocked: true, enrollmentEligible: false,
+      ...(property && data ? { expectedContentRevision: property.contentRevision ?? 0 } : {}),
       safeReasonCode: "INMOWEB_ACTION_DISABLED", ...(item.type === "REAPPEARED" ? { restoreEligible: false } : {}) };
     if (item.type === "MISSING") return { ...base, safeReasonCode: "MISSING_REQUIRES_REVIEW",
       ...prepareMissingEligibility(snapshot, matches, item.externalId, context) };

@@ -1670,6 +1670,34 @@
       .trial-info { font-size: 0.78rem; }
     }
 
+    #crmDelegatedDialog {
+      width: min(44rem, calc(100% - 1rem));
+      max-height: calc(100dvh - 1rem);
+      margin: auto;
+      box-sizing: border-box;
+      padding: 0 1rem 1rem;
+      overflow: auto;
+      overflow-wrap: anywhere;
+      border: 1px solid #ccd6cd;
+      border-radius: .75rem;
+      line-height: 1.45;
+    }
+    .crm-delegated-heading {
+      position: sticky;
+      top: 0;
+      background: white;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .5rem;
+      padding: .6rem 0;
+      border-bottom: 1px solid #ccd6cd;
+    }
+    #crmDelegatedClose { flex: none; white-space: nowrap; }
+    #crmDelegatedDialog button { padding: .35rem .5rem; }
+    #crmDelegatedResults h4 { margin-top: .75rem; }
+    #crmDelegatedResults article { margin: .5rem 0; }
+    html:has(#crmDelegatedDialog[open]) { overflow: hidden; }
   </style>
   <link rel="stylesheet" href="/css/crm-import-guide.css">
   <script src="/js/crm-import-guide.js" defer></script>
@@ -2326,7 +2354,10 @@
 </div>
 
 <dialog id="crmDelegatedDialog" aria-labelledby="crmDelegatedTitle">
-  <h2 id="crmDelegatedTitle">CRM / Importar inmuebles</h2>
+  <div class="crm-delegated-heading">
+    <h2 id="crmDelegatedTitle">CRM / Importar inmuebles</h2>
+    <button type="button" id="crmDelegatedClose">Cerrar</button>
+  </div>
   <button type="button" class="crm-guide-trigger" data-crm-guide aria-haspopup="dialog">Guía de importación CRM</button>
   <p id="crmDelegatedTarget"></p>
   <p id="crmDelegatedSource"></p>
@@ -2341,9 +2372,9 @@
   <button type="button" id="crmDelegatedSimulate">Simular importación</button>
   <section id="crmDelegatedResults" aria-label="Resultado de la simulación"></section>
   <p id="crmDelegatedStatus" role="status"></p>
-  <button type="button" id="crmDelegatedClose">Cerrar</button>
 </dialog>
-<script src="/js/admin-crm.js?v=2"></script>
+<script src="/js/inmoweb-comparison.js"></script>
+<script src="/js/admin-crm.js?v=3"></script>
 <script src="/js/seo-slug.js"></script>
 <script src="/js/precios.js?v=2"></script>
 <script src="/js/public-location.js?v=1"></script>

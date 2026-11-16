@@ -1,3 +1,4 @@
+import { readInmowebComparisons } from "./inmowebComparison.js";
 import { safeRunSummary, runVersions, snapshotDigest } from "./syncPlan.js";
 import { assertInmowebNewSelectionAllowed, matchesDelegatedRun, receivedNewSnapshotValid } from "./inmowebPolicy.js";
 import { SNAPSHOT_REQUIRED } from "./providerSnapshots.js";
@@ -13,7 +14,7 @@ const sameSource = (run, source, owner) => source?.activo === true && source.fee
 
 // Presentation only: never fetches a feed or acquires a lock, and never writes.
 // Import NEW remains the final authority for live ownership/plan/capacity/conflicts.
-export function createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, providerSnapshots,
+export function createInmowebRunReader({ PropiedadModel, ImportSourceModel, ImportSyncRunModel, providerSnapshots,
   now = () => new Date(), env = process.env }) {
   async function sourceFor(owner) {
     let query = ImportSourceModel.findOne({ usuarioId: owner, activo: true });
@@ -37,6 +38,15 @@ export function createInmowebRunReader({ ImportSourceModel, ImportSyncRunModel, 
         if (!receivedNewSnapshotValid(evidence.snapshot) || snapshotDigest(evidence.snapshot) !== run.snapshotDigest ||
             new Date(evidence.expiresAt).getTime() < +now()) throw new Error("Unavailable review");
       } catch { evidence = undefined; blocked = blocked || SNAPSHOT_REQUIRED; }
+    }
+    if (evidence) {
+      // An optional comparison read must not prevent the independent NEW workflow.
+      let reviews;
+      try { reviews = await readInmowebComparisons(run, evidence.snapshot, PropiedadModel); }
+      catch { reviews = undefined; }
+      if (delegation) await delegation.assert(source);
+      if (+now() > +new Date(evidence.expiresAt) || +now() >= +new Date(run.expiresAt)) evidence = undefined;
+      else dto.comparisons = reviews;
     }
     if (!evidence) blocked ||= SNAPSHOT_REQUIRED;
     dto.snapshotState = evidence ? "valid" : "unavailable";

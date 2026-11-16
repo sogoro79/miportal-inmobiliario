@@ -223,17 +223,18 @@
   }
 
   let missingExpiryTimer, restoreExpiryTimer;
-  function renderizar(data, output, onEnroll, onApply, onImportNew, onConsult, onHideMissing, onConsultMissing, onRestore, onConsultRestore) {
+  function renderizar(data, output, onEnroll, onApply, onImportNew, onConsult, onHideMissing, onConsultMissing, onRestore, onConsultRestore, reloadReview) {
     if (missingExpiryTimer !== undefined && typeof clearTimeout === "function") clearTimeout(missingExpiryTimer);
     if (restoreExpiryTimer !== undefined && typeof clearTimeout === "function") clearTimeout(restoreExpiryTimer);
     output.replaceChildren();
     const summary = document.createElement("p");
-    summary.textContent = resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
+    const inmoweb = data.feedType === "inmoweb";
+    summary.textContent = inmoweb ? "Encontrados: " + data.snapshotCount + " · Nuevos: " + data.newCount : resumen(data).map(([label, value]) => `${label}: ${value || 0}`).join(" · ");
     if (data.feedFetchedAt && Number.isFinite(Date.parse(data.feedFetchedAt))) {
       summary.textContent += ` · Datos actualizados hace ${Math.max(0, Math.floor((Date.now() - Date.parse(data.feedFetchedAt)) / 60000))} minutos`;
     }
     output.append(summary);
-    if (typeof data.applyEligible === "boolean") {
+    if (!inmoweb && typeof data.applyEligible === "boolean") {
       const eligibility = document.createElement("p");
       const messages = {
         RUN_EXPIRED: "La simulación ha caducado. Vuelve a simular para preparar un resultado vigente.",
@@ -249,14 +250,19 @@
         : messages[data.applyBlockedReason] || messages.RUN_BLOCKED;
       output.append(eligibility);
     }
-    if (!data.snapshotComplete) {
+    if (!inmoweb && !data.snapshotComplete) {
       const warning = document.createElement("p");
       warning.textContent = "Snapshot incompleto: no se calculan anuncios que faltan del feed.";
       output.append(warning);
     }
+    if (inmoweb) {
+      const heading = document.createElement("h4");
+      heading.textContent = "Nuevos";
+      output.append(heading);
+    }
     const list = document.createElement("ul");
     const selected = new Set();
-    const canApply = onApply && data.applyEligible === true && data.status === "simulated" && !data.expired && !data.reappearedRestore;
+    const canApply = !inmoweb && onApply && data.applyEligible === true && data.status === "simulated" && !data.expired && !data.reappearedRestore;
     const applyButton = canApply ? document.createElement("button") : null;
     const selectionNotice = canApply ? document.createElement("p") : null;
     const newSelected = new Set();
@@ -275,14 +281,14 @@
     const newNotice = canImportNew ? document.createElement("p") : null;
     const missingSelected = new Set();
     const missingInputs = [];
-    const canHideMissing = onHideMissing && !expiredNow && data.status === "simulated" &&
+    const canHideMissing = !inmoweb && onHideMissing && !expiredNow && data.status === "simulated" &&
       data.snapshotComplete === true && !data.planTruncated && !data.resultsTruncated &&
       !data.missingHide && (!data.newImport?.status || data.newImport.status === "idle") &&
       !data.appliedAt && !data.selectedExternalIds?.length && !data.reappearedRestore;
     const missingButton = canHideMissing ? document.createElement("button") : null;
     const missingNotice = canHideMissing ? document.createElement("p") : null;
     const restoreSelected = new Set(), restoreInputs = [], otherInputs = [];
-    const canRestore = onRestore && !expiredNow && !data.blocked && !data.errorCode && (data.totalResults ?? data.results?.length ?? 0) <= 100 &&
+    const canRestore = !inmoweb && onRestore && !expiredNow && !data.blocked && !data.errorCode && (data.totalResults ?? data.results?.length ?? 0) <= 100 &&
       data.status === "simulated" && data.snapshotComplete === true &&
       !data.planTruncated && !data.resultsTruncated && !data.reappearedRestore && !data.missingHide &&
       (!data.newImport?.status || data.newImport.status === "idle") && !data.appliedAt && !data.selectedExternalIds?.length;
@@ -315,6 +321,7 @@
       if (missingNotice) missingNotice.textContent = missingMessage("MISSING_RUN_EXPIRED");
     }
     for (const item of (data.results || []).slice(0, 100)) {
+      if (inmoweb && item.type !== "NEW") continue;
       const row = document.createElement("li");
       const fields = item.changedFields || Object.entries(item.changes || {}).map(([field, change]) => `${field}${change.blockedByOverride ? " (protegido por edición manual)" : ""}`);
       const state = item.reason === "PROPERTY_SYNC_DISABLED" ? "Requiere vinculación" : item.blocked === true ? "Bloqueado / requiere revisión" : item.linked ? "Vinculado" : item.type;
@@ -592,6 +599,7 @@
       });
       output.append(consultButton);
     }
+    if (inmoweb) window.renderInmowebComparisons?.(output, data, reloadReview);
     if (data.resultsTruncated) {
       const notice = document.createElement("p");
       notice.textContent = `Se muestran hasta 100 detalles de ${data.totalResults}. Los contadores incluyen todos los resultados.`;
@@ -785,7 +793,7 @@
           }
         });
         return true;
-      }, consultRestore);
+      }, consultRestore, () => api("GET", `runs/${data.runId}`));
     }
     async function api(method, path, body) {
       const token = getToken();

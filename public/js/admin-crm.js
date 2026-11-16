@@ -69,6 +69,10 @@
   }
   function render(run) {
     const output = el("Results"); output.replaceChildren();
+    renderNew(run, output);
+    if (run.feedType === "inmoweb") window.renderInmowebComparisons(output, run, () => api("runs/" + run.runId));
+  }
+  function renderNew(run, output) {
     const summary = document.createElement("p");
     summary.textContent = `${run.snapshotCount} encontrados · ${run.newCount} nuevos.`;
     output.append(summary);
@@ -82,6 +86,7 @@
       reason.textContent = explanations[run.newImportBlockedReason] || "Esta revisión no permite importar.";
       output.append(reason);
     }
+    const heading = document.createElement("h4"); heading.textContent = "Nuevos"; output.append(heading);
     const selection = [];
     for (const row of run.results.filter(row => row.type === "NEW")) {
       const label = document.createElement("label");

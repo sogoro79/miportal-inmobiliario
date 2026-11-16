@@ -84,11 +84,13 @@ function normalizeRecord(record) {
   if (precio === null) block("INMOWEB_INVALID_PRICE");
   if (precio !== null && precio <= 1) warnings.push("INMOWEB_PRICE_REVIEW_REQUIRED");
 
+  let descriptionSupplied = false;
   const translations = new Map();
   for (const entry of array(record.descripciones?.descripcion)) {
     const lang = attr(entry, "idioma");
     if (!["es", "gb"].includes(lang)) { warnings.push("INMOWEB_LANGUAGE_NOT_MAPPED"); continue; }
     if (translations.has(lang)) { block("INMOWEB_DUPLICATE_LANGUAGE"); continue; }
+    if (lang === "es") descriptionSupplied = Object.hasOwn(entry, "descripcion");
     translations.set(lang, { titulo: text(entry.titulo), descripcion: text(entry.descripcion) });
   }
   const spanish = translations.get("es");
@@ -151,7 +153,22 @@ function normalizeRecord(record) {
   if (canonicalTitle.normalized) warnings.push("INMOWEB_TITLE_NORMALIZED");
   const toilets = number(record.aseos, "TOILETS", true);
   const eligibility = evaluateInmowebNewEligibility({ ...data, errors, warnings });
-  return { data, metadata: { operationId, familyId, conditionId, commercialStatus,
+  // Presentation-only presence evidence. Keep it outside the NEW payload and its digest.
+  const present = {
+    descripcion: descriptionSupplied, habitaciones: Object.hasOwn(record, "dormitorios"),
+    banos: Object.hasOwn(record, "banos"), superficie: Object.hasOwn(record.superficies || {}, "construida"),
+    provincia: Object.hasOwn(location, "provincia"), imagenes: Object.hasOwn(record, "imagenes")
+  };
+  const reviewAbsent = Object.keys(present).filter(field => !present[field]);
+  const reviewUnknown = [];
+  for (const [field, raw] of Object.entries({ habitaciones: record.dormitorios, banos: record.banos,
+    superficie: record.superficies?.construida })) {
+    if (raw !== undefined && data[field] === null && raw?.["@_xsi:nil"] !== "true") reviewUnknown.push(field);
+  }
+  for (const field of featureValues.keys()) {
+    if (features.has(field) && !Object.hasOwn(data, field)) reviewUnknown.push(field);
+  }
+  return { data, reviewAbsent, reviewUnknown, metadata: { operationId, familyId, conditionId, commercialStatus,
     superficies: surfaces, aseos: toilets,
     traducciones: Object.fromEntries(translations), caracteristicas: Object.fromEntries(features) },
     errors: eligibility.blockingIssues, warnings: eligibility.warnings, publishableByData: eligibility.eligible };
