@@ -40,15 +40,19 @@ export function compareInmowebProperty(property, record) {
 }
 
 export async function readInmowebComparisons(run, snapshot, PropiedadModel) {
-  const entries = run.plan.filter(e => e.propiedadId && Number.isSafeInteger(e.expectedContentRevision));
-  // Older runs did not capture a local revision or XML presence. Do not backfill them on read.
-  if (run.plan.some(e => e.propiedadId && !["INVALID", "MISSING"].includes(e.type) &&
-      !Number.isSafeInteger(e.expectedContentRevision))) return undefined;
+  const entries = run.plan.filter(e => e.propiedadId && !["INVALID", "MISSING"].includes(e.type));
   if (!entries.length) return [];
-  const properties = await PropiedadModel.find({ usuarioId: run.usuarioId, importSourceId: run.importSourceId,
-    source: "crm", externalId: { $in: entries.map(e => e.externalId) } }).lean();
+  const comparable = entries.filter(e => Number.isFinite(e.expectedContentRevision));
+  const properties = comparable.length ? await PropiedadModel.find({
+    usuarioId: run.usuarioId, importSourceId: run.importSourceId,
+    source: "crm", externalId: { $in: comparable.map(e => e.externalId) }
+  }).lean() : [];
   const rows = [];
   for (const entry of entries) {
+    if (!Number.isFinite(entry.expectedContentRevision)) {
+      rows.push({ externalId: entry.externalId, unavailable: true });
+      continue;
+    }
     const records = snapshot.properties.filter(r => r.data.externalId === entry.externalId);
     if (records.length !== 1 || records[0].errors.length) continue;
     if (!Array.isArray(records[0].reviewAbsent)) return undefined;

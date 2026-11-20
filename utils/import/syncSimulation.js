@@ -27,6 +27,21 @@ export function safeSimulationCode(error) {
   return safeCodes.has(error?.code) ? error.code : "SYNC_RUN_FAILED";
 }
 
+// Never log arbitrary names, paths, messages or rejected values from an exception.
+function logUnexpectedSimulationError(error, phase, provider, safeCode) {
+  if (provider !== "inmoweb" || safeCode !== "SYNC_RUN_FAILED") return;
+  const classes = new Set(["CastError", "ValidationError", "StrictModeError", "TypeError", "RangeError", "Error"]);
+  const paths = [error?.path, error?.reason?.path,
+    ...Object.values(error?.errors || {}).map(item => item?.path)];
+  const revisionPath = paths.some(path => typeof path === "string" &&
+    /^(?:plan\.(?:[0-9]+\.)?)?expectedContentRevision$/.test(path));
+  console.warn("[CRM Sync Simulation]", {
+    phase, provider, safeCode,
+    errorClass: classes.has(error?.name) ? error.name : "Error",
+    ...(revisionPath ? { validationPath: "plan.expectedContentRevision" } : {})
+  });
+}
+
 export function createSyncSimulator({
   ImportSourceModel = ImportSource, ImportSyncRunModel = ImportSyncRun, PropiedadModel = Propiedad,
   ReconciliationModel = ImportReconciliation, UsuarioModel = Usuario,
@@ -37,15 +52,20 @@ export function createSyncSimulator({
     const budget = createImportBudget();
     let lock;
     let run;
+    let phase = "sync-lock";
     try {
       lock = await acquireSyncLock({ ImportSourceModel, usuarioId, importSourceId, env, now, allowedFeedTypes: delegation ? ["inmoweb"] : ["generic_xml", "inmoweb"] });
+      phase = "sync-run-create";
       if (delegation) await delegation.assert(lock.source);
       run = await ImportSyncRunModel.create({ ...(delegation && { actorAdminId: delegation.actorAdminId, delegationId: delegation.id }), usuarioId, importSourceId, status: "blocked", mode: "simulation", startedAt,
         expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...runVersions,
         sourceIdentityHash: lock.source.feedUrlHash, errorCode: "SIMULATION_IN_PROGRESS" });
+      phase = "sync-feed-read";
       const fetched = await fetchXml(lock.feedUrl, { budget, usuarioId, feedType: lock.source.feedType, fresh: false });
       budget.assertActive();
+      phase = "sync-normalize";
       const snapshot = buildFeedSnapshot(fetched.xml, { feedType: lock.source.feedType });
+      phase = "sync-local-read";
       let properties = PropiedadModel.find({ usuarioId, importSourceId, source: "crm" });
       if (properties?.select) properties = properties.select("+hiddenByMissingRunId");
       if (properties?.limit) properties = properties.limit(MAX_SYNC_PROPERTIES + 1);
@@ -86,6 +106,7 @@ export function createSyncSimulator({
           visibleCount = availability.anunciosActuales;
         }
       }
+      phase = "sync-plan-build";
       const { plan, resultsTruncated, ...summary } = prepareSyncPlan(snapshot, existing.slice(0, MAX_SYNC_PROPERTIES),
         { usuarioId, importSourceId, reconciliations, causalRuns, user, visibleCount, now: now(),
           sourceIdentityHash: lock.source.feedUrlHash, snapshotDigest: snapshotDigest(snapshot), versions: runVersions });
@@ -102,17 +123,21 @@ export function createSyncSimulator({
       budget.assertActive();
       await lock.assert();
       if (delegation) await delegation.assert(lock.source);
+      phase = "sync-plan-persist";
       await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: final,
         ...(simulated ? { $unset: { errorCode: "" } } : {}) });
       if (lock.source.feedType === "inmoweb" && simulated && providerSnapshots) {
+        phase = "sync-snapshot-persist";
         await budget.run(() => providerSnapshots.bind({ fetched, usuarioId, run: { ...runVersions, ...final, _id: run._id,
           usuarioId, importSourceId, sourceIdentityHash: lock.source.feedUrlHash } }));
       }
+      phase = "sync-response";
       return { ...(fetched.fetchedAt ? { feedFetchedAt: fetched.fetchedAt } : {}), ...safeRunSummary({ _id: run._id, usuarioId, importSourceId,
         sourceIdentityHash: lock.source.feedUrlHash, ...runVersions,
         createdAt: startedAt, expiresAt: new Date(startedAt.getTime() + RUN_LIFETIME_MS), ...final }, now(), env) };
     } catch (error) {
       const code = safeSimulationCode(error);
+      logUnexpectedSimulationError(error, phase, lock?.source?.feedType, code);
       const finishedAt = now();
       if (run) await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: {
         status: "failed", errorCount: 1, errorCode: code, finishedAt, durationMs: finishedAt.getTime() - startedAt.getTime()

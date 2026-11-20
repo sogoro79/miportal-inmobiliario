@@ -127,7 +127,7 @@ test("componente compartido abre detalle con nueva lectura y sin acciones de esc
 
 test("no se reconstruye una revisión legacy ni se comparan dos coincidencias ambiguas", async () => {
   const legacy = {...run, plan: run.plan.map(({expectedContentRevision, ...entry}) => entry)};
-  assert.equal(await readInmowebComparisons(legacy,snapshot,find([property])),undefined);
+  assert.deepEqual(await readInmowebComparisons(legacy,snapshot,find([property])),[{externalId:"0001",unavailable:true}]);
   assert.deepEqual(await readInmowebComparisons(run,snapshot,find([property,property])),[{externalId:"0001",stale:true}]);
   const absent = compareInmowebProperty({...record.data, imagenes:["host-A"]},
     buildFeedSnapshot(xml.replace(/<imagenes>[\s\S]*?<\/imagenes>/,""),{feedType:"inmoweb"}).properties[0]);

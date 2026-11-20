@@ -35,6 +35,7 @@
       for (const row of run.comparisons) {
         const card = document.createElement("article");
         rows.append(card);
+        if (row.unavailable) { append(card, "p", row.externalId + " · Revisión no disponible para este anuncio"); continue; }
         if (row.stale) { append(card, "p", row.externalId + " · Revisión desactualizada"); continue; }
         append(card, "strong", [row.reference || row.externalId, row.title].filter(Boolean).join(" · "));
         append(card, "p", row.uncertain ? "Cambios detectados · origen sin determinar" : "Cambios detectados");
@@ -50,7 +51,7 @@
             const current = await reload();
             const fresh = current.comparisons?.find(r => r.externalId === row.externalId);
             if (!current.comparisons || !(expires >= Date.now())) return unavailable();
-            if (!fresh || fresh.stale) {
+            if (!fresh || fresh.stale || fresh.unavailable) {
               card.replaceChildren();
               append(card, "p", row.externalId + " · Revisión desactualizada");
               return;
