@@ -24,16 +24,35 @@ function cell(value, field, derived = false) {
 
 const normalize = value => typeof value === "string" ? value.trim().replace(/\s+/g, " ") : value;
 
+// Presentation evidence only: normalized defaults are not instructions to clear local data.
+function reliableIncoming(record, field, local) {
+  if (!Array.isArray(record.reviewAbsent) || record.reviewAbsent.includes(field) ||
+      record.reviewUnknown?.includes(field) || !Object.hasOwn(record.data, field)) return false;
+  const value = record.data[field];
+  if (value == null) return false;
+  // The adapter derives periodicity and may synthesize/truncate titles.
+  if (field === "periodicidadPrecio" ||
+      (field === "titulo" && record.warnings?.includes("INMOWEB_TITLE_NORMALIZED"))) return false;
+  if (["garaje", "piscina", "terraza"].includes(field)) return typeof value === "boolean";
+  if (["precio", "habitaciones", "banos", "superficie"].includes(field)) return Number.isFinite(value);
+  if (field === "imagenes") return Array.isArray(local) && Array.isArray(value) &&
+    !record.warnings?.includes("INMOWEB_IMAGE_URL_REJECTED");
+  if (typeof value !== "string") return false;
+  const text = normalize(value);
+  if (/^(?:desconocid[oa]|unknown)$/i.test(text)) return false;
+  // Only description has supplied/absent evidence for an explicitly empty string.
+  return text !== "" || field === "descripcion";
+}
+
 export function compareInmowebProperty(property, record) {
   const changes = [];
   for (const field of fields) {
-    const unknown = record.reviewUnknown?.includes(field);
-    if (record.reviewAbsent.includes(field) || (!unknown && !Object.hasOwn(record.data, field))) continue;
+    if (!reliableIncoming(record, field, property[field])) continue;
     const incoming = record.data[field], local = property[field];
     if (field === "imagenes" && Array.isArray(local) && Array.isArray(incoming) && local.length === incoming.length) continue;
     if (normalize(local) === normalize(incoming)) continue;
-    const derived = field === "periodicidadPrecio" || (field === "titulo" && record.warnings.includes("INMOWEB_TITLE_NORMALIZED"));
-    changes.push({ field, local: cell(local, field), crm: unknown ? { kind: "unknown" } : cell(incoming, field, derived) });
+    changes.push({ field, local: cell(local, field), crm: field === "descripcion" && normalize(incoming) === ""
+      ? { kind: "value", value: "" } : cell(incoming, field) });
   }
   return { changes, uncertain: !baselineValid(property) || hasOverrides(property), title: shortText(property.titulo),
     reference: shortText(property.referencia) };

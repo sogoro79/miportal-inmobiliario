@@ -28,13 +28,13 @@ const find = rows => ({ find(filter) {
   return { lean: async () => rows };
 } });
 
-test("compara los quince campos, abrevia textos y solo cuenta las fotos", () => {
+test("compara valores fiables, excluye periodicidad derivada y solo cuenta las fotos", () => {
   const local = { ...property, titulo: "Título anterior", descripcion: "Descripción privada anterior",
     habitaciones: 5, banos: 4, superficie: 220, localidad: "Otra", provincia: "Otra",
     tipoOperacion: "alquiler", tipoInmueble: "chalet", terraza: false, piscina: false, garaje: false,
     periodicidadPrecio: "mes", imagenes: [] };
   const dto = compareInmowebProperty(local, record);
-  assert.equal(dto.changes.length, 15);
+  assert.equal(dto.changes.length, 14);
   assert.equal(dto.uncertain, true);
   const fields = Object.fromEntries(dto.changes.map(c => [c.field,c]));
   assert.equal(fields.precio.crm.value, 210000);
@@ -44,7 +44,7 @@ test("compara los quince campos, abrevia textos y solo cuenta las fotos", () => 
   assert.deepEqual(compareInmowebProperty({ ...record.data, imagenes: ["host-A","host-B"] }, record).changes, []);
 });
 
-test("una etiqueta XML omitida no vacía datos; cero, false, null y valores derivados son diferentes", () => {
+test("una etiqueta omitida no vacía datos; conserva cero y false, excluye null y derivados", () => {
   const modified = xml.replace("<banos>1</banos>", "<banos>0</banos>").replace("<dormitorios>2</dormitorios>", "")
     .replace("privado</caracteristica>", "no</caracteristica>").replace('<operacion id="1">','<operacion id="2">')
     .replace("Piso sintético","Texto largo ".repeat(30)).replace("<construida>90</construida>",'<construida xsi:nil="true"/>');
@@ -54,9 +54,9 @@ test("una etiqueta XML omitida no vacía datos; cero, false, null y valores deri
   assert.equal(fields.banos.crm.value, 0);
   assert.equal(fields.banos.local.kind, "absent");
   assert.equal(fields.garaje.crm.value, false);
-  assert.equal(fields.superficie.crm.kind, "null");
-  assert.deepEqual(fields.periodicidadPrecio.crm, {kind:"unknown",derived:true});
-  assert.equal(fields.titulo.crm.kind, "derived");
+  assert.equal(fields.superficie, undefined);
+  assert.equal(fields.periodicidadPrecio, undefined);
+  assert.equal(fields.titulo, undefined);
 });
 
 test("la simulación observa la revisión sin habilitar ningún escritor", () => {
@@ -147,4 +147,61 @@ test("el texto de presentación no entrega etiquetas, URL ni credenciales incrus
   const local = {...property,titulo:"<b>Casa</b> https://example.test/?token=abc Bearer privado"};
   const review = compareInmowebProperty(local,record);
   assert.doesNotMatch(JSON.stringify(review),/https:|<b>|token=abc|privado/);
+});
+
+
+for (const field of ["precio", "titulo", "descripcion", "habitaciones", "banos", "superficie",
+  "localidad", "provincia", "tipoOperacion", "tipoInmueble", "garaje", "piscina", "terraza",
+  "periodicidadPrecio", "imagenes"]) {
+  test("ignora evidencia no fiable para " + field, () => {
+    for (const local of [false, true, 0, "", 3]) {
+      for (const mode of ["unknown", "absent", "null", "undefined", "omitted"]) {
+        const input = structuredClone(record);
+        input.data[field] = mode === "null" ? null : mode === "undefined" ? undefined : "desconocido";
+        if (mode === "unknown") input.reviewUnknown = [field];
+        if (mode === "absent") input.reviewAbsent.push(field);
+        if (mode === "omitted") delete input.data[field];
+        assert.deepEqual(compareInmowebProperty({ ...record.data, [field]: local }, input).changes, []);
+      }
+    }
+  });
+}
+for (const [local, incoming] of [[false,true],[true,false]]) {
+  test("preserva booleano explícito " + incoming, () => {
+    const input = structuredClone(record); input.data.garaje = incoming;
+    const changes = compareInmowebProperty({ ...record.data, garaje: local }, input).changes;
+    assert.equal(changes.length, 1); assert.equal(changes[0].crm.value, incoming);
+  });
+}
+test("preserva cero y números explícitos", () => {
+  for (const [local,incoming] of [[0,4],[3,0],[3,4]]) {
+    const input = structuredClone(record); input.data.habitaciones = incoming;
+    const changes = compareInmowebProperty({ ...record.data, habitaciones:local }, input).changes;
+    assert.equal(changes.length,1); assert.equal(changes[0].crm.value,incoming);
+  }
+});
+test("descripción vacía suministrada se distingue de ausencia y null", () => {
+  const input = structuredClone(record); input.data.descripcion = "";
+  assert.deepEqual(compareInmowebProperty(record.data,input).changes[0].crm,{kind:"value",value:""});
+  input.reviewAbsent.push("descripcion");
+  assert.deepEqual(compareInmowebProperty(record.data,input).changes,[]);
+});
+test("CH906 desconocidos no generan tarjeta; precio explícito sí", async () => {
+  const input = structuredClone(record);
+  input.reviewUnknown = ["garaje","piscina","terraza"];
+  for (const field of input.reviewUnknown) delete input.data[field];
+  const local = {...property,...record.data,referencia:"CH906",garaje:false,piscina:false,terraza:false};
+  const snap = {...snapshot,properties:[input]};
+  assert.deepEqual(compareInmowebProperty(local,input).changes,[]);
+  assert.deepEqual(await readInmowebComparisons(run,snap,find([local])),[]);
+  input.data.precio += 100;
+  const rows = await readInmowebComparisons(run,snap,find([local]));
+  assert.deepEqual(rows[0].changes.map(c=>c.field),["precio"]);
+});
+test("fotos solo comparan recuentos fiables", () => {
+  assert.deepEqual(compareInmowebProperty({...record.data,imagenes:null},record).changes,[]);
+  const input=structuredClone(record);
+  input.warnings.push("INMOWEB_IMAGE_URL_REJECTED");
+  assert.deepEqual(compareInmowebProperty({...record.data,imagenes:[]},input).changes,[]);
+  assert.deepEqual(compareInmowebProperty({...record.data,imagenes:["a","b"]},record).changes,[]);
 });
