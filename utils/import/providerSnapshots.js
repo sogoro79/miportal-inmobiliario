@@ -1,3 +1,4 @@
+import { logProviderSnapshotDiagnostic } from "./providerSnapshotDiagnostic.js";
 import { randomUUID } from "node:crypto";
 import { buildFeedSnapshot } from "../importers/importerRegistry.js";
 import { snapshotDigest, runVersions } from "./syncPlan.js";
@@ -62,39 +63,56 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
     return capture;
   }
   async function persist(capture, fetched, run) {
+    let stage = "encrypt";
     try {
       const metadata = { ...identity(run), fetchedAt: new Date(capture.at), expiresAt: new Date(capture.expiresAt) };
       const doc = { ...metadata, ...encryptProviderSnapshot(capture.snapshot, metadata, env) };
+      stage = "model-init";
       await SnapshotModel.init?.();
       // Insert-only: retries cannot refresh fetchedAt, extend TTL or rebind a run.
+      stage = "snapshot-upsert";
       let query = SnapshotModel.findOneAndUpdate({ runId: run._id }, { $setOnInsert: doc },
         { upsert: true, new: true, runValidators: true });
       if (query?.select) query = query.select("+encryptedSnapshot");
       if (query?.lean) query = query.lean();
-      const saved = decode(await query, run);
+      const docSaved = await query;
+      stage = "snapshot-decode";
+      const saved = decode(docSaved, run);
+      stage = "snapshot-validity";
       if (saved.at !== capture.at || saved.expiresAt !== capture.expiresAt) reject();
       if (!valid(capture)) reject();
       attach(run, fetched.captureId);
-    } catch { reject(); }
+    } catch (error) {
+      logProviderSnapshotDiagnostic({ provider: run.feedType, phase: "sync-snapshot-persist", stage, error });
+      reject();
+    }
   }
   async function restore(args, inspectionOnly = false) {
     const { run, usuarioId, source, session } = args;
+    let stage = "snapshot-validity";
     try {
       if (!SnapshotModel || run.feedType !== "inmoweb" || String(run.usuarioId) !== String(usuarioId) ||
           String(source.usuarioId) !== String(usuarioId) || source.feedType !== "inmoweb" ||
           source.feedUrlHash !== run.sourceIdentityHash || String(run.importSourceId) !== String(source._id)) reject();
+      stage = "snapshot-read";
       let query = SnapshotModel.findOne({ ...identity(run), expiresAt: { $gte: new Date(now()) } });
       if (query?.select) query = query.select("+encryptedSnapshot");
       if (session && query?.session) query = query.session(session);
       if (query?.lean) query = query.lean();
-      const capture = decode(await query, run);
+      const doc = await query;
+      stage = "snapshot-decode";
+      const capture = decode(doc, run);
+      stage = "snapshot-validity";
       const id = randomUUID(), lease = { sourceId: String(source._id) };
       validate(capture, lease, args); // Recheck clock after the asynchronous DB read.
       if (inspectionOnly) return { snapshot: structuredClone(capture.snapshot),
         fetchedAt: new Date(capture.at).toISOString(), expiresAt: new Date(capture.expiresAt).toISOString() };
       if (retain(id, capture)) attach(run, id);
       return structuredClone(capture.snapshot);
-    } catch { reject(); }
+    } catch (error) {
+      logProviderSnapshotDiagnostic({ provider: run.feedType, phase: "sync-snapshot-restore", stage, error });
+      reject();
+    }
   }
   return {
     // Read-only persisted evidence, independent of process cache; never init/upsert/renew.
@@ -105,12 +123,26 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
         expiresAt: at + lifetime, bytes: Buffer.byteLength(xml) }) ? id : undefined;
     },
     bind({ fetched, run, usuarioId }) {
+      const beforePrune = captures.get(fetched.captureId);
       prune();
       const capture = captures.get(fetched.captureId);
-      if (!valid(capture) || capture.xml !== fetched.xml) reject();
+      const rejectBind = stage => {
+        logProviderSnapshotDiagnostic({ provider: run.feedType, phase: "sync-snapshot-bind", stage });
+        reject();
+      };
+      if (!valid(capture) || capture.xml !== fetched.xml) {
+        rejectBind(!capture ? (beforePrune ? "snapshot-expired" : "snapshot-missing")
+          : !valid(capture) ? "snapshot-expired" : "snapshot-identity");
+      }
       const snapshot = buildFeedSnapshot(capture.xml, { feedType: "inmoweb" });
       capture.provider = "inmoweb"; capture.snapshot = snapshot; capture.digest = snapshotDigest(snapshot);
-      if (!matches(run, capture, usuarioId)) reject();
+      if (!matches(run, capture, usuarioId)) {
+        const stage = run.snapshotDigest !== capture.digest ? "snapshot-digest"
+          : run.providerNormalizationVersion !== capture.snapshot.normalizationVersion ||
+            !Object.entries(runVersions).every(([key, version]) => run[key] === version)
+            ? "snapshot-version" : "snapshot-identity";
+        rejectBind(stage);
+      }
       if (SnapshotModel) return persist(capture, fetched, run);
       attach(run, fetched.captureId);
     },
