@@ -1231,17 +1231,21 @@
     }
 
     .acciones-menu {
-      position: absolute;
+      position: fixed;
       right: 0;
       top: calc(100% + 6px);
       display: none;
-      min-width: 210px;
+      min-width: 0;
+      box-sizing: border-box;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
       padding: 6px;
       background: #fff;
       border: 1px solid #e5e7eb;
       border-radius: 10px;
       box-shadow: 0 12px 30px rgba(0,0,0,0.12);
-      z-index: 40;
+      z-index: 900;
     }
 
     .acciones-menu.visible {
@@ -1250,6 +1254,7 @@
 
     .acciones-menu button {
       width: 100%;
+      overflow-wrap: anywhere;
       padding: 9px 10px;
       border: none;
       border-radius: 7px;
@@ -2378,6 +2383,7 @@
 <script src="/js/seo-slug.js"></script>
 <script src="/js/precios.js?v=2"></script>
 <script src="/js/public-location.js?v=1"></script>
+<script src="/js/admin-action-menu.js"></script>
 <script>
 let adminToken = localStorage.getItem('adminToken');
 let periodicidadAdminInicial, operacionAdminInicial;
@@ -2840,7 +2846,7 @@ function renderMenuAccionesUsuario(u, estaActivo) {
   const esAdministrador = u.role === 'admin';
   return `
     <div class="user-actions">
-      <button class="btn-acciones" onclick="toggleMenuAcciones(event, '${u._id}')">Acciones ▾</button>
+      <button class="btn-acciones" aria-expanded="false" aria-controls="acciones-${u._id}" onclick="toggleMenuAcciones(event, '${u._id}')">Acciones ▾</button>
       <div class="acciones-menu" id="acciones-${u._id}">
         <button onclick="verEstadisticas('${u._id}'); cerrarMenusAcciones();">Ver estadísticas</button>
         <button onclick="verPublicacionesUsuario('${u._id}'); cerrarMenusAcciones();">Ver publicaciones</button>
@@ -3819,17 +3825,11 @@ function cerrarModalEstadisticas(event) {
 }
 
 function cerrarMenusAcciones() {
-  document.querySelectorAll('.acciones-menu.visible').forEach(menu => {
-    menu.classList.remove('visible');
-  });
+  window.adminActionMenu.close();
 }
 
 function toggleMenuAcciones(event, usuarioId) {
-  event.stopPropagation();
-  const menu = document.getElementById(`acciones-${usuarioId}`);
-  const yaVisible = menu?.classList.contains('visible');
-  cerrarMenusAcciones();
-  if (menu && !yaVisible) menu.classList.add('visible');
+  window.adminActionMenu.toggle(event, document.getElementById(`acciones-${usuarioId}`));
 }
 
 document.addEventListener('click', cerrarMenusAcciones);

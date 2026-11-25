@@ -30,7 +30,8 @@
       detail.replaceChildren();
       append(detail, "p", "Revisión no disponible. Vuelve a simular.");
     };
-    const expires = Math.min(Date.parse(run.snapshotExpiresAt), Date.parse(run.expiresAt));
+    const expires = run.newReviewExpiresAt ? Date.parse(run.newReviewExpiresAt)
+      : Math.min(Date.parse(run.snapshotExpiresAt), Date.parse(run.expiresAt));
     const buttons = [];
     for (const [caption, candidates] of [["Ver ficha", false], ["Revisar posibles duplicados", true]]) {
       const button = append(box, "button", caption);
@@ -43,7 +44,8 @@
           if (!(Date.now() < expires) || typeof reload !== "function") return unavailable();
           const current = await reload({ externalId, review: candidates ? "duplicates" : "ficha" });
           const fresh = current?.newReviews?.find(row => row.externalId === externalId);
-          const currentExpiry = Math.min(Date.parse(current?.snapshotExpiresAt), Date.parse(current?.expiresAt));
+          const currentExpiry = current?.newReviewExpiresAt ? Date.parse(current.newReviewExpiresAt)
+            : Math.min(Date.parse(current?.snapshotExpiresAt), Date.parse(current?.expiresAt));
           if (current?.runId !== run.runId || !fresh || !(Date.now() < Math.min(expires, currentExpiry))) return unavailable();
           if (!candidates) {
             const names = { ...labels, externalId: "ExternalId", referencia: "Referencia",

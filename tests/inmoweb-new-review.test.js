@@ -226,3 +226,19 @@ test("one broken candidate is isolated and incomplete review is distinguishable"
   assert.equal(dto.newReviews[0].candidates.length,1);
   assert.equal(dto.newReviews[0].incomplete,true);
 });
+test("NEW UI uses dedicated 30-minute review deadline without extending import expiry",async()=>{
+  const h=setup(),dto=await h.evaluate();
+  let time=Date.now();
+  dto.expiresAt=new Date(time-1).toISOString();dto.snapshotExpiresAt=new Date(time-1).toISOString();
+  dto.newReviewExpiresAt=new Date(time+1000).toISOString();
+  function element(tag){return {tag,children:[],setAttribute(){},append(n){this.children.push(n)},replaceChildren(){this.children=[]}}}
+  class Clock extends Date { static now(){return time} }
+  const window={};vm.runInNewContext(fs.readFileSync(new URL('../public/js/inmoweb-comparison.js',import.meta.url),'utf8'),
+    {window,document:{createElement:element},Date:Clock,setTimeout(){}});
+  const root=element('div');let reads=0;
+  window.renderInmowebNewReview(root,dto,data.externalId,async()=>{reads++;return dto});
+  const flatten=n=>[n,...n.children.flatMap(flatten)],button=flatten(root).find(n=>n.tag==='button');
+  await button.onclick();assert.equal(reads,1);assert.match(flatten(root).map(n=>n.textContent).join(' '),/Número de fotos/);
+  time+=1000;await button.onclick();assert.equal(reads,1);
+  assert.match(flatten(root).map(n=>n.textContent).join(' '),/Revisión no disponible. Vuelve a simular./);
+});

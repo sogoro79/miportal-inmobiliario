@@ -1,3 +1,4 @@
+import { newReviewDeadline } from "./inmowebReviewWindow.js";
 import { readInmowebNewReviews } from "./inmowebNewReview.js";
 import { readInmowebComparisons } from "./inmowebComparison.js";
 import { safeRunSummary, runVersions, snapshotDigest } from "./syncPlan.js";
@@ -27,6 +28,8 @@ export function createInmowebRunReader({ PropiedadModel, ImportSourceModel, Impo
     const dto = safeRunSummary(run, now(), env);
     if (run.feedType !== "inmoweb") return dto;
     source ??= await sourceFor(owner);
+    if (providerSnapshots.readNewReview && Number.isFinite(newReviewDeadline(run)))
+      dto.newReviewExpiresAt = new Date(newReviewDeadline(run)).toISOString();
     let evidence, blocked = dto.newImportBlockedReason;
     if (!sameSource(run, source, owner)) blocked = "SYNC_NEW_SOURCE_CHANGED";
     else if ((run.actorAdminId || run.delegationId || delegation) && !matchesDelegatedRun(run, delegation)) blocked = "CRM_DELEGATION_REQUIRED";
@@ -49,10 +52,21 @@ export function createInmowebRunReader({ PropiedadModel, ImportSourceModel, Impo
       if (+now() > +new Date(evidence.expiresAt) || +now() >= +new Date(run.expiresAt)) evidence = undefined;
       else dto.comparisons = reviews;
     }
-    if (evidence && reviewRequest && run.plan.some(entry => entry.type === "NEW" && entry.externalId === reviewRequest.externalId)) {
+    if (reviewRequest && sameSource(run, source, owner) && reusable(run) &&
+        (!(run.actorAdminId || run.delegationId || delegation) || matchesDelegatedRun(run, delegation)) &&
+        +now() < newReviewDeadline(run) && run.plan.some(entry => entry.type === "NEW" && entry.externalId === reviewRequest.externalId)) {
       // Optional read-only details must not change import eligibility or payloads.
       try {
-        const reviews = await readInmowebNewReviews(run, evidence.snapshot, PropiedadModel, reviewRequest);
+        if (delegation) await delegation.assert(source);
+        const reviewEvidence = providerSnapshots.readNewReview
+          ? await providerSnapshots.readNewReview({ run, usuarioId: owner, source }) : evidence;
+        if (!reviewEvidence || !receivedNewSnapshotValid(reviewEvidence.snapshot) ||
+            snapshotDigest(reviewEvidence.snapshot) !== run.snapshotDigest) throw new Error("Unavailable review");
+        const reviewUntil = providerSnapshots.readNewReview
+          ? Math.min(newReviewDeadline(run, reviewEvidence.fetchedAt), +new Date(reviewEvidence.reviewExpiresAt))
+          : Math.min(+new Date(run.expiresAt), +new Date(reviewEvidence.expiresAt));
+        if (!(+now() < reviewUntil)) throw new Error("Unavailable review");
+        const reviews = await readInmowebNewReviews(run, reviewEvidence.snapshot, PropiedadModel, reviewRequest);
         const currentSource = await sourceFor(owner);
         let query = ImportSyncRunModel.findOne({ _id: run._id, usuarioId: owner });
         if (query?.select) query = query.select("+plan");
@@ -64,14 +78,16 @@ export function createInmowebRunReader({ PropiedadModel, ImportSourceModel, Impo
             (!(currentRun.actorAdminId || currentRun.delegationId || delegation) || matchesDelegatedRun(currentRun, delegation)) &&
             currentRun.snapshotDigest === run.snapshotDigest &&
             JSON.stringify(currentRun.plan) === JSON.stringify(run.plan) &&
-            +now() < +new Date(currentRun.expiresAt) && +now() < +new Date(evidence.expiresAt)) {
+            newReviewDeadline(currentRun) === newReviewDeadline(run) && +now() < reviewUntil) {
           dto.newReviews = reviews;
+          if (providerSnapshots.readNewReview) dto.newReviewExpiresAt = new Date(reviewUntil).toISOString();
         }
       } catch { /* Unavailable review; no fallback fetch, mutation or import change. */ }
     }
     if (!evidence) blocked ||= SNAPSHOT_REQUIRED;
     dto.snapshotState = evidence ? "valid" : "unavailable";
     if (evidence) {
+      if (providerSnapshots.readNewReview) dto.newReviewExpiresAt = new Date(newReviewDeadline(run, evidence.fetchedAt)).toISOString();
       dto.feedFetchedAt = evidence.fetchedAt;
       dto.snapshotExpiresAt = evidence.expiresAt;
     }

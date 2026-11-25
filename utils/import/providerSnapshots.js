@@ -1,3 +1,4 @@
+import { newReviewDeadline } from "./inmowebReviewWindow.js";
 import { logProviderSnapshotDiagnostic } from "./providerSnapshotDiagnostic.js";
 import { randomUUID } from "node:crypto";
 import { buildFeedSnapshot } from "../importers/importerRegistry.js";
@@ -38,11 +39,15 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
       run.providerNormalizationVersion === capture.snapshot.normalizationVersion &&
       Object.entries(runVersions).every(([key, version]) => run[key] === version);
   }
-  function validate(capture, lease, { run, usuarioId, source }) {
-    if (!valid(capture) || !capture.snapshot || !matches(run, capture, usuarioId) ||
+  const reviewValid = (capture, run) => capture && Number.isFinite(capture.at) &&
+    Number.isFinite(capture.expiresAt) && capture.expiresAt >= capture.at &&
+    capture.expiresAt <= capture.at + lifetime && now() >= capture.at &&
+    now() < newReviewDeadline(run, capture.at);
+  function validate(capture, lease, { run, usuarioId, source }, reviewOnly = false) {
+    if (!(reviewOnly ? reviewValid(capture, run) : valid(capture)) || !capture.snapshot || !matches(run, capture, usuarioId) ||
         lease.sourceId !== String(source._id) || String(run.importSourceId) !== lease.sourceId ||
         source.feedType !== "inmoweb" || String(source.usuarioId) !== String(usuarioId) ||
-        source.feedUrlHash !== capture.sourceHash || !(new Date(run.expiresAt).getTime() > now())) reject();
+        source.feedUrlHash !== capture.sourceHash || (!reviewOnly && !(new Date(run.expiresAt).getTime() > now()))) reject();
   }
   function attach(run, captureId) {
     if (leases.size >= maxEntries) leases.delete(leases.keys().next().value);
@@ -51,11 +56,11 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
   const identity = run => ({ runId: run._id, usuarioId: run.usuarioId, importSourceId: run.importSourceId,
     provider: "inmoweb", sourceIdentityHash: run.sourceIdentityHash, snapshotDigest: run.snapshotDigest,
     ...runVersions, providerAdapterVersion: run.providerNormalizationVersion });
-  function decode(doc, run) {
+  function decode(doc, run, reviewOnly = false) {
     if (!doc || Object.entries(identity(run)).some(([key, value]) => String(doc[key]) !== String(value))) reject();
     const capture = { owner: String(doc.usuarioId), provider: doc.provider, sourceHash: doc.sourceIdentityHash,
       at: new Date(doc.fetchedAt).getTime(), expiresAt: new Date(doc.expiresAt).getTime(), digest: doc.snapshotDigest };
-    if (!valid(capture)) reject(); // TTL index is cleanup only; never a validity guarantee.
+    if (!(reviewOnly ? reviewValid(capture, run) : valid(capture))) reject(); // TTL index is cleanup only; never a validity guarantee.
     capture.snapshot = decryptProviderSnapshot(doc, env);
     if (capture.snapshot.feedType !== "inmoweb" || snapshotDigest(capture.snapshot) !== capture.digest ||
         !matches(run, capture, run.usuarioId)) reject();
@@ -87,7 +92,7 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
       reject();
     }
   }
-  async function restore(args, inspectionOnly = false) {
+  async function restore(args, inspectionOnly = false, reviewOnly = false) {
     const { run, usuarioId, source, session } = args;
     let stage = "snapshot-validity";
     try {
@@ -95,18 +100,19 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
           String(source.usuarioId) !== String(usuarioId) || source.feedType !== "inmoweb" ||
           source.feedUrlHash !== run.sourceIdentityHash || String(run.importSourceId) !== String(source._id)) reject();
       stage = "snapshot-read";
-      let query = SnapshotModel.findOne({ ...identity(run), expiresAt: { $gte: new Date(now()) } });
+      let query = SnapshotModel.findOne({ ...identity(run), ...(!reviewOnly && { expiresAt: { $gte: new Date(now()) } }) });
       if (query?.select) query = query.select("+encryptedSnapshot");
       if (session && query?.session) query = query.session(session);
       if (query?.lean) query = query.lean();
       const doc = await query;
       stage = "snapshot-decode";
-      const capture = decode(doc, run);
+      const capture = decode(doc, run, reviewOnly);
       stage = "snapshot-validity";
       const id = randomUUID(), lease = { sourceId: String(source._id) };
-      validate(capture, lease, args); // Recheck clock after the asynchronous DB read.
+      validate(capture, lease, args, reviewOnly); // Recheck clock after the asynchronous DB read.
       if (inspectionOnly) return { snapshot: structuredClone(capture.snapshot),
-        fetchedAt: new Date(capture.at).toISOString(), expiresAt: new Date(capture.expiresAt).toISOString() };
+        fetchedAt: new Date(capture.at).toISOString(), expiresAt: new Date(capture.expiresAt).toISOString(),
+        ...(reviewOnly && { reviewExpiresAt: new Date(newReviewDeadline(run, capture.at)).toISOString() }) };
       if (retain(id, capture)) attach(run, id);
       return structuredClone(capture.snapshot);
     } catch (error) {
@@ -117,6 +123,8 @@ export function createProviderSnapshots({ now = Date.now, ttlMs = 300_000, maxEn
   return {
     // Read-only persisted evidence, independent of process cache; never init/upsert/renew.
     readPersisted(args) { return restore(args, true); },
+    // Separate read-only capability: never retained/attached for get() or import.
+    readNewReview(args) { return restore(args, true, true); },
     record({ xml, usuarioId, sourceHash, fetchedAt }) {
       const at = Date.parse(fetchedAt), id = randomUUID();
       return retain(id, { xml, owner: String(usuarioId), sourceHash, at,

@@ -103,9 +103,9 @@ test("stored document contains only allowlisted metadata and ciphertext, not XML
     "providerAdapterVersion", "encryptedSnapshot", "keyVersion"].sort());
   await new ProviderSnapshot(h.doc()).validate(); // schema validation only; no connection
 });
-test("model has unique run binding, zero-delay TTL index and rejects arbitrary plaintext fields", async () => {
+test("model has unique run binding, read-only retention TTL index and rejects arbitrary plaintext fields", async () => {
   assert.ok(ProviderSnapshot.schema.indexes().some(([fields, options]) => fields.runId === 1 && options.unique));
-  assert.ok(ProviderSnapshot.schema.indexes().some(([fields, options]) => fields.expiresAt === 1 && options.expireAfterSeconds === 0));
+  assert.ok(ProviderSnapshot.schema.indexes().some(([fields, options]) => fields.expiresAt === 1 && options.expireAfterSeconds === 1800));
   const h = await setup();
   assert.throws(() => new ProviderSnapshot({ ...h.doc(), feedUrl }), /strict mode/);
   assert.equal(ProviderSnapshot.schema.path("encryptedSnapshot").options.select, false);
