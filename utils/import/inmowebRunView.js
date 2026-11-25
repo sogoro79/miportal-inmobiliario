@@ -1,3 +1,4 @@
+import { readInmowebNewReviews } from "./inmowebNewReview.js";
 import { readInmowebComparisons } from "./inmowebComparison.js";
 import { safeRunSummary, runVersions, snapshotDigest } from "./syncPlan.js";
 import { assertInmowebNewSelectionAllowed, matchesDelegatedRun, receivedNewSnapshotValid } from "./inmowebPolicy.js";
@@ -47,6 +48,26 @@ export function createInmowebRunReader({ PropiedadModel, ImportSourceModel, Impo
       if (delegation) await delegation.assert(source);
       if (+now() > +new Date(evidence.expiresAt) || +now() >= +new Date(run.expiresAt)) evidence = undefined;
       else dto.comparisons = reviews;
+    }
+    if (evidence && run.plan.some(entry => entry.type === "NEW")) {
+      // Optional read-only details must not change import eligibility or payloads.
+      try {
+        const reviews = await readInmowebNewReviews(run, evidence.snapshot, PropiedadModel);
+        const currentSource = await sourceFor(owner);
+        let query = ImportSyncRunModel.findOne({ _id: run._id, usuarioId: owner });
+        if (query?.select) query = query.select("+plan");
+        if (query?.lean) query = query.lean();
+        const currentRun = await query;
+        if (delegation) await delegation.assert(currentSource);
+        if (sameSource(run, currentSource, owner) && currentRun && reusable(currentRun) &&
+            sameSource(currentRun, currentSource, owner) &&
+            (!(currentRun.actorAdminId || currentRun.delegationId || delegation) || matchesDelegatedRun(currentRun, delegation)) &&
+            currentRun.snapshotDigest === run.snapshotDigest &&
+            JSON.stringify(currentRun.plan) === JSON.stringify(run.plan) &&
+            +now() < +new Date(currentRun.expiresAt) && +now() < +new Date(evidence.expiresAt)) {
+          dto.newReviews = reviews;
+        }
+      } catch { /* Unavailable review; no fallback fetch, mutation or import change. */ }
     }
     if (!evidence) blocked ||= SNAPSHOT_REQUIRED;
     dto.snapshotState = evidence ? "valid" : "unavailable";

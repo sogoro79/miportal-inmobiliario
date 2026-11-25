@@ -21,6 +21,55 @@
     parent.append(node);
     return node;
   }
+  window.renderInmowebNewReview = (output, run, externalId, reload) => {
+    const box = document.createElement("div");
+    output.append(box);
+    const detail = document.createElement("div");
+    detail.setAttribute("aria-live", "polite");
+    const unavailable = () => {
+      detail.replaceChildren();
+      append(detail, "p", "Revisión no disponible. Vuelve a simular.");
+    };
+    const expires = Math.min(Date.parse(run.snapshotExpiresAt), Date.parse(run.expiresAt));
+    const buttons = [];
+    for (const [caption, candidates] of [["Ver ficha", false], ["Revisar posibles duplicados", true]]) {
+      const button = append(box, "button", caption);
+      button.type = "button";
+      buttons.push(button);
+      button.onclick = async () => {
+        detail.replaceChildren();
+        buttons.forEach(b => { b.disabled = true; });
+        try {
+          if (!(Date.now() < expires) || typeof reload !== "function") return unavailable();
+          const current = await reload();
+          const fresh = current?.newReviews?.find(row => row.externalId === externalId);
+          const currentExpiry = Math.min(Date.parse(current?.snapshotExpiresAt), Date.parse(current?.expiresAt));
+          if (current?.runId !== run.runId || !fresh || !(Date.now() < Math.min(expires, currentExpiry))) return unavailable();
+          if (!candidates) {
+            const names = { ...labels, externalId: "ExternalId", referencia: "Referencia",
+              superficieParcela: "Parcela", fotos: "Número de fotos" };
+            for (const [field, value] of Object.entries(fresh.fields)) {
+              if (!Object.hasOwn(names, field)) continue;
+              append(detail, "p", names[field] + ": " + format({ kind: "value", value }, field));
+            }
+          } else {
+            append(detail, "h5", "Posibles coincidencias");
+            append(detail, "p", "Ayuda para revisión humana. El score no es una probabilidad ni una autorización para importar.");
+            if (!fresh.candidates.length) append(detail, "p", "No se han encontrado coincidencias fuertes en la cartera actual.");
+            for (const candidate of fresh.candidates) {
+              append(detail, "strong", [candidate.reference, candidate.title].filter(Boolean).join(" · "));
+              append(detail, "p", "Score interno: " + candidate.score);
+              append(detail, "p", "Coincidencias: " + candidate.evidence.join("; "));
+              append(detail, "p", "Contradicciones: " + (candidate.contradictions.join("; ") || "Ninguna detectada en los datos comparables."));
+            }
+          }
+        } catch { unavailable(); }
+        finally { buttons.forEach(b => { b.disabled = false; }); }
+      };
+    }
+    box.append(detail);
+    if (Date.now() < expires) setTimeout(unavailable, Math.max(0, expires - Date.now() + 1));
+  };
   window.renderInmowebComparisons = (output, run, reload) => {
     const section = document.createElement("section");
     output.append(section);

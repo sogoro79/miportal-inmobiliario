@@ -419,6 +419,7 @@
           row.append(checkbox);
         }
       }
+      if (inmoweb && item.type === "NEW") window.renderInmowebNewReview?.(row, data, item.externalId, reloadReview);
       if (canApply && item.type === "UPDATE" && item.blocked === false) {
         const checkbox = document.createElement("input");
         otherInputs.push(checkbox);

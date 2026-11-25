@@ -97,6 +97,7 @@
       }
       label.append(document.createTextNode(row.externalId + (row.importNewEligible ? "" : " · No habilitado para importación")));
       output.append(label);
+      if (run.feedType === "inmoweb") window.renderInmowebNewReview?.(output, run, row.externalId, () => api("runs/" + run.runId));
     }
     if (run.newImport) {
       const receipt = document.createElement("p");

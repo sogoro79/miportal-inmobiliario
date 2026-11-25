@@ -85,3 +85,32 @@ export function duplicateReport(incoming, existing) {
   });
   return { totalNEW: rows.length, resumen: Object.fromEntries(labels.map(label => [label, rows.filter(r => r.clasificacion === label).length])), filas: rows };
 }
+
+// Human review uses the existing scoring contract, without automatic decisions.
+export function duplicateCandidates(incoming, existing, sourceId) {
+  const labels = { localidad: "Localidad distinta", provincia: "Provincia distinta",
+    tipoOperacion: "Operación distinta", tipoInmueble: "Tipo de inmueble distinto",
+    habitaciones: "Dormitorios distintos", banos: "Baños distintos",
+    superficie: "Superficie construida distinta", superficieParcela: "Parcela distinta",
+    precio: "Precio distinto", garaje: "Garaje diferente", piscina: "Piscina diferente", terraza: "Terraza diferente" };
+  return existing.map(property => {
+    // CRM identifiers/references from another source are not identity evidence.
+    const scored = property.source === "crm" && String(property.importSourceId) !== String(sourceId)
+      ? { ...property, referencia: undefined } : property;
+    const match = compare(incoming, scored);
+    const contradictions = Object.entries(labels).filter(([key]) => {
+      const a = incoming[key], b = property[key];
+      if (a == null || b == null || a === "" || b === "") return false;
+      if (typeof a === "number") return Number.isFinite(a) && Number.isFinite(b) && a !== b;
+      if (typeof a === "boolean") return typeof b === "boolean" && a !== b;
+      return normalize(a) !== normalize(b);
+    }).map(([, label]) => label);
+    return { ...match, reference: safe(property.referencia), title: safe(property.titulo), contradictions };
+  }).filter(match => match.rank > 0)
+    .sort((a, b) => b.rank - a.rank || b.points - a.points || a.candidate._id.localeCompare(b.candidate._id))
+    .slice(0, 3).map(match => ({
+      reference: match.reference, title: match.title, score: match.points,
+      evidence: match.reasons.filter(reason => !["discrepancia de ubicación u operación", "precio distinto"].includes(reason)),
+      contradictions: match.contradictions
+    }));
+}
