@@ -20,6 +20,7 @@ const MensajeSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    reminderSentAt: { type: Date, default: null },
     creado: {
       type: Date,
       default: Date.now,
@@ -27,5 +28,7 @@ const MensajeSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+MensajeSchema.index({ leido: 1, reminderSentAt: 1, creado: 1, conversacionId: 1 });
 
 export default mongoose.model("Mensaje", MensajeSchema);

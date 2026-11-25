@@ -27,6 +27,8 @@ const ConversacionSchema = new mongoose.Schema(
       ref: "Usuario",
       default: [],
     },
+    reminderLockToken: { type: String, select: false },
+    reminderLockUntil: { type: Date, select: false },
     creado: {
       type: Date,
       default: Date.now,

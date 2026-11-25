@@ -9,7 +9,7 @@ import Mensaje from "../models/Mensaje.js";
 import { requireAuth } from "../middleware/auth.js";
 import { cleanString, isObjectId, objectId, validateBody, z } from "../utils/validation.js";
 import { securityRateLimits } from "../utils/security.js";
-import { enviarCorreoAutomatico, escapeEmailHtml, textToEmailHtml } from "../utils/email.js";
+import { notifyChatMessage } from "../utils/chatEmail.js";
 
 const router = express.Router();
 
@@ -32,7 +32,7 @@ const leerSchema = z.object({
 }).strict();
 
 export function esParticipante(conv, userId) {
-  return String(conv.anuncianteId) === userId || String(conv.compradorId) === userId;
+  return Boolean(conv && userId && [conv.anuncianteId, conv.compradorId].some(id => id && String(id) === String(userId)));
 }
 
 function idStr(value) {
@@ -222,38 +222,7 @@ router.post("/conversaciones/:id/mensajes", requireAuth, securityRateLimits.chat
 
     const msg = await Mensaje.create({ conversacionId: req.params.id, userId, texto });
 
-    // ── Notificación por email al anunciante ──
-    try {
-      // Solo notificar si quien escribe es el comprador (no el anunciante a sí mismo)
-      if (conv && conv.anuncianteId !== userId) {
-        const anunciante = await Usuario.findById(conv.anuncianteId);
-        const comprador  = await Usuario.findById(userId);
-        const propiedad  = await Propiedad.findById(conv.propiedadId);
-
-        if (anunciante?.email) {
-          await enviarCorreoAutomatico(anunciante.email, "💬 Tienes un nuevo mensaje en HomeClick24", `
-            <p>Hola <strong>${escapeEmailHtml(anunciante.nombre || "anunciante")}</strong>,</p>
-            <p>Has recibido un nuevo mensaje sobre tu propiedad:</p>
-            <div style="background:#f3f4f6;border-radius:10px;padding:14px 16px;margin:16px 0;">
-              <p style="margin:0;font-weight:700;color:#1f2937;">${escapeEmailHtml(propiedad?.titulo || "Tu propiedad")}</p>
-            </div>
-            <div style="background:#f0fae5;border-left:4px solid #7cc242;padding:14px 16px;border-radius:8px;margin:16px 0;">
-              <p style="margin:0;color:#4a7c24;"><strong>${escapeEmailHtml(comprador?.nombre || "Un usuario")}:</strong></p>
-              <p style="margin:8px 0 0;">"${textToEmailHtml(texto)}"</p>
-            </div>
-          `, {
-            title: "Nuevo mensaje recibido",
-            cta: {
-              label: "Ver mensaje",
-              url: "https://www.homeclick24.com/chat"
-            }
-          });
-        }
-      }
-    } catch(emailErr) {
-      console.error("Error enviando email:", emailErr);
-      // No bloqueamos la respuesta aunque falle el email
-    }
+    await notifyChatMessage(conv, msg);
 
     res.json(msg);
   } catch(e) {

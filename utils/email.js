@@ -173,7 +173,7 @@ export function renderEmailTemplate({
 
 export async function enviarCorreo(to, subject, html, options = {}) {
   try {
-    const data = await getResendClient().emails.send({
+    const data = await (options.client || getResendClient()).emails.send({
       from: getEmailSender(options.fromType || "noreply"),
       to,
       subject,
@@ -185,12 +185,15 @@ export async function enviarCorreo(to, subject, html, options = {}) {
         footerNote: options.footerNote
       }),
       ...(options.replyTo && { replyTo: options.replyTo })
-    });
+    }, options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined);
 
-    console.log("EMAIL ENVIADO:", data);
+    if (data?.error || !data?.data?.id) {
+      console.warn("[Email]", { phase: "send", provider: "email", safeCode: "EMAIL_SEND_FAILED" });
+      return false;
+    }
     return true;
   } catch (err) {
-    console.error("ERROR EMAIL:", err);
+    console.warn("[Email]", { phase: "send", provider: "email", safeCode: "EMAIL_SEND_FAILED" });
     return false;
   }
 }
