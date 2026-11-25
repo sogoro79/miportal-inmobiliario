@@ -26,7 +26,7 @@
       const targetMessages = { CRM_TARGET_NOT_FOUND: "No se encontró el titular.",
         CRM_TARGET_NOT_ALLOWED: "Este titular no está autorizado para la importación delegada.",
         CRM_TARGET_INACTIVE: "El titular está inactivo." };
-      el("Status").textContent = targetMessages[error.code] || common[error.status] || failureMessage || "No se pudo confirmar la operación. Consulta el estado antes de volver a intentarlo.";
+      el("Status").textContent = targetMessages[error.code] || (error.code === "INMOWEB_TEMPORARILY_UNAVAILABLE" ? "InmoWeb no está disponible para una nueva consulta en este momento. Puedes volver a simular cuando la fuente esté disponible." : null) || common[error.status] || failureMessage || "No se pudo confirmar la operación. Consulta el estado antes de volver a intentarlo.";
     }
     finally { busy = false; }
   }
@@ -97,7 +97,7 @@
       }
       label.append(document.createTextNode(row.externalId + (row.importNewEligible ? "" : " · No habilitado para importación")));
       output.append(label);
-      if (run.feedType === "inmoweb") window.renderInmowebNewReview?.(output, run, row.externalId, () => api("runs/" + run.runId));
+      if (run.feedType === "inmoweb") window.renderInmowebNewReview?.(output, run, row.externalId, review => api("runs/" + run.runId + (review ? "?" + new URLSearchParams(review) : "")));
     }
     if (run.newImport) {
       const receipt = document.createElement("p");

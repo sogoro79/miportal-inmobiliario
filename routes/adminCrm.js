@@ -1,3 +1,5 @@
+import { parseNewReviewQuery } from "../utils/import/inmowebNewReview.js";
+import { INMOWEB_UNAVAILABLE, INMOWEB_UNAVAILABLE_MESSAGE } from "../utils/import/inmowebAvailability.js";
 import express from "express";
 import { delegatedTargetFilter, delegatedTargetFieldAllowed } from "../utils/import/delegatedTarget.js";
 import { requireAdmin } from "../middleware/auth.js";
@@ -67,7 +69,7 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
   router.use(requireAdmin);
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
-    if (!id.safeParse(req.params.userId).success || Object.keys(req.query).length) {
+    if (!id.safeParse(req.params.userId).success || (Object.keys(req.query).length && !(req.method === "GET" && /^\/runs\/[a-fA-F0-9]{24}$/.test(req.path) && parseNewReviewQuery(req.query)))) {
       return res.status(400).json({ error: "Solicitud no válida." });
     }
     next();
@@ -173,7 +175,20 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
   router.post("/simulate", ...simulationLimits, handle(async (req, res) => {
     if (Object.keys(req.body || {}).length) return res.status(400).json({ error: "Solicitud no válida." });
     const { userId, source, delegation } = await permitted(req);
-    const result = await runSimulation({ usuarioId: userId, importSourceId: source._id, delegation });
+    let result;
+    try { result = await runSimulation({ usuarioId: userId, importSourceId: source._id, delegation }); }
+    catch (error) {
+      const safeCodes = ["INMOWEB_TEMPORARILY_UNAVAILABLE", "CRM_PROVIDER_TEMPORARILY_BLOCKED",
+        "SYNC_SOURCE_BUSY", "SYNC_SOURCE_NOT_FOUND", "SYNC_SOURCE_NOT_CONFIGURED"];
+      if (safeCodes.includes(error.code)) {
+        const status = error.code === INMOWEB_UNAVAILABLE ? 503 : [400, 403, 404, 409, 429, 503, 504].includes(error.status) ? error.status : 500;
+        console.warn("[Admin CRM Simulation]", { phase: "run-simulation", provider: "inmoweb", safeCode: error.code, status });
+        if (error.code === INMOWEB_UNAVAILABLE) return res.status(503).json({
+          code: INMOWEB_UNAVAILABLE, errorCode: INMOWEB_UNAVAILABLE, error: INMOWEB_UNAVAILABLE_MESSAGE
+        });
+      }
+      throw error;
+    }
     await delegation.assert(source);
     res.json(await runReader.byId(result.runId, userId, delegation));
   }));
@@ -205,7 +220,7 @@ export function createAdminCrmRouter({ UsuarioModel, ImportSourceModel, GrantMod
     const run = await ImportSyncRunModel.findOne({ _id: req.params.runId, usuarioId: userId, importSourceId: source._id,
       feedType: "inmoweb", actorAdminId: delegation.actorAdminId, delegationId: delegation.id }).select("+plan").lean();
     if (!run) return res.status(404).json({ error: "Revisión no encontrada." });
-    res.json(await runReader.evaluate(run, userId, source, delegation));
+    res.json(await runReader.evaluate(run, userId, source, delegation, parseNewReviewQuery(req.query)));
   }));
   return router;
 }

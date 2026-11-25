@@ -41,7 +41,7 @@
         buttons.forEach(b => { b.disabled = true; });
         try {
           if (!(Date.now() < expires) || typeof reload !== "function") return unavailable();
-          const current = await reload();
+          const current = await reload({ externalId, review: candidates ? "duplicates" : "ficha" });
           const fresh = current?.newReviews?.find(row => row.externalId === externalId);
           const currentExpiry = Math.min(Date.parse(current?.snapshotExpiresAt), Date.parse(current?.expiresAt));
           if (current?.runId !== run.runId || !fresh || !(Date.now() < Math.min(expires, currentExpiry))) return unavailable();
@@ -55,7 +55,8 @@
           } else {
             append(detail, "h5", "Posibles coincidencias");
             append(detail, "p", "Ayuda para revisión humana. El score no es una probabilidad ni una autorización para importar.");
-            if (!fresh.candidates.length) append(detail, "p", "No se han encontrado coincidencias fuertes en la cartera actual.");
+            if (fresh.incomplete) append(detail, "p", "Revisión parcial: algunas propiedades no se pudieron comparar.");
+            if (!fresh.candidates.length && !fresh.incomplete) append(detail, "p", "No se han encontrado coincidencias fuertes en la cartera actual.");
             for (const candidate of fresh.candidates) {
               append(detail, "strong", [candidate.reference, candidate.title].filter(Boolean).join(" · "));
               append(detail, "p", "Score interno: " + candidate.score);

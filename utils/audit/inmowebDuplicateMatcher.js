@@ -87,25 +87,29 @@ export function duplicateReport(incoming, existing) {
 }
 
 // Human review uses the existing scoring contract, without automatic decisions.
-export function duplicateCandidates(incoming, existing, sourceId) {
+export function duplicateCandidates(incoming, existing, sourceId, onInvalid = () => {}) {
   const labels = { localidad: "Localidad distinta", provincia: "Provincia distinta",
     tipoOperacion: "Operación distinta", tipoInmueble: "Tipo de inmueble distinto",
     habitaciones: "Dormitorios distintos", banos: "Baños distintos",
     superficie: "Superficie construida distinta", superficieParcela: "Parcela distinta",
     precio: "Precio distinto", garaje: "Garaje diferente", piscina: "Piscina diferente", terraza: "Terraza diferente" };
-  return existing.map(property => {
-    // CRM identifiers/references from another source are not identity evidence.
-    const scored = property.source === "crm" && String(property.importSourceId) !== String(sourceId)
-      ? { ...property, referencia: undefined } : property;
-    const match = compare(incoming, scored);
-    const contradictions = Object.entries(labels).filter(([key]) => {
-      const a = incoming[key], b = property[key];
-      if (a == null || b == null || a === "" || b === "") return false;
-      if (typeof a === "number") return Number.isFinite(a) && Number.isFinite(b) && a !== b;
-      if (typeof a === "boolean") return typeof b === "boolean" && a !== b;
-      return normalize(a) !== normalize(b);
-    }).map(([, label]) => label);
-    return { ...match, reference: safe(property.referencia), title: safe(property.titulo), contradictions };
+  return existing.flatMap(property => {
+    try {
+      if (!property || typeof property !== "object") throw new TypeError();
+      property = { ...property, imagenes: Array.isArray(property.imagenes) ? property.imagenes : [] };
+      // CRM identifiers/references from another source are not identity evidence.
+      const scored = property.source === "crm" && String(property.importSourceId) !== String(sourceId)
+        ? { ...property, referencia: undefined } : property;
+      const match = compare(incoming, scored);
+      const contradictions = Object.entries(labels).filter(([key]) => {
+        const a = incoming[key], b = property[key];
+        if (a == null || b == null || a === "" || b === "") return false;
+        if (typeof a === "number") return Number.isFinite(a) && Number.isFinite(b) && a !== b;
+        if (typeof a === "boolean") return typeof b === "boolean" && a !== b;
+        return normalize(a) !== normalize(b);
+      }).map(([, label]) => label);
+      return [{ ...match, reference: safe(property.referencia), title: safe(property.titulo), contradictions }];
+    } catch { onInvalid(); return []; }
   }).filter(match => match.rank > 0)
     .sort((a, b) => b.rank - a.rank || b.points - a.points || a.candidate._id.localeCompare(b.candidate._id))
     .slice(0, 3).map(match => ({

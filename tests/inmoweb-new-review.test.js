@@ -5,7 +5,7 @@ import vm from "node:vm";
 import { buildFeedSnapshot } from "../utils/importers/importerRegistry.js";
 import { prepareSyncPlan, snapshotDigest, runVersions } from "../utils/import/syncPlan.js";
 import { createInmowebRunReader } from "../utils/import/inmowebRunView.js";
-import { readInmowebNewReviews } from "../utils/import/inmowebNewReview.js";
+import { readInmowebNewReviews, parseNewReviewQuery } from "../utils/import/inmowebNewReview.js";
 import { duplicateCandidates } from "../utils/audit/inmowebDuplicateMatcher.js";
 
 const xml = fs.readFileSync(new URL("./fixtures/crm/inmoweb-synthetic.xml", import.meta.url), "utf8");
@@ -37,7 +37,8 @@ function setup({ delegated = false, portfolio } = {}) {
     providerSnapshots: { async readPersisted() { snapshotReads++; return evidence; } } };
   return { run, source, properties, delegation, state, model, options, evidence,
     advance: ms => { time += ms; }, reads: () => reads, snapshotReads: () => snapshotReads,
-    evaluate: () => createInmowebRunReader(options).evaluate(run, owner, source, delegation) };
+    evaluate: (review = "duplicates") => createInmowebRunReader(options).evaluate(run, owner, source, delegation,
+      review ? { externalId: data.externalId, review } : undefined) };
 }
 test("NEW ficha from bound evidence, manual hidden candidate, no writes or URLs", async () => {
   const h = setup(), before = structuredClone([h.run,h.properties]);
@@ -58,7 +59,7 @@ test("all owner's sources are searched, foreign tenant excluded, max three", asy
     source:i===0?"manual":"crm",importSourceId:i===1?"other-source":sourceId,visiblePublicamente:i%2===0}));
   portfolio.unshift({...data,_id:"foreign",usuarioId:"foreign-owner",referencia:"FOREIGN"});
   const h=setup({portfolio});
-  const reviews=await readInmowebNewReviews(h.run,snapshot,h.model);
+  const reviews=await readInmowebNewReviews(h.run,snapshot,h.model,{externalId:data.externalId,review:"duplicates"});
   assert.equal(reviews[0].candidates.length,3);
   assert.doesNotMatch(JSON.stringify(reviews),/FOREIGN/);
   const same=duplicateCandidates(data,[portfolio[2]],"other-source")[0];
@@ -81,7 +82,7 @@ test("unknown and absent ficha fields do not become false or zero", async () => 
   snap.properties[0].reviewAbsent.push("habitaciones");
   snap.properties[0].data.terraza=false;
   snap.properties[0].data.banos=0;
-  const fields=(await readInmowebNewReviews(h.run,snap,h.model))[0].fields;
+  const fields=(await readInmowebNewReviews(h.run,snap,h.model,{externalId:data.externalId,review:"ficha"}))[0].fields;
   assert.equal(fields.garaje,undefined); assert.equal(fields.piscina,undefined);
   assert.equal(fields.habitaciones,undefined); assert.equal(fields.terraza,false); assert.equal(fields.banos,0);
 });
@@ -143,14 +144,16 @@ test("shared UI rereads, expires, never posts or changes selection",async()=>{
   const window={},timers=[];
   vm.runInNewContext(fs.readFileSync(new URL("../public/js/inmoweb-comparison.js",import.meta.url),"utf8"),
     {window,document:{createElement:element},setTimeout(fn){timers.push(fn);}});
-  const root=element("div");let reads=0;
-  window.renderInmowebNewReview(root,dto,data.externalId,async()=>{reads++;return dto;});
+  const root=element("div");let reads=0; const requests=[];
+  window.renderInmowebNewReview(root,dto,data.externalId,async request=>{reads++;requests.push(request);return dto;});
   const flatten=n=>[n,...n.children.flatMap(flatten)];
   const buttons=flatten(root).filter(n=>n.tag==="button");
   assert.deepEqual(buttons.map(b=>b.textContent),["Ver ficha","Revisar posibles duplicados"]);
   await buttons[0].onclick();assert.equal(reads,1);
   assert.match(flatten(root).map(n=>n.textContent).join(" "),/Número de fotos: 2/);
   await buttons[1].onclick();assert.equal(reads,2);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)),[
+    {externalId:data.externalId,review:"ficha"},{externalId:data.externalId,review:"duplicates"}]);
   assert.match(flatten(root).map(n=>n.textContent).join(" "),/Posibles coincidencias/);
   assert.equal(flatten(root).some(n=>["input","img"].includes(n.tag)),false);
   timers[0]();
@@ -160,7 +163,7 @@ test("shared UI rereads, expires, never posts or changes selection",async()=>{
   assert.match(flatten(root).map(n=>n.textContent).join(" "),/Revisión no disponible/);
 });
 
-test("nine NEW share one projected portfolio query, not one query per candidate", async () => {
+test("nine NEW review scores only the requested externalId using one portfolio query", async () => {
   const h = setup();
   const records = Array.from({ length: 9 }, (_, index) => ({
     ...structuredClone(snapshot.properties[0]), data: { ...data, externalId: String(index) }
@@ -177,8 +180,49 @@ test("nine NEW share one projected portfolio query, not one query per candidate"
       return { lean: async () => h.properties };
     } };
   } };
-  const reviews = await readInmowebNewReviews(reviewRun, { ...snapshot, properties: records }, model);
+  const reviews = await readInmowebNewReviews(reviewRun, { ...snapshot, properties: records }, model, {externalId:"0",review:"duplicates"});
   assert.equal(queries, 1);
-  assert.equal(reviews.length, 9);
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].externalId,"0");
   assert.ok(reviews.every(review => review.candidates.length <= 3));
+});
+
+
+test("ordinary nine-NEW run view never queries portfolio or scores legacy candidates", async () => {
+  const h=setup({portfolio:[{usuarioId:owner,imagenes:{legacy:true}}]});
+  const records=Array.from({length:9},(_,i)=>({...structuredClone(snapshot.properties[0]),data:{...data,externalId:String(i)}}));
+  h.evidence.snapshot={...snapshot,properties:records,total:9,snapshotCount:9};
+  Object.assign(h.run,prepareSyncPlan(h.evidence.snapshot,[]),{snapshotDigest:snapshotDigest(h.evidence.snapshot)});
+  const dto=await h.evaluate(null);
+  assert.equal(dto.results.filter(r=>r.type==="NEW").length,9);
+  assert.equal(dto.newReviews,undefined);assert.equal(h.reads(),0);
+});
+test("ficha needs no portfolio and non-NEW externalId is not reviewed",async()=>{
+  const h=setup();
+  const dto=await h.evaluate("ficha");
+  assert.equal(dto.newReviews[0].fields.externalId,data.externalId);
+  assert.equal(dto.newReviews[0].candidates,undefined);assert.equal(h.reads(),0);
+  const result=await createInmowebRunReader(h.options).evaluate(h.run,owner,h.source,undefined,
+    {externalId:"not-in-run",review:"duplicates"});
+  assert.equal(result.newReviews,undefined);assert.equal(h.reads(),0);
+});
+test("strict read-only query accepts only one NEW/action request",()=>{
+  assert.equal(parseNewReviewQuery({}),undefined);
+  for(const query of [{review:"duplicates"},{externalId:"1",review:"write"},
+    {externalId:["1"],review:"ficha"},{externalId:"1",review:"ficha",usuarioId:owner}])
+    assert.equal(parseNewReviewQuery(query),null);
+  assert.deepEqual(parseNewReviewQuery({externalId:"1",review:"ficha"}),{externalId:"1",review:"ficha"});
+});
+test("legacy images string or object cannot cancel valid candidates",()=>{
+  for(const imagenes of ["legacy",{legacy:true}]) {
+    const candidates=duplicateCandidates(data,[{...data,_id:"legacy",imagenes},{...data,_id:"valid"}],sourceId);
+    assert.equal(candidates.length,2);
+  }
+});
+test("one broken candidate is isolated and incomplete review is distinguishable",async()=>{
+  const h=setup();
+  h.properties.unshift({...data,_id:"broken",usuarioId:owner,titulo:{toString(){throw Error("unsafe")}}});
+  const dto=await h.evaluate();
+  assert.equal(dto.newReviews[0].candidates.length,1);
+  assert.equal(dto.newReviews[0].incomplete,true);
 });

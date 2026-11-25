@@ -23,7 +23,7 @@ export function createInmowebRunReader({ PropiedadModel, ImportSourceModel, Impo
     if (query?.lean) query = query.lean();
     return query;
   }
-  async function evaluate(run, owner, source, delegation) {
+  async function evaluate(run, owner, source, delegation, reviewRequest) {
     const dto = safeRunSummary(run, now(), env);
     if (run.feedType !== "inmoweb") return dto;
     source ??= await sourceFor(owner);
@@ -49,10 +49,10 @@ export function createInmowebRunReader({ PropiedadModel, ImportSourceModel, Impo
       if (+now() > +new Date(evidence.expiresAt) || +now() >= +new Date(run.expiresAt)) evidence = undefined;
       else dto.comparisons = reviews;
     }
-    if (evidence && run.plan.some(entry => entry.type === "NEW")) {
+    if (evidence && reviewRequest && run.plan.some(entry => entry.type === "NEW" && entry.externalId === reviewRequest.externalId)) {
       // Optional read-only details must not change import eligibility or payloads.
       try {
-        const reviews = await readInmowebNewReviews(run, evidence.snapshot, PropiedadModel);
+        const reviews = await readInmowebNewReviews(run, evidence.snapshot, PropiedadModel, reviewRequest);
         const currentSource = await sourceFor(owner);
         let query = ImportSyncRunModel.findOne({ _id: run._id, usuarioId: owner });
         if (query?.select) query = query.select("+plan");

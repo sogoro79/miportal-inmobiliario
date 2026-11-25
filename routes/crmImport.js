@@ -1,3 +1,4 @@
+import { parseNewReviewQuery } from "../utils/import/inmowebNewReview.js";
 import { createAdminCrmRouter } from "./adminCrm.js";
 import CrmDelegation from "../models/CrmDelegation.js";
 import { createInmowebRunReader } from "../utils/import/inmowebRunView.js";
@@ -163,7 +164,7 @@ export function createCrmImportRouter({
       console.warn("[CRM Sync Simulation]", { code });
       const status = code === "SYNC_SOURCE_NOT_FOUND" ? 404 : ["SYNC_SOURCE_NOT_CONFIGURED", "SYNC_SOURCE_BUSY"].includes(code) ? 409
         : [PROVIDER_BLOCKED, INMOWEB_UNAVAILABLE].includes(code) ? 503 : code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : code === "SYNC_RUN_FAILED" ? 500 : 400;
-      return res.status(status).json({ code, error: code === "SYNC_SOURCE_NOT_CONFIGURED"
+      return res.status(status).json({ code, ...(code === INMOWEB_UNAVAILABLE && { errorCode: code }), error: code === "SYNC_SOURCE_NOT_CONFIGURED"
         ? "La fuente CRM necesita una URL cifrada configurada antes de simular. La importación manual sigue disponible."
         : code === "SYNC_SOURCE_BUSY" ? "Hay otra operación CRM en curso. Espera y vuelve a intentarlo."
         : code === INMOWEB_UNAVAILABLE ? INMOWEB_UNAVAILABLE_MESSAGE : code === SNAPSHOT_REQUIRED ? SNAPSHOT_MESSAGE : code === PROVIDER_BLOCKED ? PROVIDER_MESSAGE : "No se pudo completar la simulación CRM." });
@@ -291,7 +292,7 @@ export function createCrmImportRouter({
   });
 
   router.get("/sync/runs/:id", requireAuth, async (req, res) => {
-    if (!/^[a-fA-F0-9]{24}$/.test(req.params.id) || Object.keys(req.query || {}).length) {
+    if (!/^[a-fA-F0-9]{24}$/.test(req.params.id) || parseNewReviewQuery(req.query) === null) {
       return res.status(400).json({ error: "Indica solamente una simulación válida." });
     }
     try {
@@ -301,7 +302,7 @@ export function createCrmImportRouter({
       const run = await query;
       if (!run) return res.status(404).json({ error: "Simulación no encontrada." });
       res.set("Cache-Control", "no-store");
-      return res.json(run.feedType === "inmoweb" ? await runReader.evaluate(run, req.user.id) : safeRunSummary(run, new Date(), env));
+      return res.json(run.feedType === "inmoweb" ? await runReader.evaluate(run, req.user.id, undefined, undefined, parseNewReviewQuery(req.query)) : safeRunSummary(run, new Date(), env));
     } catch {
       return res.status(500).json({ error: "No se pudo consultar la simulación." });
     }

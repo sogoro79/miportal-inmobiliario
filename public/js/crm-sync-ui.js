@@ -794,7 +794,7 @@
           }
         });
         return true;
-      }, consultRestore, () => api("GET", `runs/${data.runId}`));
+      }, consultRestore, review => api("GET", `runs/${data.runId}` + (review ? "?" + new URLSearchParams(review) : "")));
     }
     async function api(method, path, body) {
       const token = getToken();

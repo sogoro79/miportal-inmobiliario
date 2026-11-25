@@ -142,7 +142,7 @@ export function createSyncSimulator({
       if (run) await ImportSyncRunModel.updateOne({ _id: run._id, usuarioId }, { $set: {
         status: "failed", errorCount: 1, errorCode: code, finishedAt, durationMs: finishedAt.getTime() - startedAt.getTime()
       } }).catch(() => console.warn("[CRM Sync Simulation]", { code: "SYNC_RUN_SAVE_FAILED" }));
-      throw Object.assign(new Error("No se pudo completar la simulación CRM."), { code, status: code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : 400 });
+      throw Object.assign(new Error("No se pudo completar la simulación CRM."), { code, status: code === "INMOWEB_TEMPORARILY_UNAVAILABLE" ? 503 : code === "FEED_TIMEOUT" || code === "IMPORT_TIMEOUT" ? 504 : 400 });
     } finally {
       if (lock) await lock.release();
       budget.dispose();
