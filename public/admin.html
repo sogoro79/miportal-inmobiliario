@@ -4872,6 +4872,12 @@ function crearPublicacionFacebookSinEnlacePropiedad(propiedad) {
   const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio);
   const zona = zonaPropiedadRedes(propiedad);
   const referencia = propiedad.referencia || propiedad.ref || '';
+  const slugZona = String(zona || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .trim();
+
   const detalles = [
     lineaDetalleRedes('🏷️ Operación', operacion === 'alquiler' ? 'Alquiler' : 'Venta'),
     lineaDetalleRedes('📍 Zona', zona),
@@ -4882,15 +4888,23 @@ function crearPublicacionFacebookSinEnlacePropiedad(propiedad) {
     lineaDetalleRedes('🔎 Referencia', referencia)
   ].filter(Boolean);
 
+  const hashtags = [
+    '#HomeClick24',
+    '#Inmuebles',
+    operacion === 'alquiler' ? '#AlquilerDeViviendas' : '#VentaDeViviendas',
+    slugZona ? `#${slugZona}` : '',
+    '#CostaBlanca'
+  ].filter(Boolean).join(' ');
+
   return [
     '🏡 Nuevo inmueble en HomeClick24',
     propiedad.titulo || 'Propiedad publicada en HomeClick24',
     detalles.join('\n'),
     referencia
-      ? `📩 Escríbenos por mensaje privado indicando la referencia ${referencia}.`
-      : '📩 Escríbenos por mensaje privado para más información.',
+      ? `📩 ¿Te interesa? Escríbenos por mensaje privado indicando la referencia ${referencia} y te facilitamos toda la información.`
+      : '📩 ¿Te interesa? Escríbenos por mensaje privado y te facilitamos toda la información.',
     'HomeClick24 — Tu hogar, a un clic de distancia.',
-    hashtagsOperacionRedes(operacion).join(' ')
+    hashtags
   ].filter(Boolean).join('\n\n');
 }
 
