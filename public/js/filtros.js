@@ -80,7 +80,7 @@ async function cargarPropiedades() {
     const max   = document.getElementById("f_max")?.value;
     const hab   = document.getElementById("f_hab")?.value;
     const sort       = document.getElementById("f_sort")?.value;
-    const periodicidad = tipo === "alquiler" ? document.getElementById("f_periodicidad")?.value || "mes" : null;
+    const periodicidad = tipo === "alquiler" ? document.getElementById("f_periodicidad")?.value || null : null;
     const banos      = document.getElementById("f_banos")?.value;
     const supMin     = document.getElementById("f_sup_min")?.value;
     const supMax     = document.getElementById("f_sup_max")?.value;
