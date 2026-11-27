@@ -237,6 +237,7 @@ test("activación bloquea admin, email no verificado, datos incompletos, pago y 
         input: input(),
         models,
         mongooseClient: transactionClient(),
+        now: new Date("2026-08-07T10:00:00.000Z"),
         secret: process.env.JWT_SECRET
       }),
       error => error.code === expectedCode
@@ -320,6 +321,7 @@ test("activación dentro de transacción no deja redención o usuario a medias s
       input: input(),
       models,
       mongooseClient,
+      now: new Date("2026-08-07T10:00:00.000Z"),
       secret: process.env.JWT_SECRET
     }),
     /save failed after redemption/
@@ -379,6 +381,7 @@ test("activación dentro de transacción revierte si falla después de actualiza
       input: input(),
       models,
       mongooseClient,
+      now: new Date("2026-08-07T10:00:00.000Z"),
       secret: process.env.JWT_SECRET
     }),
     /commit failed after user update/
