@@ -312,9 +312,9 @@ function http(app, body, auth = true) {
     const payload = JSON.stringify(body), req = new Readable({ read() { this.push(payload); this.push(null); } });
     Object.assign(req, { method: "POST", url: "/api/crm-import/sync/apply", headers: { "content-type": "application/json",
       "content-length": String(Buffer.byteLength(payload)), ...(auth ? { authorization: `Bearer ${jwt.sign({ id: U }, "test")}` } : {}) }, socket: new PassThrough() });
-    req.socket.remoteAddress = "127.0.0.1"; req.connection = req.socket;
+    req.socket.remoteAddress = "127.0.0.1"; req.connection = req.socket; req.destroy = function destroy(error) { if (this.destroyed) return this; this.destroyed = true; if (error) queueMicrotask(() => this.emit("error", error)); return this; };
     const chunks = [], headers = {}, res = new Writable({ write(c, e, cb) { chunks.push(Buffer.from(c)); cb(); } });
-    res.statusCode = 200; res.setHeader = (k, v) => headers[k] = v; res.getHeader = k => headers[k]; res.removeHeader = k => delete headers[k];
+    res.statusCode = 200; res.outputData = []; res.outputSize = 0; res.destroy = function destroy(error) { if (this.destroyed) return this; this.destroyed = true; if (error) queueMicrotask(() => this.emit("error", error)); return this; }; res.setHeader = (k, v) => headers[k] = v; res.getHeader = k => headers[k]; res.removeHeader = k => delete headers[k];
     res.end = c => { if (c) chunks.push(Buffer.from(c)); resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString()) }); };
     app.handle(req, res, reject);
   });

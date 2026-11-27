@@ -213,6 +213,7 @@ test("activación aborta si no puede garantizar transacción MongoDB", async () 
         input: input(),
         models,
         mongooseClient,
+        now: new Date("2026-08-07T10:00:00.000Z"),
         secret: process.env.JWT_SECRET
       }),
       error => error.code === "transaction_required" &&

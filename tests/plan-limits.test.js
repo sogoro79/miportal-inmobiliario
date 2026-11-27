@@ -59,7 +59,7 @@ function createRes(resolve) {
       callback();
     }
   });
-  res.statusCode = 200;
+  res.statusCode = 200; res.outputData = []; res.outputSize = 0; res.destroy = function destroy(error) { if (this.destroyed) return this; this.destroyed = true; if (error) queueMicrotask(() => this.emit("error", error)); return this; };
   res.setHeader = (name, value) => headers.set(String(name).toLowerCase(), String(value));
   res.getHeader = name => headers.get(String(name).toLowerCase());
   res.getHeaders = () => Object.fromEntries(headers);

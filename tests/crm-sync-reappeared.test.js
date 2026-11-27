@@ -266,10 +266,10 @@ function http(app, path, { method = "POST", body } = {}) {
       "content-type": "application/json", "content-length": String(Buffer.byteLength(payload)),
       authorization: `Bearer ${jwt.sign({ id: U }, "reappeared-test-only")}`
     }, socket: new PassThrough() });
-    req.socket.remoteAddress = "127.0.0.1"; req.connection = req.socket;
+    req.socket.remoteAddress = "127.0.0.1"; req.connection = req.socket; req.destroy = function destroy(error) { if (this.destroyed) return this; this.destroyed = true; if (error) queueMicrotask(() => this.emit("error", error)); return this; };
     const chunks = [], headers = {};
     const res = new Writable({ write(c, e, cb) { chunks.push(Buffer.from(c)); cb(); } });
-    res.statusCode = 200;
+    res.statusCode = 200; res.outputData = []; res.outputSize = 0; res.destroy = function destroy(error) { if (this.destroyed) return this; this.destroyed = true; if (error) queueMicrotask(() => this.emit("error", error)); return this; };
     res.setHeader = (key, value) => { headers[key.toLowerCase()] = value; };
     res.getHeader = key => headers[key.toLowerCase()];
     res.removeHeader = key => { delete headers[key.toLowerCase()]; };

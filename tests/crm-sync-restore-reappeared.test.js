@@ -363,9 +363,9 @@ function http(app, path, { method = "POST", body, auth = true } = {}) {
     Object.assign(req, { method, url: path, originalUrl: path, complete: true,
       headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(payload)),
         ...(auth ? { authorization: `Bearer ${jwt.sign({ id: U }, "restore-test-only")}` } : {}) }, socket: new PassThrough() });
-    req.socket.remoteAddress = "127.0.0.1"; req.connection = req.socket;
+    req.socket.remoteAddress = "127.0.0.1"; req.connection = req.socket; req.destroy = function destroy(error) { if (this.destroyed) return this; this.destroyed = true; if (error) queueMicrotask(() => this.emit("error", error)); return this; };
     const chunks = [], headers = {}, res = new Writable({ write(c, e, cb) { chunks.push(Buffer.from(c)); cb(); } });
-    res.statusCode = 200; res.setHeader = (k, v) => { headers[k.toLowerCase()] = v; };
+    res.statusCode = 200; res.outputData = []; res.outputSize = 0; res.destroy = function destroy(error) { if (this.destroyed) return this; this.destroyed = true; if (error) queueMicrotask(() => this.emit("error", error)); return this; }; res.setHeader = (k, v) => { headers[k.toLowerCase()] = v; };
     res.getHeader = k => headers[k.toLowerCase()]; res.removeHeader = k => { delete headers[k.toLowerCase()]; };
     const end = res.end.bind(res); res.end = c => { if (c) chunks.push(Buffer.from(c)); end();
       resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString()) }); };
