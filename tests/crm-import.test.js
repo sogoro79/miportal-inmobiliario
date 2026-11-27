@@ -194,6 +194,11 @@ function createRes(resolve) {
     }
   });
   res.statusCode = 200;
+  // Express replaces the response prototype with ServerResponse. Node 24's
+  // OutgoingMessage.destroy() expects these internals to exist even in this
+  // lightweight no-socket test response.
+  res.outputData = [];
+  res.outputSize = 0;
   res.setHeader = (name, value) => headers.set(String(name).toLowerCase(), String(value));
   res.getHeader = name => headers.get(String(name).toLowerCase());
   res.getHeaders = () => Object.fromEntries(headers);
