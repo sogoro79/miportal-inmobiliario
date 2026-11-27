@@ -39,6 +39,15 @@ function userModelFor(user) {
   };
 }
 
+function propertyModelRecorder(calls = []) {
+  return {
+    async updateMany(filter, update) {
+      calls.push({ filter, update });
+      return { matchedCount: 1, modifiedCount: 1 };
+    }
+  };
+}
+
 test("Plan Lanzamiento tiene fecha fija Madrid, límites propios y no depende de Stripe", () => {
   assert.equal(LAUNCH_PLAN_ID, "lanzamiento_2026");
   assert.equal(LAUNCH_PLAN_END_ISO, "2027-01-31T22:59:59.000Z");
@@ -62,20 +71,29 @@ test("estado público permite activar solo usuarios gratis sin cambios pendiente
   assert.equal(getLaunchPlanPublicStatus(mockUser({ stripeSubscriptionId: "sub_test", subscriptionStatus: "canceled" })).eligible, true);
 });
 
-test("activación explícita asigna lanzamiento_2026 sin Stripe ni renovación automática", async () => {
+test("activación explícita asigna lanzamiento_2026 y elimina la caducidad de anuncios existentes", async () => {
   const user = mockUser();
+  const propertyUpdates = [];
   const result = await activateLaunchPlan({
     userId: user._id,
-    models: { Usuario: userModelFor(user) },
+    models: {
+      Usuario: userModelFor(user),
+      Propiedad: propertyModelRecorder(propertyUpdates)
+    },
     now: new Date("2026-12-01T12:00:00.000Z")
   });
 
   assert.equal(result.activated, true);
   assert.equal(result.alreadyActive, false);
+  assert.equal(result.expirationsCleared, 1);
   assert.equal(user.plan, LAUNCH_PLAN_ID);
   assert.equal(user.planActivo, true);
   assert.equal(user.planFechaFin.toISOString(), "2027-01-31T22:59:59.000Z");
   assert.equal(user.saveCalls, 1);
+  assert.deepEqual(propertyUpdates, [{
+    filter: { usuarioId: user._id },
+    update: { $set: { fechaExpiracion: null } }
+  }]);
 });
 
 test("activación rechaza campaña expirada, planes no elegibles y usuario inexistente", async () => {

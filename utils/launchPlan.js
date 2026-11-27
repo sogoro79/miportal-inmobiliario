@@ -1,4 +1,5 @@
 import Usuario from "../models/Usuario.js";
+import Propiedad from "../models/Propiedad.js";
 import { aplicarLimitesPlanTrasTrial } from "./trialPlanLimits.js";
 
 export const LAUNCH_PLAN_ID = "lanzamiento_2026";
@@ -137,9 +138,20 @@ export async function sendLaunchPlanInvitation(usuario, {
   return { sent: true, reason: "sent", sentAt: usuario.launchPlanInvitationSentAt, status };
 }
 
+export async function clearLaunchPlanPropertyExpirations(userId, {
+  PropiedadModel = Propiedad
+} = {}) {
+  if (!PropiedadModel?.updateMany) return { matchedCount: 0, modifiedCount: 0 };
+
+  return PropiedadModel.updateMany(
+    { usuarioId: userId },
+    { $set: { fechaExpiracion: null } }
+  );
+}
+
 export async function activateLaunchPlan({
   userId,
-  models = { Usuario },
+  models = { Usuario, Propiedad },
   now = new Date()
 } = {}) {
   if (!isLaunchPlanCampaignActive(now)) {
@@ -163,10 +175,15 @@ export async function activateLaunchPlan({
   usuario.launchPlanReminderSent = false;
   await usuario.save();
 
+  const expirations = await clearLaunchPlanPropertyExpirations(userId, {
+    PropiedadModel: models.Propiedad
+  });
+
   return {
     activated: true,
     alreadyActive: false,
     usuario,
+    expirationsCleared: Number(expirations?.modifiedCount || 0),
     status: getLaunchPlanPublicStatus(usuario, now)
   };
 }

@@ -1,5 +1,6 @@
 import express from "express";
 import Usuario from "../models/Usuario.js";
+import Propiedad from "../models/Propiedad.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   activateLaunchPlan,
@@ -34,13 +35,14 @@ router.post("/activar", requireAuth, async (req, res) => {
   try {
     const result = await activateLaunchPlan({
       userId: req.user.id,
-      models: { Usuario }
+      models: { Usuario, Propiedad }
     });
 
     res.json({
       ok: true,
       activated: result.activated,
       alreadyActive: result.alreadyActive,
+      expirationsCleared: result.expirationsCleared || 0,
       status: result.status,
       usuario: usuarioSeguro(result.usuario)
     });
