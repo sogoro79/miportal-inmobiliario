@@ -251,6 +251,7 @@ test("activación bloquea admin, email no verificado, datos incompletos, pago y 
       input: input({ aceptaCondiciones: false }),
       models: modelsFor({ usuario: incomplete }).models,
       mongooseClient: transactionClient(),
+      now: new Date("2026-08-07T10:00:00.000Z"),
       secret: process.env.JWT_SECRET
     }),
     /Completa tus datos profesionales/
