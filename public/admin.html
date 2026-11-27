@@ -2093,11 +2093,21 @@
             <div class="social-version-head">
               <h4>Facebook</h4>
               <div class="admin-tools-actions">
-                <button onclick="copiarTextoRedesCampo('textoRedesFacebookPropiedad', 'Facebook')" class="btn-exportar">Copiar publicación</button>
+                <button onclick="copiarTextoRedesCampo('textoRedesFacebookPropiedad', 'Facebook con enlace')" class="btn-exportar">Copiar con enlace</button>
                 <button onclick="abrirFacebookPropiedad()" class="btn-exportar">Copiar y abrir Facebook</button>
+                <button onclick="descargarFacebookPropiedad()" class="btn-exportar">Descargar imagen Facebook</button>
               </div>
             </div>
+            <label class="social-text-label" for="textoRedesFacebookPropiedad">Versión con enlace</label>
             <textarea id="textoRedesFacebookPropiedad" class="social-textarea" readonly></textarea>
+            <div class="social-version-head social-version-subhead">
+              <h4>Facebook sin enlace</h4>
+              <div class="admin-tools-actions">
+                <button onclick="copiarTextoRedesCampo('textoRedesFacebookSinEnlacePropiedad', 'Facebook sin enlace')" class="btn-exportar">Copiar sin enlace</button>
+                <button onclick="abrirFacebookPropiedadSinEnlace()" class="btn-exportar">Copiar y abrir Facebook</button>
+              </div>
+            </div>
+            <textarea id="textoRedesFacebookSinEnlacePropiedad" class="social-textarea" readonly></textarea>
           </div>
           <div class="social-version-card">
             <div class="social-version-head">
@@ -4820,6 +4830,33 @@ function crearPublicacionFacebookPropiedad(propiedad) {
   ].filter(Boolean).join('\n\n');
 }
 
+function crearPublicacionFacebookSinEnlacePropiedad(propiedad) {
+  const operacion = propiedad.tipoOperacion === 'alquiler' ? 'alquiler' : 'venta';
+  const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio);
+  const zona = zonaPropiedadRedes(propiedad);
+  const referencia = propiedad.referencia || propiedad.ref || '';
+  const detalles = [
+    lineaDetalleRedes('🏷️ Operación', operacion === 'alquiler' ? 'Alquiler' : 'Venta'),
+    lineaDetalleRedes('📍 Zona', zona),
+    lineaDetalleRedes('💰 Precio', precio || 'Consultar precio'),
+    lineaDetalleRedes('🛏️ Habitaciones', propiedad.habitaciones || ''),
+    lineaDetalleRedes('🚿 Baños', propiedad.banos || ''),
+    lineaDetalleRedes('📐 Superficie', propiedad.superficie ? `${propiedad.superficie} m²` : ''),
+    lineaDetalleRedes('🔎 Referencia', referencia)
+  ].filter(Boolean);
+
+  return [
+    '🏡 Nuevo inmueble en HomeClick24',
+    propiedad.titulo || 'Propiedad publicada en HomeClick24',
+    detalles.join('\n'),
+    referencia
+      ? `📩 Escríbenos por mensaje privado indicando la referencia ${referencia}.`
+      : '📩 Escríbenos por mensaje privado para más información.',
+    'HomeClick24 — Tu hogar, a un clic de distancia.',
+    hashtagsOperacionRedes(operacion).join(' ')
+  ].filter(Boolean).join('\n\n');
+}
+
 function crearPublicacionWhatsappPropiedad(propiedad) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'alquiler' : 'venta';
   const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio);
@@ -4962,10 +4999,11 @@ function dibujarRectRedondeado(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
-function datosCreatividadInstagram(propiedad = {}) {
+function datosCreatividadRedes(propiedad = {}) {
   const operacion = propiedad.tipoOperacion === 'alquiler' ? 'alquiler' : 'venta';
   const precio = formatearPrecioRedes(propiedad.precio, operacion, propiedad.periodicidadPrecio) || 'Consultar precio';
   const zona = zonaPropiedadRedes(propiedad);
+  const referencia = propiedad.referencia || propiedad.ref || '';
   const detalles = [
     propiedad.habitaciones ? `${propiedad.habitaciones} hab.` : '',
     propiedad.banos ? `${propiedad.banos} baños` : '',
@@ -4977,27 +5015,29 @@ function datosCreatividadInstagram(propiedad = {}) {
     operacion: operacion === 'alquiler' ? 'ALQUILER' : 'VENTA',
     precio,
     zona,
+    referencia,
     detalles,
     imagen: imagenPrincipalInstagram(propiedad)
   };
 }
 
-function nombreArchivoInstagram(propiedad = {}, formato = 'feed') {
+function nombreArchivoCreatividad(propiedad = {}, formato = 'feed') {
   const base = typeof crearSlugSeo === 'function'
     ? crearSlugSeo(propiedad.titulo || 'propiedad', 54)
     : String(propiedad.titulo || 'propiedad').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return `homeclick24-${formato}-${base || 'propiedad'}.png`;
 }
 
-async function generarCreatividadInstagram(propiedad, formato = 'feed') {
+async function generarCreatividadPropiedad(propiedad, formato = 'feed') {
   const esStory = formato === 'story';
-  const width = 1080;
-  const height = esStory ? 1920 : 1350;
+  const esFacebook = formato === 'facebook';
+  const width = esFacebook ? 1200 : 1080;
+  const height = esStory ? 1920 : (esFacebook ? 1200 : 1350);
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
-  const datos = datosCreatividadInstagram(propiedad);
+  const datos = datosCreatividadRedes(propiedad);
   const [foto, logo] = await Promise.all([
     cargarImagenConFallback(datos.imagen),
     cargarImagenConFallback(`${window.location.origin}/HomeClick-full.png`)
@@ -5007,83 +5047,103 @@ async function generarCreatividadInstagram(propiedad, formato = 'feed') {
   ctx.fillRect(0, 0, width, height);
   dibujarImagenCover(ctx, foto, 0, 0, width, height);
 
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, 'rgba(0,0,0,0.08)');
-  gradient.addColorStop(0.45, 'rgba(0,0,0,0.18)');
-  gradient.addColorStop(1, 'rgba(0,0,0,0.82)');
+  const gradient = ctx.createLinearGradient(0, height * 0.35, 0, height);
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(0.7, 'rgba(0,0,0,0.12)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0.68)');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
-  const margin = esStory ? 78 : 72;
-  const safeBottom = esStory ? 138 : 96;
-  const panelHeight = esStory ? 520 : 350;
+  const margin = esStory ? 70 : (esFacebook ? 64 : 60);
+  const safeBottom = esStory ? 130 : (esFacebook ? 56 : 72);
+  const panelHeight = esStory ? 455 : (esFacebook ? 330 : 310);
   const panelY = height - panelHeight - safeBottom;
   const panelWidth = width - margin * 2;
   const panelX = margin;
   const innerX = panelX + 34;
   const innerWidth = panelWidth - 68;
-  dibujarRectRedondeado(ctx, panelX, panelY, panelWidth, panelHeight, 30);
-  ctx.fillStyle = 'rgba(255,255,255,0.94)';
+
+  dibujarRectRedondeado(ctx, panelX, panelY, panelWidth, panelHeight, 28);
+  ctx.fillStyle = 'rgba(255,255,255,0.96)';
   ctx.fill();
 
-  const logoWidth = esStory ? 205 : 185;
-  const logoHeight = logo.height ? logoWidth * (logo.height / logo.width) : 62;
-  ctx.drawImage(logo, innerX, panelY + 26, logoWidth, logoHeight);
+  const logoWidth = esStory ? 185 : (esFacebook ? 180 : 165);
+  const logoHeight = logo.height ? logoWidth * (logo.height / logo.width) : 56;
+  ctx.drawImage(logo, innerX, panelY + 22, logoWidth, logoHeight);
 
+  const badgeWidth = esFacebook ? 170 : 158;
+  const badgeHeight = 44;
   ctx.fillStyle = '#7cc242';
-  dibujarRectRedondeado(ctx, panelX + panelWidth - 212, panelY + 30, 178, 50, 25);
+  dibujarRectRedondeado(ctx, panelX + panelWidth - badgeWidth - 28, panelY + 24, badgeWidth, badgeHeight, 22);
   ctx.fill();
   ctx.fillStyle = '#fff';
-  ctx.font = '800 26px DM Sans, Arial, sans-serif';
+  ctx.font = `800 ${esStory ? 25 : 23}px DM Sans, Arial, sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(datos.operacion, panelX + panelWidth - 123, panelY + 64);
+  ctx.fillText(datos.operacion, panelX + panelWidth - badgeWidth / 2 - 28, panelY + 54);
   ctx.textAlign = 'left';
 
   ctx.fillStyle = '#1a1a1a';
-  ctx.font = `800 ${esStory ? 48 : 42}px DM Sans, Arial, sans-serif`;
+  ctx.font = `800 ${esStory ? 44 : (esFacebook ? 38 : 36)}px DM Sans, Arial, sans-serif`;
   const lineasTitulo = envolverTextoCanvas(ctx, datos.titulo, innerWidth, 2);
-  let y = panelY + (esStory ? 138 : 122);
+  let y = panelY + (esStory ? 124 : 112);
   lineasTitulo.forEach(linea => {
     ctx.fillText(linea, innerX, y);
-    y += esStory ? 56 : 50;
+    y += esStory ? 50 : 44;
   });
 
   ctx.fillStyle = '#5a9e2f';
-  ctx.font = `800 ${esStory ? 46 : 40}px DM Sans, Arial, sans-serif`;
-  ctx.fillText(recortarTextoCanvas(ctx, datos.precio, innerWidth), innerX, y + 16);
+  ctx.font = `800 ${esStory ? 43 : (esFacebook ? 39 : 37)}px DM Sans, Arial, sans-serif`;
+  ctx.fillText(recortarTextoCanvas(ctx, datos.precio, innerWidth), innerX, y + 10);
 
   ctx.fillStyle = '#444';
-  ctx.font = `600 ${esStory ? 30 : 27}px DM Sans, Arial, sans-serif`;
-  const detalleY = y + (esStory ? 68 : 60);
-  if (datos.zona) {
-    ctx.fillText(`Zona: ${recortarTextoCanvas(ctx, datos.zona, innerWidth)}`, innerX, detalleY);
+  ctx.font = `600 ${esStory ? 28 : (esFacebook ? 25 : 24)}px DM Sans, Arial, sans-serif`;
+  const metaY = y + (esStory ? 60 : 54);
+  const zonaTexto = datos.zona ? `📍 ${recortarTextoCanvas(ctx, datos.zona, innerWidth * 0.62)}` : '';
+  if (zonaTexto) ctx.fillText(zonaTexto, innerX, metaY);
+  if (datos.referencia) {
+    ctx.textAlign = 'right';
+    ctx.fillText(`Ref. ${recortarTextoCanvas(ctx, datos.referencia, innerWidth * 0.3)}`, panelX + panelWidth - 34, metaY);
+    ctx.textAlign = 'left';
   }
+
   if (datos.detalles.length) {
-    const chipsY = detalleY + (esStory ? 42 : 38);
+    const chipsY = metaY + (esStory ? 44 : 40);
     let chipX = innerX;
+    ctx.font = `700 ${esStory ? 24 : 22}px DM Sans, Arial, sans-serif`;
     datos.detalles.forEach(detalle => {
-      const texto = recortarTextoCanvas(ctx, detalle, 190);
-      const chipWidth = Math.min(ctx.measureText(texto).width + 34, 224);
-      dibujarRectRedondeado(ctx, chipX, chipsY - 28, chipWidth, 42, 21);
-      ctx.fillStyle = '#f0f9e8';
+      const texto = recortarTextoCanvas(ctx, detalle, 180);
+      const chipWidth = Math.min(ctx.measureText(texto).width + 30, 210);
+      if (chipX + chipWidth > panelX + panelWidth - 34) return;
+      dibujarRectRedondeado(ctx, chipX, chipsY - 26, chipWidth, 38, 19);
+      ctx.fillStyle = '#eef7e7';
       ctx.fill();
       ctx.fillStyle = '#4d8f28';
-      ctx.font = `700 ${esStory ? 25 : 23}px DM Sans, Arial, sans-serif`;
-      ctx.fillText(texto, chipX + 17, chipsY);
-      chipX += chipWidth + 14;
+      ctx.fillText(texto, chipX + 15, chipsY);
+      chipX += chipWidth + 12;
     });
   }
 
-  ctx.fillStyle = '#1a1a1a';
-  ctx.font = `800 ${esStory ? 30 : 27}px DM Sans, Arial, sans-serif`;
-  ctx.fillText('Ver anuncio en HomeClick24', innerX, panelY + panelHeight - 46);
-
-  ctx.fillStyle = '#7cc242';
-  ctx.beginPath();
-  ctx.arc(panelX + panelWidth - 44, panelY + panelHeight - 56, 19, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillStyle = '#6b6b6b';
+  ctx.font = `700 ${esStory ? 25 : 22}px DM Sans, Arial, sans-serif`;
+  ctx.fillText('HomeClick24 · Tu hogar, a un clic de distancia', innerX, panelY + panelHeight - 28);
 
   return canvas;
+}
+
+async function generarCreatividadInstagram(propiedad, formato = 'feed') {
+  return generarCreatividadPropiedad(propiedad, formato);
+}
+
+async function generarCreatividadFacebook(propiedad) {
+  return generarCreatividadPropiedad(propiedad, 'facebook');
+}
+
+function nombreArchivoInstagram(propiedad = {}, formato = 'feed') {
+  return nombreArchivoCreatividad(propiedad, formato);
+}
+
+function nombreArchivoFacebook(propiedad = {}) {
+  return nombreArchivoCreatividad(propiedad, 'facebook');
 }
 
 function descargarCanvas(canvas, filename) {
@@ -5123,6 +5183,25 @@ async function descargarInstagramPropiedad(formato = 'feed') {
     console.error('No se pudo generar la imagen de Instagram:', error);
     if (estado) estado.textContent = 'No se pudo generar la imagen. Prueba con otra propiedad o revisa la foto principal.';
     alert('No se pudo generar la imagen de Instagram.');
+  }
+}
+
+async function descargarFacebookPropiedad() {
+  if (!propiedadRedesActual) {
+    alert('Genera primero una publicación de propiedad.');
+    return;
+  }
+
+  const estado = document.getElementById('estadoCopiaRedes');
+  try {
+    if (estado) estado.textContent = 'Generando imagen de Facebook...';
+    const canvas = await generarCreatividadFacebook(propiedadRedesActual);
+    await descargarCanvas(canvas, nombreArchivoFacebook(propiedadRedesActual));
+    if (estado) estado.textContent = 'Imagen de Facebook descargada.';
+  } catch (error) {
+    console.error('No se pudo generar la imagen de Facebook:', error);
+    if (estado) estado.textContent = 'No se pudo generar la imagen. Prueba con otra propiedad o revisa la foto principal.';
+    alert('No se pudo generar la imagen de Facebook.');
   }
 }
 
@@ -5353,6 +5432,7 @@ function generarTextoRedes(id) {
   propiedadRedesActual = propiedad;
   urlFacebookPropiedadActual = urlPropiedadSeoAdmin(propiedad);
   document.getElementById('textoRedesFacebookPropiedad').value = crearPublicacionFacebookPropiedad(propiedad);
+  document.getElementById('textoRedesFacebookSinEnlacePropiedad').value = crearPublicacionFacebookSinEnlacePropiedad(propiedad);
   document.getElementById('textoRedesInstagramPropiedad').value = crearPublicacionInstagramPropiedad(propiedad);
   document.getElementById('textoRedesWhatsappPropiedad').value = crearPublicacionWhatsappPropiedad(propiedad);
   document.getElementById('modalRedes').classList.add('visible');
@@ -5389,6 +5469,13 @@ async function abrirFacebookPropiedad() {
   await abrirFacebookConTexto(
     'textoRedesFacebookPropiedad',
     'Texto copiado. Pégalo manualmente en Facebook.'
+  );
+}
+
+async function abrirFacebookPropiedadSinEnlace() {
+  await abrirFacebookConTexto(
+    'textoRedesFacebookSinEnlacePropiedad',
+    'Texto sin enlace copiado. Añade la imagen descargada y pégalo manualmente en Facebook.'
   );
 }
 
