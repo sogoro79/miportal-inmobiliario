@@ -264,6 +264,7 @@ test("activación bloquea admin, email no verificado, datos incompletos, pago y 
       input: input(),
       models: modelsFor({ usuario: duplicated, duplicateOnCreate: true }).models,
       mongooseClient: transactionClient(),
+      now: new Date("2026-08-07T10:00:00.000Z"),
       secret: process.env.JWT_SECRET
     }),
     error => error.code === "duplicate_redemption" &&
