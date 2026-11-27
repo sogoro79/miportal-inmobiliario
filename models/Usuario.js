@@ -44,6 +44,7 @@ const UsuarioSchema = new mongoose.Schema({
   launchPromoAppliedSubscriptionId: { type: String },
   launchPlanReminderSent: { type: Boolean, default: false },
   launchPlanInvitationSentAt: { type: Date },
+  launchPlanInvitationSentAt: { type: Date },
 
   // Promoción Profesional 60 días
   professionalPromoCampaign: { type: String },

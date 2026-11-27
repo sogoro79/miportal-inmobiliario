@@ -28,7 +28,7 @@ import { getCloudinaryPublicIdFromUrl } from '../utils/imageSecurity.js';
 import { securityRateLimits } from '../utils/security.js';
 import { validateBody, z } from '../utils/validation.js';
 import { getProfessionalPromotionAdminStats } from '../utils/professionalPromotion.js';
-import { LAUNCH_PLAN_ID, getLaunchPlanEndsAt } from '../utils/launchPlan.js';
+import { LAUNCH_PLAN_ID, getLaunchPlanEndsAt, sendLaunchPlanInvitation } from '../utils/launchPlan.js';
 import { enviarCorreoAutomatico, escapeEmailHtml } from '../utils/email.js';
 
 const router = express.Router();
@@ -702,7 +702,8 @@ router.get('/usuarios', requireAdmin, async (req, res) => {
       stripeSubscriptionId: 1, subscriptionStatus: 1, cancelAtPeriodEnd: 1, subscriptionCancelAt: 1,
       trialAccepted: 1, trialStartDate: 1, trialEndDate: 1, trialReminderSent: 1,
       professionalPromoCampaign: 1, professionalPromoStatus: 1,
-      professionalPromoActivatedAt: 1, professionalPromoEndsAt: 1
+      professionalPromoActivatedAt: 1, professionalPromoEndsAt: 1,
+      launchPlanInvitationSentAt: 1
     }).sort({ createdAt: -1 });
     res.json(usuarios);
   } catch (err) {
@@ -800,6 +801,40 @@ router.patch('/usuarios/:id/verificar', requireAdmin, async (req, res) => {
       error: err.message
     });
     res.status(500).json({ error: err.message });
+  }
+});
+
+
+router.post('/usuarios/:id/invitacion-plan-lanzamiento', requireAdmin, async (req, res) => {
+  try {
+    if (!esObjectId(req.params.id)) return res.status(400).json({ error: 'ID de usuario inválido' });
+
+    const usuario = await Usuario.findById(req.params.id);
+    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (esUsuarioAdminPrincipal(req, usuario)) {
+      return res.status(403).json({ error: 'No puedes enviarte esta invitación desde el panel admin.' });
+    }
+
+    const resultado = await sendLaunchPlanInvitation(usuario);
+    if (!resultado.sent) {
+      const mensajes = {
+        already_sent: 'La invitación al Plan Lanzamiento ya fue enviada a este usuario.',
+        not_verified: 'El usuario debe verificar primero su cuenta.',
+        inactive: 'El usuario está desactivado.',
+        missing_email: 'El usuario no tiene un email válido.',
+        not_eligible: 'El usuario no es elegible actualmente para el Plan Lanzamiento.',
+        email_failed: 'No se pudo enviar el email de invitación.'
+      };
+      return res.status(resultado.reason === 'email_failed' ? 502 : 409).json({
+        error: mensajes[resultado.reason] || 'No se pudo enviar la invitación.',
+        code: resultado.reason
+      });
+    }
+
+    res.json({ ok: true, sentAt: resultado.sentAt });
+  } catch (err) {
+    console.error('Error enviando invitación Plan Lanzamiento desde admin:', err.message);
+    res.status(500).json({ error: 'No se pudo enviar la invitación al Plan Lanzamiento.' });
   }
 });
 

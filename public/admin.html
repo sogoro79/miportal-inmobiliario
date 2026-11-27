@@ -2875,6 +2875,12 @@ function renderMenuAccionesUsuario(u, estaActivo) {
         ${!esAdministrador ? `<button onclick="abrirCrmDelegado('${u._id}'); cerrarMenusAcciones();">CRM / Importar inmuebles</button>` : ''}
         ${!u.verificado ? `<button onclick="verificarUsuario('${u._id}'); cerrarMenusAcciones();">Verificar usuario</button>` : ''}
         ${!u.verificado ? `<button disabled title="Pendiente de implementar">Reenviar verificación</button>` : ''}
+        ${!esAdministrador && estaActivo && u.verificado && u.plan === 'gratis' && !u.launchPlanInvitationSentAt
+          ? `<button onclick="enviarInvitacionPlanLanzamiento('${u._id}'); cerrarMenusAcciones();">Enviar invitación Plan Lanzamiento</button>`
+          : ''}
+        ${!esAdministrador && u.launchPlanInvitationSentAt
+          ? `<button disabled>Invitación Lanzamiento enviada</button>`
+          : ''}
         ${estaActivo ? `
           <button class="danger" onclick="desactivarUsuario('${u._id}', ${tieneSuscripcionActiva}); cerrarMenusAcciones();">Desactivar usuario</button>
         ` : `
@@ -3892,6 +3898,25 @@ async function verificarUsuario(usuarioId) {
   } else {
     const data = await res.json().catch(() => ({}));
     alert(data.error || 'Error al verificar el usuario');
+  }
+}
+
+async function enviarInvitacionPlanLanzamiento(usuarioId) {
+  const usuario = todosLosUsuarios.find(u => String(u._id) === String(usuarioId));
+  const nombre = usuario?.nombre || usuario?.email || 'este usuario';
+  if (!confirm(`¿Enviar a ${nombre} la invitación gratuita al Plan Lanzamiento hasta el 31 de enero de 2027?`)) return;
+
+  const res = await fetch(`/admin/usuarios/${usuarioId}/invitacion-plan-lanzamiento`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + adminToken }
+  });
+  const data = await res.json().catch(() => ({}));
+
+  if (res.ok) {
+    alert('Invitación al Plan Lanzamiento enviada correctamente.');
+    await cargarUsuarios();
+  } else {
+    alert(data.error || 'No se pudo enviar la invitación al Plan Lanzamiento.');
   }
 }
 

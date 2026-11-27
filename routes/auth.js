@@ -9,6 +9,7 @@ import { authenticateUserCredentials, createUserJwt, usuarioSeguro } from "../ut
 import { createRateLimit } from "../utils/rateLimit.js";
 import { securityRateLimits } from "../utils/security.js";
 import { enviarCorreoContacto, escapeEmailHtml, textToEmailHtml } from "../utils/email.js";
+import { sendLaunchPlanInvitation } from "../utils/launchPlan.js";
 
 const router = express.Router();
 
@@ -188,6 +189,15 @@ router.post("/set-password", validateBody(setPasswordSchema), async (req, res) =
     usuario.token = undefined;
 
     await usuario.save();
+
+    try {
+      await sendLaunchPlanInvitation(usuario);
+    } catch (invitationError) {
+      console.warn("[Plan Lanzamiento] Error enviando invitación tras activar cuenta", {
+        usuarioId: String(usuario._id),
+        message: invitationError.message
+      });
+    }
 
     res.json({ ok: true, message: "Cuenta activada correctamente" });
 

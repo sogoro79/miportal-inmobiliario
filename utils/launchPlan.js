@@ -85,6 +85,58 @@ export function getLaunchPlanPublicStatus(usuario = {}, now = new Date()) {
   };
 }
 
+
+export function getLaunchPlanInvitationEmail(usuario = {}, appUrl = process.env.APP_URL || "https://www.homeclick24.com") {
+  const nombre = String(usuario.nombre || "").trim();
+  const saludo = nombre ? `Hola <strong>${nombre.replace(/[&<>"']/g, "")}</strong>,` : "Hola,";
+  return {
+    subject: "Disfruta gratis del Plan Lanzamiento de HomeClick24",
+    html: `
+      <p>${saludo}</p>
+      <p>Gracias por formar parte de HomeClick24.</p>
+      <p>Queremos invitarte a disfrutar gratuitamente del <strong>Plan Lanzamiento</strong> hasta el <strong>31 de enero de 2027</strong>.</p>
+      <p>Con este plan podrás publicar hasta <strong>10 anuncios</strong> y añadir hasta <strong>20 fotografías por inmueble</strong>, sin la caducidad de 15 días del Plan Gratis mientras esté activo.</p>
+      <p>La activación es gratuita y debes realizarla tú desde tu cuenta.</p>
+    `,
+    cta: {
+      label: "Activar mi Plan Lanzamiento gratis",
+      url: `${String(appUrl).replace(/\/$/, "")}/login?plan=${LAUNCH_PLAN_ID}`
+    }
+  };
+}
+
+async function defaultLaunchInvitationMailer(to, email, idempotencyKey) {
+  const { enviarCorreoAutomatico } = await import("./email.js");
+  return enviarCorreoAutomatico(to, email.subject, email.html, {
+    title: "Tu invitación al Plan Lanzamiento",
+    cta: email.cta,
+    idempotencyKey
+  });
+}
+
+export async function sendLaunchPlanInvitation(usuario, {
+  now = new Date(),
+  mailer = defaultLaunchInvitationMailer,
+  appUrl = process.env.APP_URL || "https://www.homeclick24.com"
+} = {}) {
+  if (!usuario) return { sent: false, reason: "user_not_found" };
+  if (usuario.verificado !== true) return { sent: false, reason: "not_verified" };
+  if (usuario.activo === false) return { sent: false, reason: "inactive" };
+  if (!usuario.email) return { sent: false, reason: "missing_email" };
+  if (usuario.launchPlanInvitationSentAt) return { sent: false, reason: "already_sent" };
+
+  const status = getLaunchPlanPublicStatus(usuario, now);
+  if (!status.eligible) return { sent: false, reason: "not_eligible", status };
+
+  const email = getLaunchPlanInvitationEmail(usuario, appUrl);
+  const ok = await mailer(usuario.email, email, `launch-plan-invitation-${String(usuario._id || usuario.email)}`);
+  if (!ok) return { sent: false, reason: "email_failed", status };
+
+  usuario.launchPlanInvitationSentAt = new Date(now);
+  await usuario.save();
+  return { sent: true, reason: "sent", sentAt: usuario.launchPlanInvitationSentAt, status };
+}
+
 export async function activateLaunchPlan({
   userId,
   models = { Usuario },
