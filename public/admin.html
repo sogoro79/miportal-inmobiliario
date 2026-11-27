@@ -1130,6 +1130,8 @@
       box-shadow: 0 0 0 3px rgba(124, 194, 66, 0.12);
     }
 
+    .social-image-picker{margin-bottom:18px;padding:14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:14px}.social-image-picker-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}.social-image-picker-head strong{display:block;font-size:.92rem;color:#1a1a1a}.social-image-picker-head span{display:block;margin-top:3px;color:#777;font-size:.78rem;line-height:1.35}.social-image-picker-grid{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 6px}.social-image-option{position:relative;flex:0 0 108px;height:82px;padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;background:#eee;cursor:pointer}.social-image-option img{width:100%;height:100%;object-fit:cover;display:block}.social-image-option.selected{border-color:#7cc242;box-shadow:0 0 0 2px rgba(124,194,66,.18)}.social-image-option.selected::after{content:"✓";position:absolute;top:5px;right:5px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#7cc242;color:#fff;font-size:.75rem;font-weight:800}.social-image-option:focus-visible{outline:3px solid rgba(124,194,66,.3);outline-offset:2px}
+
     .social-copy-status {
       min-height: 20px;
       margin-top: 10px;
@@ -2088,6 +2090,15 @@
     </div>
     <div class="modal-admin-body">
       <div id="redesTextoSimple">
+        <div class="social-image-picker">
+          <div class="social-image-picker-head">
+            <div>
+              <strong>Foto para redes</strong>
+              <span>Se propone la primera foto del anuncio. Elige otra si prefieres una fachada, piscina, terraza o una imagen más representativa.</span>
+            </div>
+          </div>
+          <div id="selectorImagenRedes" class="social-image-picker-grid"></div>
+        </div>
         <div class="social-versions property">
           <div class="social-version-card">
             <div class="social-version-head">
@@ -2457,6 +2468,7 @@ let filtroRedesPropiedades = 'todas';
 const FACEBOOK_PAGE_URL = 'https://www.facebook.com/profile.php?id=61589930586330';
 let urlFacebookPropiedadActual = 'https://www.facebook.com/';
 let propiedadRedesActual = null;
+let imagenRedesSeleccionadaActual = '';
 let propiedadProgramacionRedesActual = null;
 
 const TIPOS_CON_PLANTA_ADMIN = [
@@ -4902,7 +4914,47 @@ function urlImagenAbsolutaAdmin(url = '') {
 
 function imagenPrincipalInstagram(propiedad = {}) {
   const primera = Array.isArray(propiedad.imagenes) ? propiedad.imagenes.find(Boolean) : '';
-  return urlImagenAbsolutaAdmin(primera || '/HomeClick-full.png');
+  return urlImagenAbsolutaAdmin(imagenRedesSeleccionadaActual || primera || '/HomeClick-full.png');
+}
+
+function imagenesDisponiblesRedes(propiedad = {}) {
+  return Array.isArray(propiedad.imagenes)
+    ? propiedad.imagenes.filter(Boolean).map(urlImagenAbsolutaAdmin)
+    : [];
+}
+
+function seleccionarImagenRedes(indice) {
+  if (!propiedadRedesActual) return;
+  const imagenes = imagenesDisponiblesRedes(propiedadRedesActual);
+  imagenRedesSeleccionadaActual = imagenes[indice] || imagenes[0] || '';
+  renderSelectorImagenRedes();
+}
+
+function renderSelectorImagenRedes() {
+  const contenedor = document.getElementById('selectorImagenRedes');
+  if (!contenedor) return;
+  if (!propiedadRedesActual) {
+    contenedor.innerHTML = '';
+    return;
+  }
+
+  const imagenes = imagenesDisponiblesRedes(propiedadRedesActual);
+  if (!imagenes.length) {
+    contenedor.innerHTML = '<div class="social-generator-empty">Este anuncio no tiene fotos disponibles.</div>';
+    return;
+  }
+
+  contenedor.innerHTML = imagenes.map((src, indice) => {
+    const seleccionada = src === imagenRedesSeleccionadaActual || (!imagenRedesSeleccionadaActual && indice === 0);
+    return `
+      <button type="button" class="social-image-option ${seleccionada ? 'selected' : ''}"
+        onclick="seleccionarImagenRedes(${indice})"
+        aria-label="Usar foto ${indice + 1} para redes"
+        aria-pressed="${seleccionada ? 'true' : 'false'}">
+        <img src="${escapeHtml(src)}" alt="">
+      </button>
+    `;
+  }).join('');
 }
 
 function cargarImagenCanvas(src) {
@@ -5056,7 +5108,7 @@ async function generarCreatividadPropiedad(propiedad, formato = 'feed') {
 
   const margin = esStory ? 70 : (esFacebook ? 64 : 60);
   const safeBottom = esStory ? 130 : (esFacebook ? 56 : 72);
-  const panelHeight = esStory ? 455 : (esFacebook ? 330 : 310);
+  const panelHeight = esStory ? 455 : (esFacebook ? 340 : 335);
   const panelY = height - panelHeight - safeBottom;
   const panelWidth = width - margin * 2;
   const panelX = margin;
@@ -5122,10 +5174,6 @@ async function generarCreatividadPropiedad(propiedad, formato = 'feed') {
       chipX += chipWidth + 12;
     });
   }
-
-  ctx.fillStyle = '#6b6b6b';
-  ctx.font = `700 ${esStory ? 25 : 22}px DM Sans, Arial, sans-serif`;
-  ctx.fillText('HomeClick24 · Tu hogar, a un clic de distancia', innerX, panelY + panelHeight - 28);
 
   return canvas;
 }
@@ -5430,6 +5478,8 @@ function generarTextoRedes(id) {
     modo: 'simple'
   });
   propiedadRedesActual = propiedad;
+  imagenRedesSeleccionadaActual = imagenesDisponiblesRedes(propiedad)[0] || '';
+  renderSelectorImagenRedes();
   urlFacebookPropiedadActual = urlPropiedadSeoAdmin(propiedad);
   document.getElementById('textoRedesFacebookPropiedad').value = crearPublicacionFacebookPropiedad(propiedad);
   document.getElementById('textoRedesFacebookSinEnlacePropiedad').value = crearPublicacionFacebookSinEnlacePropiedad(propiedad);
@@ -5441,6 +5491,8 @@ function generarTextoRedes(id) {
 function cerrarModalRedes(event) {
   if (event && event.target.id !== 'modalRedes') return;
   document.getElementById('modalRedes').classList.remove('visible');
+  propiedadRedesActual = null;
+  imagenRedesSeleccionadaActual = '';
 }
 
 async function copiarTextoRedes() {
